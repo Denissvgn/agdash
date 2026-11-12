@@ -30,14 +30,20 @@ VALUE_MARKER = marker("value")
 # ``OPENAI_API_KEY`` are caught while ``token_count`` and ``max_tokens`` are not.
 _ALWAYS_SECRET = r"pass(?:word|wd|phrase)|secret"
 _USUALLY_SECRET = (
-    r"token|api[_-]?key|access[_-]?key|private[_-]?key|secret[_-]?key|auth[_-]?key"
-    r"|session[_-]?key|signing[_-]?key|encryption[_-]?key|credentials?|authorization|cookie"
+    r"token|api[_ -]?key|access[_ -]?key|private[_ -]?key|secret[_ -]?key|auth[_ -]?key"
+    r"|session[_ -]?key|signing[_ -]?key|encryption[_ -]?key|account[_ -]?key"
+    r"|credentials?|authorization|cookie"
 )
 _NAME = rf"[A-Za-z0-9_.-]*(?:{_ALWAYS_SECRET}|{_USUALLY_SECRET})"
 _NAME_PATTERN = re.compile(_NAME, re.IGNORECASE)
 _ALWAYS_PATTERN = re.compile(rf"[A-Za-z0-9_.-]*(?:{_ALWAYS_SECRET})", re.IGNORECASE)
 
-_NOT_A_VALUE = frozenset({"", "true", "false", "null", "none", "nil", "yes", "no", "undefined"})
+# Not secrets: empty and placeholder values, and the type names that follow a
+# name in code (``password: str``).
+_NOT_A_VALUE = frozenset(
+    {"", "true", "false", "null", "none", "nil", "yes", "no", "undefined"}
+    | {"str", "string", "bool", "boolean", "int", "integer", "bytes"}
+)
 _MIN_SECRET_LENGTH = 8
 _LONG_ENOUGH_WITHOUT_DIGITS = 20
 
@@ -61,6 +67,10 @@ def _looks_like_a_secret(value: str) -> bool:
 # -- shapes --------------------------------------------------------------------
 
 _START = r"(?<![A-Za-z0-9])"
+# A name is only looked for at the true start of a run of name characters. If it
+# could start after any "-" or "_", a long run of them would be rescanned from
+# every position and one separator line would take seconds.
+_NAME_START = r"(?<![A-Za-z0-9_.-])"
 
 
 def _shape(kind: str, pattern: str, flags: int = 0) -> tuple[re.Pattern[str], str]:
@@ -88,6 +98,9 @@ _SHAPES: tuple[tuple[re.Pattern[str], str], ...] = (
     _shape("pypi-token", _START + r"pypi-[A-Za-z0-9_-]{40,}"),
     _shape("xai-key", _START + r"xai-[A-Za-z0-9]{40,}"),
     _shape("workchord-key", _START + r"pmag_[A-Za-z0-9_-]{20,}"),
+    _shape("telegram-token", _START + r"\d{8,10}:[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-])"),
+    _shape("webhook-url", r"hooks\.slack\.com/services/[A-Za-z0-9/_-]{20,}"),
+    _shape("webhook-url", r"discord(?:app)?\.com/api/webhooks/\d+/[A-Za-z0-9_-]{20,}"),
 )
 
 # ``Authorization: Bearer <token>``. The scheme word stays.
@@ -96,16 +109,19 @@ _AUTH_SCHEME = re.compile(
     re.IGNORECASE,
 )
 # ``scheme://user:password@host``. The user stays.
-_URL_PASSWORD = re.compile(r"(?P<head>://[^\s/:@]+:)(?P<value>[^\s/@]+)(?=@)")
+_URL_PASSWORD = re.compile(r"(?P<head>://[^\s/:@]*:)(?P<value>[^\s/@]+)(?=@)")
 # ``curl -u user:password``. The user stays.
 _USER_FLAG = re.compile(r"(?P<head>(?<!\S)(?:-u|--user)[ =]+[^\s:]+:)(?P<value>[^\s\"']+)")
+# ``machine host login user password VALUE`` in a netrc file.
+_NETRC = re.compile(
+    r"(?P<head>\bmachine\s+\S+\s+login\s+\S+\s+password\s+)(?P<value>\S+)", re.IGNORECASE
+)
+# ``aws_session_token VALUE``: a telling name, a space, then a long opaque value.
+_NAME_THEN_BLOB = re.compile(
+    rf"(?P<head>{_NAME_START}{_NAME}[ \t]+)(?P<value>[^\s\"'\\]{{20,}})", re.IGNORECASE
+)
 # ``Cookie: a=1; b=2``: everything to the end of the line.
 _COOKIE_HEADER = re.compile(r"(?P<head>(?:set-)?cookie\s*:[ \t]*)(?P<value>[^\r\n\"'\\]+)", re.I)
-
-# A name is only looked for at the true start of a run of name characters. If it
-# could start after any "-" or "_", a long run of them would be rescanned from
-# every position and one separator line would take seconds.
-_NAME_START = r"(?<![A-Za-z0-9_.-])"
 
 # ``name = value`` in its common spellings: env, JSON, JSON inside a JSON string,
 # query strings and headers. An unquoted value runs to the next space or quote:
@@ -176,6 +192,12 @@ def _redact_scheme(match: re.Match[str]) -> str:
     return match.group("scheme") + match.group("gap") + marker("credential")
 
 
+def _redact_blob(match: re.Match[str]) -> str:
+    if not any(char.isdigit() for char in match.group("value")):
+        return match.group(0)
+    return match.group("head") + VALUE_MARKER
+
+
 def _redact_user_flag(match: re.Match[str]) -> str:
     if match.group("value").isdigit():  # ``-u 1000:1000`` is a user and group id
         return match.group(0)
@@ -193,6 +215,8 @@ def redact_text(text: str) -> str:
     text = _AUTH_SCHEME.sub(_redact_scheme, text)
     text = _URL_PASSWORD.sub(lambda m: m.group("head") + marker("password"), text)
     text = _USER_FLAG.sub(_redact_user_flag, text)
+    text = _NETRC.sub(lambda m: m.group("head") + marker("password"), text)
+    text = _NAME_THEN_BLOB.sub(_redact_blob, text)
     return _COOKIE_HEADER.sub(lambda m: m.group("head") + marker("cookie"), text)
 
 

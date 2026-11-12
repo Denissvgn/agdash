@@ -35,6 +35,7 @@ ALPHABETS = {
     "digits": string.digits,
     "password": string.ascii_letters + string.digits + "!#%,;&+",
     "url_password": string.ascii_letters + string.digits + "._~-",
+    "webhook": string.ascii_letters + string.digits + "/",
 }
 
 
@@ -61,6 +62,14 @@ def generate(shape: str, rng: random.Random) -> str:
         return _key_block(rng, complete=True)
     if kind == "truncated_private_key":
         return _key_block(rng, complete=False)
+    if kind == "escaped_private_key":  # as it sits inside a JSON string
+        return _key_block(rng, complete=True).replace("\n", "\\n") + "\\n"
+    if kind == "telegram":
+        return (
+            "".join(rng.choices(string.digits, k=9))
+            + ":"
+            + "".join(rng.choices(ALPHABETS["urlsafe"], k=35))
+        )
     return prefix + "".join(rng.choices(ALPHABETS[kind], k=length))
 
 
@@ -107,7 +116,7 @@ def test_the_corpus_seeds_every_shape_it_declares():
     used = json.dumps([CORPUS["text"], CORPUS["argv"], CORPUS["structured"]])
     for shape in CORPUS["shapes"]:
         assert f"<<{shape}>>" in used, f"no entry seeds {shape}"
-    assert len(CORPUS["text"]) >= 25
+    assert len(CORPUS["text"]) >= 45
     assert len(CORPUS["argv"]) >= 10
 
 
