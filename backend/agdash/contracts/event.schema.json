@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agdash:contract:event",
+  "title": "agdash event",
+  "description": "One normalised transcript record, as every harness adapter must emit it. Each payload is closed; anything harness-specific that has no normalised field goes under `extra`.",
+  "type": "object",
+  "required": ["kind", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "enum": [
+        "user_prompt",
+        "assistant_text",
+        "thinking",
+        "tool_call",
+        "tool_result",
+        "subagent",
+        "model_change",
+        "compaction",
+        "status",
+        "usage"
+      ]
+    },
+    "payload": { "type": "object" },
+    "thoughts_coverage": {
+      "description": "Set on `thinking` events only: how much of the reasoning the harness left on disk.",
+      "enum": ["full", "summary", "encrypted", "absent", null]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "user_prompt" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/user_prompt" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "assistant_text" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/assistant_text" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "thinking" } } },
+      "then": {
+        "required": ["thoughts_coverage"],
+        "properties": {
+          "payload": { "$ref": "#/$defs/thinking" },
+          "thoughts_coverage": { "type": "string" }
+        }
+      },
+      "else": { "properties": { "thoughts_coverage": { "type": "null" } } }
+    },
+    {
+      "if": {
+        "required": ["thoughts_coverage"],
+        "properties": { "thoughts_coverage": { "enum": ["full", "summary"] } }
+      },
+      "then": { "properties": { "payload": { "required": ["text"] } } }
+    },
+    {
+      "if": {
+        "required": ["thoughts_coverage"],
+        "properties": { "thoughts_coverage": { "enum": ["encrypted", "absent"] } }
+      },
+      "then": { "properties": { "payload": { "not": { "required": ["text"] } } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "tool_call" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/tool_call" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "tool_result" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/tool_result" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "subagent" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/subagent" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "model_change" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/model_change" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "compaction" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/compaction" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "status" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/status" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "usage" } } },
+      "then": { "properties": { "payload": { "$ref": "#/$defs/usage" } } }
+    }
+  ],
+  "$defs": {
+    "extra": {
+      "description": "Harness-specific fields with no normalised home.",
+      "type": "object"
+    },
+    "token_count": { "type": "integer", "minimum": 0 },
+    "user_prompt": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string" },
+        "extra": { "$ref": "#/$defs/extra" }
+      }
+    },
+    "assistant_text": {
+      "type": "object",
+      "required": ["text"],
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string" },
+        "model": { "type": "string", "minLength": 1 },
+        "extra": { "$ref": "#/$defs/extra" }
+      }
+    },
+    "thinking": {
+      "description": "`text` is the reasoning or its summary. It is present for `full` and `summary` coverage and absent otherwise; encrypted reasoning is never copied.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "extra": { "$ref": "#/$defs/extra" }
+      }
+    },
+    "tool_call": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "call_id": { "type": "string", "minLength": 1 },
+        "input": {},
+        "extra": { "$ref": "#/$defs/extra" }
+      }
+    },
+    "tool_result": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "call_id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "output": {},
+        "is_error": { "type": "boolean" },
+        "truncated": { "type": "boolean" },
+        "extra": { "$ref": "#/$defs/extra" }
+      }
+    },
+    "subagent": {
+      "type": "object",
+      "required": ["phase"],
+      "additionalProperties": false,
+      "properties": {
+        "phase": { "enum": ["started", "finished"] },
+        "native_id": { "type": "string", "minLength": 1 },
+        "agent_type": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "prompt": { "type": "string" },
+        "result": { "type": "string" },
+        "extra": { "$ref": "#/$defs/extra" }
+      }
+    },
+    "model_change": {
+      "type": "object",
+      "required": ["model"],
+      "additionalProperties": false,
+      "properties": {
+        "model": { "type": "string", "minLength": 1 },
+        "previous_model": { "type": "string", "minLength": 1 },
+        "effort": { "type": "string", "minLength": 1 },
+        "extra": { "$ref": "#/$defs/extra" }
+      }
+    },
+    "compaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trigger": { "enum": ["auto", "manual"] },
+        "summary": { "type": "string" },
+        "tokens_before": { "$ref": "#/$defs/token_count" },
+        "tokens_after": { "$ref": "#/$defs/token_count" },
+        "extra": { "$ref": "#/$defs/extra" }
+      }
+    },
+    "status": {
+      "type": "object",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string" },
+        "extra": { "$ref": "#/$defs/extra" }
+      }
+    },
+    "usage": {
+      "description": "Numbers as the harness reported them. A number the harness did not report is left out, not sent as zero.",
+      "type": "object",
+      "required": ["scope"],
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["input_tokens"] },
+        { "required": ["output_tokens"] },
+        { "required": ["cache_read_tokens"] },
+        { "required": ["cache_write_tokens"] },
+        { "required": ["reasoning_tokens"] },
+        { "required": ["reported_cost"] }
+      ],
+      "dependentRequired": { "cost_currency": ["reported_cost"] },
+      "properties": {
+        "scope": { "enum": ["message", "session_total"] },
+        "model": { "type": "string", "minLength": 1 },
+        "input_tokens": { "$ref": "#/$defs/token_count" },
+        "output_tokens": { "$ref": "#/$defs/token_count" },
+        "cache_read_tokens": { "$ref": "#/$defs/token_count" },
+        "cache_write_tokens": { "$ref": "#/$defs/token_count" },
+        "reasoning_tokens": { "$ref": "#/$defs/token_count" },
+        "reported_cost": { "type": "number", "minimum": 0 },
+        "cost_currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "extra": { "$ref": "#/$defs/extra" }
+      }
+    }
+  }
+}

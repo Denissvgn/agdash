@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8765
     api_prefix: str = "/api"
+    # No default: where the store lives is decided per platform, not here.
+    database_url: str | None = None
 
 
 @lru_cache

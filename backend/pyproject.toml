@@ -13,6 +13,9 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic-settings>=2.1",
+    "sqlalchemy>=2.0.30",
+    "alembic>=1.13",
+    "jsonschema>=4.21",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +27,14 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = ["agdash*"]
+
+[tool.setuptools.package-data]
+agdash = [
+    "contracts/*.json",
+    "migrations/alembic.ini",
+    "migrations/script.py.mako",
+    "migrations/versions/*.py",
+]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
