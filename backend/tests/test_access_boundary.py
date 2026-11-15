@@ -13,8 +13,21 @@ import agdash
 
 PACKAGE = Path(agdash.__file__).resolve().parent
 
-FORBIDDEN_IMPORTS = {"sqlite3", "fcntl", "shutil", "tempfile", "mmap"}
-FORBIDDEN_CALLS = {"open", "os.open", "io.open", "codecs.open", "os.remove", "os.unlink"}
+FORBIDDEN_IMPORTS = {"sqlite3", "fcntl", "shutil", "tempfile", "mmap", "subprocess", "signal"}
+FORBIDDEN_CALLS = {
+    "open",
+    "os.open",
+    "io.open",
+    "codecs.open",
+    "os.remove",
+    "os.unlink",
+    "os.replace",
+    "os.rename",
+    "os.kill",
+    "os.killpg",
+}
+# Controlling a process. No module may do this, so these are never exempt.
+SIGNALLING = {"kill", "terminate", "send_signal", "suspend", "resume", "os.kill", "os.killpg"}
 FORBIDDEN_METHODS = {
     "read_text",
     "read_bytes",
@@ -32,6 +45,11 @@ FORBIDDEN_METHODS = {
     "hardlink_to",
     "flock",
     "lockf",
+    "kill",
+    "terminate",
+    "send_signal",
+    "suspend",
+    "resume",
 }
 
 # Module, relative to the package -> what it may use, and why.
@@ -40,6 +58,14 @@ EXEMPT = {
     "access/readonly.py": {"sqlite3", "shutil", "tempfile", "open", "os.open", "mkdir", "rmtree"},
     # Reads the event contract that ships inside the package.
     "events.py": {"read_text"},
+    # Keeps agdash's own secrets in a 0600 file in agdash's data directory, never
+    # inside a harness directory.
+    "platform/secrets.py": {"os.open", "os.replace", "mkdir", "unlink"},
+    # Writes agdash's own LaunchAgent or systemd unit and runs launchctl or
+    # systemctl for agdash's own label and unit only.
+    "platform/service.py": {"subprocess", "os.open", "os.replace", "mkdir", "unlink"},
+    # Runs lsof to read a process's open files when psutil is refused.
+    "platform/probes.py": {"subprocess"},
 }
 
 
@@ -119,4 +145,35 @@ def f(p):
         "write_text",
         "mkdir",
         "read_bytes",
+    }
+
+
+def test_nothing_may_signal_a_process():
+    assert not any(allowed & SIGNALLING for allowed in EXEMPT.values())
+    for name, path in _modules().items():
+        used = _uses(ast.parse(path.read_text(encoding="utf-8")))
+        assert not used & SIGNALLING, f"{name} signals a process"
+
+
+def test_the_tripwire_sees_process_control():
+    source = """
+import signal
+import subprocess
+def f(process, pid):
+    process.terminate()
+    process.kill()
+    process.send_signal(9)
+    process.suspend()
+    os.kill(pid, 15)
+    os.replace("a", "b")
+"""
+    assert _uses(ast.parse(source)) >= {
+        "signal",
+        "subprocess",
+        "terminate",
+        "kill",
+        "send_signal",
+        "suspend",
+        "os.kill",
+        "os.replace",
     }

@@ -16,6 +16,8 @@ dependencies = [
     "sqlalchemy>=2.0.30",
     "alembic>=1.13",
     "jsonschema>=4.21",
+    "psutil>=6.0",
+    "keyring>=25.0",
 ]
 
 [project.optional-dependencies]
@@ -45,4 +47,21 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
+select = ["E", "F", "I", "B", "UP", "TID251"]
+
+# Only the platform layer may ask which operating system it runs on. Everything
+# else is handed an agdash.platform.Host, so adapters and the API carry no
+# operating-system branches.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"sys.platform".msg = "Ask agdash.platform instead: only the platform layer branches on the OS."
+"os.name".msg = "Ask agdash.platform instead: only the platform layer branches on the OS."
+"os.uname".msg = "Ask agdash.platform instead: only the platform layer branches on the OS."
+"platform.system".msg = "Ask agdash.platform instead: only the platform layer branches on the OS."
+"platform.platform".msg = "Ask agdash.platform instead: only the platform layer branches on the OS."
+"platform.uname".msg = "Ask agdash.platform instead: only the platform layer branches on the OS."
+"platform.mac_ver".msg = "Ask agdash.platform instead: only the platform layer branches on the OS."
+"platform.release".msg = "Ask agdash.platform instead: only the platform layer branches on the OS."
+"platform.freedesktop_os_release".msg = "Ask agdash.platform instead: only the platform layer branches on the OS."
+
+[tool.ruff.lint.per-file-ignores]
+"agdash/platform/**" = ["TID251"]
