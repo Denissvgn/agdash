@@ -5,6 +5,7 @@ that stores one event per line, keyed by the line's byte offset, as the
 harness adapters will.
 """
 
+import io
 import os
 import shutil
 import threading
@@ -20,6 +21,7 @@ from agdash.access.guard import assert_untouched
 from agdash.db.migrate import upgrade
 from agdash.db.models import Event, IngestCursor, Session
 from agdash.ingest import Cursor, Ingestor, discover_files
+from agdash.ingest.compressed import UnreadableArchive, compress, decompress
 from agdash.ingest.engine import split_lines
 from agdash.ingest.ledger import SqlLedger
 from agdash.ingest.watch import run
@@ -408,3 +410,84 @@ def test_the_watch_loop_ingests_lines_as_they_are_written(store, home, force_pol
         stop.set()
         worker.join(timeout=20)
     assert not worker.is_alive()
+
+
+# -- compressed archives ------------------------------------------------------------
+
+ARCHIVE_PATTERNS = PATTERNS + ["archived_sessions/rollout-*.jsonl.zst"]
+
+
+def write_by_transcript(session, cursor: Cursor, lines) -> None:
+    """Like ``write_lines``, with a compressed copy counted as its original."""
+    plain = Cursor(**{**cursor.__dict__, "path": cursor.path.removesuffix(".zst")})
+    write_lines(session, plain, lines)
+
+
+def scan_archives(access, ingestor, home):
+    return ingestor.scan(discover_files(access, [home], ARCHIVE_PATTERNS))
+
+
+def test_a_compressed_archive_lines_up_with_its_original(store, home):
+    live = home / "sessions/2026/01/02" / NAME
+    live.write_bytes(record(1) + record(2) + record(3))
+    access, ingestor = make(store, home, write_by_transcript)
+    scan_archives(access, ingestor, home)
+
+    (home / "archived_sessions" / f"{NAME}.zst").write_bytes(compress(live.read_bytes()))
+    live.unlink()
+    report = scan_archives(access, ingestor, home)
+    assert texts(store) == [record(n).decode().strip() for n in (1, 2, 3)]
+    (archive,) = [f for f in report.files if f.path.endswith(".zst")]
+    assert archive.lines == 3, "every line is handed over; the writer finds them stored"
+    with store() as session:
+        offsets = session.scalars(select(Event.sequence).order_by(Event.sequence)).all()
+    assert offsets == [0, len(record(1)), len(record(1)) * 2]
+
+
+def test_an_unchanged_archive_is_not_decompressed_again(store, home, monkeypatch):
+    (home / "archived_sessions" / f"{NAME}.zst").write_bytes(compress(record(1) + record(2)))
+    access, ingestor = make(store, home)
+    scan_archives(access, ingestor, home)
+    from agdash.ingest import engine
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("decompressed again")
+
+    monkeypatch.setattr(engine, "decompress", refuse)
+    second = scan_archives(access, ingestor, home)
+    assert second.lines == 0 and len(texts(store)) == 2
+
+
+def test_an_archive_without_a_final_newline_keeps_its_last_line(store, home):
+    (home / "archived_sessions" / f"{NAME}.zst").write_bytes(
+        compress(record(1) + record(2).rstrip(b"\n"))
+    )
+    access, ingestor = make(store, home)
+    scan_archives(access, ingestor, home)
+    assert len(texts(store)) == 2
+
+
+def test_an_archive_still_being_written_waits_until_it_is_complete(store, home):
+    target = home / "archived_sessions" / f"{NAME}.zst"
+    whole = compress(record(1) + record(2))
+    target.write_bytes(whole[: len(whole) // 2])
+    access, ingestor = make(store, home)
+    (first,) = scan_archives(access, ingestor, home).files
+    assert first.unreadable and texts(store) == [] and cursors(store) == []
+    target.write_bytes(whole)
+    (second,) = scan_archives(access, ingestor, home).files
+    assert not second.unreadable and second.lines == 2
+
+
+def test_an_archive_that_decompresses_past_the_limit_is_not_read(store, home):
+    (home / "archived_sessions" / f"{NAME}.zst").write_bytes(compress(record(1) * 1000))
+    access, ingestor = make(store, home, max_archive_bytes=1000)
+    (report,) = scan_archives(access, ingestor, home).files
+    assert report.unreadable and texts(store) == []
+
+
+def test_several_frames_are_read_as_one_text():
+    data = compress(record(1)) + compress(record(2))
+    assert decompress(io.BytesIO(data), 1 << 20) == record(1) + record(2)
+    with pytest.raises(UnreadableArchive):
+        decompress(io.BytesIO(b"not zstd at all"), 1 << 20)

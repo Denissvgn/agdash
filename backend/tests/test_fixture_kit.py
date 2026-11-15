@@ -16,6 +16,7 @@ import pytest
 from agdash.access.guard import assert_untouched
 from agdash.devtools.anonymise import LEXICON, Anonymiser
 from agdash.devtools.fixture_kit import FixtureError, generate, load_salt, main
+from agdash.ingest.compressed import compress, decompress
 from agdash.normalise import cwd_slug, parse_timestamp
 from agdash.platform.roots import harness_roots
 from agdash.redaction import redact_text
@@ -43,6 +44,7 @@ MARKERS = [
 
 SESSION = "0b5f6c1e-7a2d-4c3b-9e1f-2d3c4b5a6f70"
 CODEX_ID = "6e2a1c4b-5d3f-4a2e-9b8c-7d6e5f4a3b2c"
+ARCHIVED_ID = "3d4c5b6a-7f8e-4d9c-8b1a-2f3e4d5c6b7a"
 PI_ID = "9c8b7a6f-5e4d-4c3b-8a29-1f0e2d3c4b5a"
 CONVERSATION = "aa11bb22-cc33-4d44-8e55-ff6677889900"
 
@@ -213,6 +215,34 @@ def build_home(home: Path) -> Path:
             {"id": "ffffffff-0000-4000-8000-000000000000", "thread_name": "other"},
         ],
     )
+    archived = [
+        {
+            "timestamp": "2026-10-02T09:00:00.000Z",
+            "type": "session_meta",
+            "payload": {"id": ARCHIVED_ID, "cwd": PROJECT, "originator": "codex_exec"},
+        },
+        {
+            "timestamp": "2026-10-02T09:00:01.000Z",
+            "type": "event_msg",
+            "payload": {"type": "user_message", "message": "PROMPTMARKER archived task"},
+        },
+    ]
+    target = codex / "archived_sessions" / f"rollout-2026-10-02T09-00-00-{ARCHIVED_ID}.jsonl.zst"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(compress("".join(json.dumps(r) + "\n" for r in archived).encode()))
+    with sqlite3.connect(codex / "goals_1.sqlite") as db:
+        db.execute(
+            "CREATE TABLE thread_goals (thread_id TEXT PRIMARY KEY NOT NULL, goal_id TEXT NOT NULL,"
+            " objective TEXT NOT NULL, status TEXT NOT NULL, token_budget INTEGER,"
+            " tokens_used INTEGER NOT NULL DEFAULT 0, time_used_seconds INTEGER NOT NULL DEFAULT 0,"
+            " created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL)"
+        )
+        db.execute("CREATE TABLE thread_goal_continuation_deferrals (thread_id TEXT PRIMARY KEY)")
+        db.execute(
+            "INSERT INTO thread_goals VALUES (?, ?, ?, 'blocked', NULL, 1200, 30, ?, ?)",
+            (CODEX_ID, ORG, f"PROMPTMARKER ship {PROJECT}", 1794391200000, 1794391500000),
+        )
+    db.close()
 
     pi = home / ".pi" / "agent" / "sessions" / cwd_slug("pi", PROJECT)
     records = [
@@ -299,17 +329,26 @@ def all_text(out: Path) -> str:
         if not path.is_file():
             continue
         chunks.append(str(path.relative_to(out)))
-        if path.suffix == ".db":
+        if path.suffix in (".db", ".sqlite"):
             # Through SQL, which shows every row; the raw pages are binary noise.
             with sqlite3.connect(path) as db:
                 chunks.extend(db.iterdump())
+            db.close()
+        elif path.suffix == ".zst":
+            with open(path, "rb") as source:
+                chunks.append(decompress(source, 1 << 30).decode("utf-8"))
         else:
             chunks.append(path.read_text(encoding="utf-8"))
     return "\n".join(chunks)
 
 
 def records(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines()]
+    if path.suffix == ".zst":
+        with open(path, "rb") as source:
+            text = decompress(source, 1 << 30).decode("utf-8")
+    else:
+        text = path.read_text()
+    return [json.loads(line) for line in text.splitlines()]
 
 
 def test_no_private_text_survives(home, tmp_path):
@@ -347,7 +386,8 @@ def test_every_harness_has_fixtures(home, tmp_path):
     assert list(out.glob("claude/projects/*/*/subagents/*.jsonl"))
     assert list(out.glob("claude/sessions/*.json"))
     assert list(out.glob("codex/sessions/*/*/*/rollout-*.jsonl"))
-    assert list(out.glob("codex/archived_sessions/rollout-*.jsonl"))
+    assert len(list(out.glob("codex/archived_sessions/rollout-*.jsonl.zst"))) == 2
+    assert (out / "codex" / "goals_1.sqlite").exists()
     assert (out / "codex" / "session_index.jsonl").exists()
     assert list(out.glob("pi/agent/sessions/*/*.jsonl"))
     assert (out / "antigravity" / "app" / "conversation_summaries.db").exists()
@@ -393,7 +433,18 @@ def test_structure_and_references_survive(home, tmp_path):
     call = json.loads(codex[2]["payload"]["arguments"])
     assert set(call) == {"cmd", "workdir"} and call["workdir"].startswith("/work/")
     assert len(codex[1]["payload"]["encrypted_content"]) == 256
-    assert rollout.read_bytes() == next(out.glob("codex/archived_sessions/*.jsonl")).read_bytes()
+    with open(out / "codex" / "archived_sessions" / f"{rollout.name}.zst", "rb") as source:
+        assert decompress(source, 1 << 30) == rollout.read_bytes(), "archived copy is the same"
+    with open(
+        next(out.glob(f"codex/archived_sessions/*-{anon.uuid(ARCHIVED_ID)}.jsonl.zst")), "rb"
+    ) as source:
+        archived = [json.loads(line) for line in decompress(source, 1 << 30).splitlines()]
+    assert [r["payload"].get("type") for r in archived] == [None, "user_message"]
+    with sqlite3.connect(out / "codex" / "goals_1.sqlite") as db:
+        (goal,) = db.execute("SELECT thread_id, status, objective FROM thread_goals").fetchall()
+    db.close()
+    assert goal[:2] == (anon.uuid(CODEX_ID), "blocked"), "a goal still points at its session"
+    assert "PROMPTMARKER" not in goal[2]
 
     (pi,) = out.glob("pi/agent/sessions/*/*.jsonl")
     pi_rows = records(pi)
@@ -513,7 +564,7 @@ def test_committed_fixtures_hold_no_private_text():
     assert "@" not in text.replace("@example.test", "")
     assert redact_text(text) == text, "nothing shaped like a secret"
     prose = 0
-    for path in COMMITTED.rglob("*.jsonl"):
+    for path in [*COMMITTED.rglob("*.jsonl"), *COMMITTED.rglob("*.jsonl.zst")]:
         for row in records(path):
             for value in _strings(row):
                 words = value.split()

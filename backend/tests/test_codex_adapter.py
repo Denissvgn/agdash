@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -11,11 +12,20 @@ from sqlalchemy.orm import sessionmaker
 from agdash.access import ReadOnlyAccess
 from agdash.access.guard import assert_untouched
 from agdash.adapters import codex
-from agdash.adapters.codex import PATTERNS, Writer, parse_record, session_id_of
+from agdash.adapters.codex import (
+    PATTERNS,
+    Goal,
+    Writer,
+    parse_record,
+    read_goals,
+    session_id_of,
+    store_goals,
+)
 from agdash.db.migrate import upgrade
 from agdash.db.models import Event, Session, SourceHealth
 from agdash.events import validate_event
 from agdash.ingest import Ingestor, discover_files
+from agdash.ingest.compressed import decompress
 from agdash.ingest.ledger import SqlLedger
 from agdash.vocab import EventKind, ParentBasis, Surface, ThoughtsCoverage
 
@@ -25,6 +35,7 @@ IDE = "34378b13-6c9f-46fa-ba34-edf339035cf3"
 DESKTOP = "fa55f7f6-e5e1-4419-967f-112573380eb3"
 SUBAGENT = "f6e9cc88-d14c-4409-ac34-fd576552916a"
 CLI = "621104ed-f169-4e51-ac72-514437a306af"
+ARCHIVED = "cc17346e-324f-46b6-8065-2029ddfbd7f5"
 
 
 @pytest.fixture
@@ -53,7 +64,12 @@ def rollout(native_id: str, root: Path = FIXTURES) -> Path:
 
 def own_records(path: Path) -> list[dict]:
     """A rollout's records without the parent history a subagent inherits."""
-    records = [json.loads(line) for line in path.read_text().splitlines()]
+    if path.suffix == ".zst":
+        with open(path, "rb") as source:
+            text = decompress(source, 1 << 30).decode()
+    else:
+        text = path.read_text()
+    records = [json.loads(line) for line in text.splitlines()]
     start = records[0]["payload"].get("subagent_history_start_ordinal")
     if start is None:
         return records
@@ -113,9 +129,10 @@ def test_discovery_finds_rollouts_the_archive_and_the_title_index():
     found = discover_files(access, [FIXTURES], PATTERNS)
     names = [path.name for path in found]
     assert "session_index.jsonl" in names
-    assert len([p for p in found if "archived_sessions" in p.parts]) == 1
+    archived = [p for p in found if "archived_sessions" in p.parts]
+    assert len(archived) == 2 and all(p.name.endswith(".jsonl.zst") for p in archived)
     ids = {session_id_of(str(path)) for path in found} - {None}
-    assert ids == {EXEC, IDE, DESKTOP, SUBAGENT, CLI}
+    assert ids == {EXEC, IDE, DESKTOP, SUBAGENT, CLI, ARCHIVED}
 
 
 def test_every_fixture_session_is_ingested_in_full(store):
@@ -155,15 +172,42 @@ def test_the_older_cli_originator_is_recognised(store, tmp_path):
         assert session(db, EXEC).surface is Surface.CLI
 
 
-def test_an_archived_rollout_keeps_its_identity(store):
+def test_an_archived_rollout_keeps_its_identity(store, tmp_path):
     ingest(store, FIXTURES)
     with store() as db:
         assert (
             db.scalar(select(func.count()).select_from(Session).where(Session.native_id == EXEC))
             == 1
         )
-        stored = session(db, EXEC)
-        assert stored_counts(db, stored.id) == source_counts(rollout(EXEC))
+        both = db.scalars(
+            select(Event.sequence).where(Event.session_id == session(db, EXEC).id)
+        ).all()
+
+    live_only = tmp_path / "live-only"
+    target = live_only / rollout(EXEC).relative_to(FIXTURES)
+    target.parent.mkdir(parents=True)
+    shutil.copyfile(rollout(EXEC), target)
+    url = f"sqlite:///{tmp_path / 'live.db'}"
+    upgrade(url)
+    engine = create_engine(url)
+    alone = sessionmaker(engine, expire_on_commit=False)
+    ingest(alone, live_only)
+    with alone() as db:
+        live = db.scalars(select(Event.sequence).where(Event.session_id == session(db, EXEC).id))
+        assert sorted(both) == sorted(live), "live and archived copies are one set of events"
+    engine.dispose()
+
+
+def test_a_compressed_archive_is_ingested_in_full(store):
+    ingest(store, FIXTURES)
+    (path,) = FIXTURES.glob(f"archived_sessions/rollout-*-{ARCHIVED}.jsonl.zst")
+    with store() as db:
+        stored = session(db, ARCHIVED)
+        assert stored.surface is Surface.IDE and stored.models
+        assert stored_counts(db, stored.id) == source_counts(path)
+        assert db.scalar(
+            select(func.count()).select_from(Event).where(Event.session_id == stored.id)
+        )
 
 
 def test_a_subagent_is_linked_to_its_parent_without_its_parents_history(store):
@@ -478,3 +522,69 @@ def test_known_metadata_is_not_unknown_and_new_types_are():
     assert parse_record(
         {"type": "response_item", "payload": {"type": "hologram"}}
     ).unknown_type == ("response_item/hologram")
+
+
+# -- goals ---------------------------------------------------------------------------
+
+
+def snapshot_access(root: Path, tmp_path: Path) -> ReadOnlyAccess:
+    (tmp_path / "snapshots").mkdir(exist_ok=True)
+    return ReadOnlyAccess([root], snapshot_dir=tmp_path / "snapshots")
+
+
+def test_goals_are_read_from_a_snapshot_and_put_on_their_sessions(store, tmp_path):
+    with assert_untouched([FIXTURES]):
+        goals = read_goals(snapshot_access(FIXTURES, tmp_path), FIXTURES)
+    assert len(goals) == 2
+    assert all(goal.status == "blocked" and goal.tokens_used > 0 for goal in goals)
+    with store() as db:
+        store_goals(db, goals)
+        db.commit()
+    with store() as db:
+        for goal in goals:
+            stored = session(db, goal.session_id).goal
+            assert stored["objective"] == goal.objective
+            assert stored["status"] == "blocked" and stored["token_budget"] is None
+            assert stored["created_at"] <= stored["updated_at"]
+
+
+def test_a_goal_objective_is_redacted_and_an_unknown_status_kept_apart(store, tmp_path):
+    root = tmp_path / "codex"
+    root.mkdir()
+    key = "sk-proj-" + "Z" * 60
+    with sqlite3.connect(root / "goals_1.sqlite") as db:
+        db.execute(
+            "CREATE TABLE thread_goals (thread_id TEXT, goal_id TEXT, objective TEXT,"
+            " status TEXT, token_budget INTEGER, tokens_used INTEGER,"
+            " time_used_seconds INTEGER, created_at_ms INTEGER, updated_at_ms INTEGER)"
+        )
+        db.execute(
+            "INSERT INTO thread_goals VALUES (?, 'g', ?, 'dreaming', 5000, 10, 3, ?, ?)",
+            (EXEC, f"deploy with {key}", 1735000000000, 1735000060000),
+        )
+    db.close()
+    (goal,) = read_goals(snapshot_access(root, tmp_path), root)
+    assert goal.status == "unknown" and goal.token_budget == 5000
+    with store() as db:
+        store_goals(db, [goal])
+        db.commit()
+    with store() as db:
+        stored = session(db, EXEC).goal
+    assert key not in stored["objective"] and "[REDACTED" in stored["objective"]
+
+
+def test_no_goals_store_means_no_goals(tmp_path):
+    root = tmp_path / "codex"
+    root.mkdir()
+    assert read_goals(snapshot_access(root, tmp_path), root) == []
+
+
+def test_storing_the_same_goal_twice_changes_nothing(store):
+    goal = Goal(EXEC, "ship it", "active", None, 1, 2, None, None)
+    with store() as db:
+        store_goals(db, [goal])
+        db.commit()
+        first = session(db, EXEC).updated_at
+        store_goals(db, [goal])
+        db.commit()
+        assert session(db, EXEC).updated_at == first

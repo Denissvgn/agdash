@@ -11,6 +11,11 @@ A file that is replaced or truncated is read again from the start. Writers are
 expected to store lines idempotently (by session and byte offset), so a second
 read adds nothing.
 
+A compressed file is an archive, written once. It is read whole, decompressed,
+and its offsets are those of the decompressed text, so an archived copy of a
+transcript produces the same offsets as the original did. Its cursor records
+the compressed size; the file is read again only if that changes.
+
 Every read goes through the read-only access layer.
 """
 
@@ -22,9 +27,11 @@ from pathlib import Path
 from typing import Protocol
 
 from agdash.access import OutsideAllowedRoots, ReadOnlyAccess
+from agdash.ingest.compressed import UnreadableArchive, decompress, is_compressed
 
 DEFAULT_BATCH_BYTES = 8 * 1024 * 1024
 DEFAULT_MAX_LINE_BYTES = 64 * 1024 * 1024
+DEFAULT_MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024
 NEWLINE = b"\n"
 
 
@@ -69,6 +76,7 @@ class FileReport:
     restarted: bool = False
     oversized_lines: int = 0
     waiting_bytes: int = 0
+    unreadable: bool = False  # a compressed file that is damaged or still being written
 
 
 @dataclass
@@ -122,6 +130,7 @@ class Ingestor:
         harness: str,
         batch_bytes: int = DEFAULT_BATCH_BYTES,
         max_line_bytes: int = DEFAULT_MAX_LINE_BYTES,
+        max_archive_bytes: int = DEFAULT_MAX_ARCHIVE_BYTES,
     ) -> None:
         if max_line_bytes < batch_bytes:
             raise ValueError("a line limit smaller than a batch would split lines")
@@ -130,6 +139,7 @@ class Ingestor:
         self._harness = harness
         self._batch = batch_bytes
         self._max_line = max_line_bytes
+        self._max_archive = max_archive_bytes
 
     def scan(self, paths: Iterable[Path]) -> ScanReport:
         report = ScanReport()
@@ -149,6 +159,8 @@ class Ingestor:
         path_text = str(self._access.resolve(path))
         device, inode = str(found.st_dev), str(found.st_ino)
         report = FileReport(path_text)
+        if is_compressed(path_text):
+            return self._scan_archive(path, path_text, found, report)
 
         previous = self._ledger.cursor_at(self._harness, path_text)
         if previous is None or previous.inode != inode or previous.device != device:
@@ -180,6 +192,33 @@ class Ingestor:
             if end == offset or end >= found.st_size:
                 return report
             offset = end
+
+    def _scan_archive(
+        self, path: Path, path_text: str, found: os.stat_result, report: FileReport
+    ) -> FileReport:
+        device, inode = str(found.st_dev), str(found.st_ino)
+        previous = self._ledger.cursor_at(self._harness, path_text)
+        same_file = previous is not None and (previous.device, previous.inode) == (device, inode)
+        if same_file and previous.size == found.st_size:
+            return report  # read already, and unchanged since
+        report.restarted = previous is not None
+        try:
+            with self._access.open(path) as source:
+                data = decompress(source, self._max_archive)
+        except UnreadableArchive:
+            report.unreadable = True
+            report.waiting_bytes = found.st_size
+            return report
+        lines, end = split_lines(data, 0)
+        if end < len(data):  # an archive is complete, so its last line is too
+            lines.append(Line(end, len(data), data[end:]))
+            end = len(data)
+        kept = [line for line in lines if len(line.data) < self._max_line]
+        report.oversized_lines = len(lines) - len(kept)
+        cursor = Cursor(self._harness, path_text, device, inode, end, found.st_size)
+        self._ledger.commit(previous, cursor, kept)
+        report.lines = len(kept)
+        return report
 
     def _was_moved(self, cursor: Cursor, path_text: str) -> bool:
         """Whether the file under ``cursor`` really moved to ``path_text``.

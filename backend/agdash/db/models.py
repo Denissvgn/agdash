@@ -95,6 +95,8 @@ class Session(Base):
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow
     )
+    # The harness's objective for the session: objective, status, budget, usage.
+    goal: Mapped[dict[str, Any] | None] = mapped_column(json_document(), nullable=True)
 
 
 class SessionProcess(Base):

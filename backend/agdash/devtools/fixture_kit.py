@@ -33,12 +33,14 @@ from typing import Any
 
 from agdash.access import ReadOnlyAccess
 from agdash.devtools.anonymise import Anonymiser
+from agdash.ingest.compressed import UnreadableArchive, compress, decompress
 from agdash.normalise import cwd_slug, parse_timestamp
 from agdash.platform import current_host
 from agdash.platform.roots import is_inside
 from agdash.vocab import Harness
 
 MAX_RECORDS = 300
+MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
 CODEX_KINDS = 5
 RARE_TYPE = 5
 MAX_ARTIFACT_BYTES = 64 * 1024
@@ -66,8 +68,9 @@ thought, path, identifier, account and secret is replaced with synthetic
 content, and every date is shifted by one fixed offset. Nothing here is real
 session data.
 
-The Codex `archived_sessions/` file is a copy of one rollout placed there by the
-kit, because the source machine had no archived sessions when it ran.
+Codex archives rollouts compressed. One file in `archived_sessions/` is a real
+archived rollout; the other is a compressed copy of a live rollout, placed there
+by the kit so that one session appears both live and archived.
 """
 
 
@@ -109,6 +112,13 @@ class Writer:
         )
         self.report.records[harness] += len(records)
 
+    def compressed_jsonl(self, harness: str, relative: str, records: list[Any]) -> None:
+        data = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records)
+        with open(self._target(relative), "wb") as target:
+            target.write(compress(data.encode("utf-8")))
+        self.report.files[harness] += 1
+        self.report.records[harness] += len(records)
+
     def json(self, harness: str, relative: str, value: Any) -> None:
         self.text(harness, relative, json.dumps(value, ensure_ascii=False, indent=2) + "\n")
 
@@ -142,6 +152,36 @@ def read_records(access: ReadOnlyAccess, path: Path, report: Report) -> list[dic
             if isinstance(record, dict):
                 records.append(record)
     return records
+
+
+def read_archive(access: ReadOnlyAccess, path: Path, report: Report) -> list[dict]:
+    """The records of a compressed JSONL archive."""
+    with access.open(path) as source:
+        data = decompress(source, MAX_ARCHIVE_BYTES)
+    records = []
+    for line in data.decode("utf-8", errors="replace").splitlines():
+        try:
+            record = json.loads(line)
+        except ValueError:
+            report.skipped_lines += 1
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
+def richest_archive(access: ReadOnlyAccess, paths: Iterable[Path]) -> Path | None:
+    """Like ``richest``, for compressed archives."""
+    best, best_score = None, -1
+    for path in smallest(paths)[:CANDIDATES]:
+        try:
+            records = read_archive(access, path, Report())
+        except UnreadableArchive:
+            continue
+        score = len({_kind(r) for r in records[:SCORE_LINES]})
+        if score > best_score:
+            best, best_score = path, score
+    return best
 
 
 def select_records(records: list[dict], limit: int = MAX_RECORDS) -> list[dict]:
@@ -240,8 +280,11 @@ def export_claude(access, root: Path, anon: Anonymiser, out: Writer) -> None:
 
 
 ROLLOUT = re.compile(
-    r"rollout-(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})-(?P<id>[0-9a-fA-F-]{36})\.jsonl"
+    r"rollout-(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})-(?P<id>[0-9a-fA-F-]{36})"
+    r"\.jsonl(?:\.zst)?"
 )
+GOAL_TABLES = ("thread_goals", "thread_goal_continuation_deferrals")
+MAX_GOALS = 3
 
 
 def _rollout_name(anon: Anonymiser, name: str) -> tuple[str, str, str]:
@@ -288,13 +331,66 @@ def export_codex(access, root: Path, anon: Anonymiser, out: Writer) -> None:
         records = anon.value(select_records(read_records(access, rollout, out.report)))
         out.jsonl(harness, f"codex/sessions/{day}/{name}", records)
         if index == 0:
-            out.jsonl(harness, f"codex/archived_sessions/{name}", records)
+            # Compressed, as Codex archives a rollout, so one session is both live and archived.
+            out.compressed_jsonl(harness, f"codex/archived_sessions/{name}.zst", records)
+    archive = root / "archived_sessions"
+    archived = [
+        path
+        for path in (archive.glob("rollout-*.jsonl.zst") if archive.is_dir() else [])
+        if (match := ROLLOUT.fullmatch(path.name)) and match["id"] not in chosen_ids
+    ]
+    pick = richest_archive(access, archived)
+    if pick is not None:
+        name, _, original_id = _rollout_name(anon, pick.name)
+        chosen_ids.add(original_id)
+        records = anon.value(select_records(read_archive(access, pick, out.report)))
+        out.compressed_jsonl(harness, f"codex/archived_sessions/{name}.zst", records)
     index_file = root / "session_index.jsonl"
     if index_file.exists():
         lines = [
             r for r in read_records(access, index_file, out.report) if r.get("id") in chosen_ids
         ]
         out.jsonl(harness, "codex/session_index.jsonl", anon.value(lines))
+    export_codex_goals(access, root, chosen_ids, anon, out)
+
+
+def export_codex_goals(
+    access, root: Path, chosen_ids: set[str], anon: Anonymiser, out: Writer
+) -> None:
+    database = root / "goals_1.sqlite"
+    if not database.exists():
+        return
+    with access.sqlite_snapshot(database) as db:
+        schema = dict(
+            db.execute(
+                "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql IS NOT NULL"
+            ).fetchall()
+        )
+        if "thread_goals" not in schema:
+            return
+        tables = [name for name in GOAL_TABLES if name in schema]
+        columns = [c[1] for c in db.execute('PRAGMA table_info("thread_goals")')]
+        goals = db.execute('SELECT * FROM "thread_goals" ORDER BY updated_at_ms').fetchall()
+        # Goals of sessions that are in the fixtures first, then the most recent others.
+        goals.sort(key=lambda row: row[0] not in chosen_ids)
+        goals = goals[:MAX_GOALS]
+        threads = {row[0] for row in goals}
+        rows = {
+            "thread_goals": [
+                tuple(_cell(anon, col, v) for col, v in zip(columns, row, strict=True))
+                for row in goals
+            ]
+        }
+        if "thread_goal_continuation_deferrals" in tables:
+            rows["thread_goal_continuation_deferrals"] = [
+                (anon.string(thread, "thread_id"),)
+                for (thread,) in db.execute(
+                    'SELECT thread_id FROM "thread_goal_continuation_deferrals"'
+                )
+                if thread in threads
+            ]
+    statements = [schema[name] for name in tables]
+    out.sqlite(Harness.CODEX.value, "codex/goals_1.sqlite", statements, rows)
 
 
 PI_FILE = re.compile(

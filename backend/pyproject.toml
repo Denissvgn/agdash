@@ -16,6 +16,7 @@ dependencies = [
     "sqlalchemy>=2.0.30",
     "alembic>=1.13",
     "jsonschema>=4.21",
+    "zstandard>=0.23; python_version < '3.14'",
     "psutil>=6.0",
     "keyring>=25.0",
     "watchfiles>=0.21",

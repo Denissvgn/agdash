@@ -1,14 +1,17 @@
-"""Codex: rollouts, the archive, the title index and subagent threads.
+"""Codex: rollouts, the archive, the title index, subagent threads and goals.
 
 Layout under the Codex root:
 
     sessions/YYYY/MM/DD/rollout-<time>-<session-id>.jsonl   a session
-    archived_sessions/[...]rollout-<time>-<session-id>.jsonl   the same, archived
+    archived_sessions/rollout-<time>-<session-id>.jsonl.zst the same, archived
     session_index.jsonl                                     thread titles
+    goals_1.sqlite                                          session objectives
 
 A session's identity is the id in its file name, so archiving a rollout keeps
-its identity. Which running process holds which rollout is the process probe's
-business (open files), not this module's.
+its identity. The archive holds the rollout compressed; the ingest engine reads
+it decompressed, at the same offsets, so nothing is stored twice. Which
+running process holds which rollout is the process probe's business (open
+files), not this module's.
 
 Codex records a prompt both as a model input and, depending on the version, as
 a "user_message" event or with a "retained_source" marker. Only the latter two
@@ -24,6 +27,7 @@ marked as encrypted.
 import json
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -31,7 +35,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
+from agdash.access import ReadOnlyAccess
 from agdash.adapters.store import (
+    INITIAL_TASK_LIMIT,
     ParsedEvent,
     ParsedRecord,
     SessionFacts,
@@ -45,18 +51,22 @@ from agdash.adapters.store import (
 from agdash.db.models import Event, Session
 from agdash.ingest.engine import Cursor, Line
 from agdash.normalise import UsageFormat, normalise_usage, parse_timestamp
+from agdash.redaction import redact_text
 from agdash.vocab import EventKind, Harness, Surface, ThoughtsCoverage
 
 HARNESS = Harness.CODEX.value
 TITLE_INDEX = "session_index.jsonl"
+GOALS = "goals_1.sqlite"
 PATTERNS = [
     "sessions/*/*/*/rollout-*.jsonl",
     "archived_sessions/rollout-*.jsonl",
+    "archived_sessions/rollout-*.jsonl.zst",
     "archived_sessions/*/*/*/rollout-*.jsonl",
+    "archived_sessions/*/*/*/rollout-*.jsonl.zst",
     TITLE_INDEX,
 ]
 _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-ROLLOUT = re.compile(rf"rollout-.+-(?P<id>{_UUID})\.jsonl")
+ROLLOUT = re.compile(rf"rollout-.+-(?P<id>{_UUID})\.jsonl(?:\.zst)?")
 
 SURFACES_BY_ORIGINATOR = {
     "Codex Desktop": Surface.DESKTOP,
@@ -440,3 +450,80 @@ class Writer:
             if isinstance(name, str) and name.strip():
                 session = find_or_create_session(db, HARNESS, entry["id"])
                 apply_facts(session, SessionFacts(title=name, title_rank=1), self._title_ranks)
+
+
+# -- goals --------------------------------------------------------------------------
+
+GOAL_STATUSES = frozenset(
+    {"active", "paused", "blocked", "usage_limited", "budget_limited", "complete"}
+)
+
+
+@dataclass(frozen=True)
+class Goal:
+    """The objective Codex keeps for one session, with its status and budget."""
+
+    session_id: str
+    objective: str
+    status: str
+    token_budget: int | None
+    tokens_used: int
+    time_used_seconds: int
+    created_at: datetime | None
+    updated_at: datetime | None
+
+    def document(self) -> dict[str, Any]:
+        return {
+            "objective": redact_text(self.objective)[:INITIAL_TASK_LIMIT],
+            "status": self.status,
+            "token_budget": self.token_budget,
+            "tokens_used": self.tokens_used,
+            "time_used_seconds": self.time_used_seconds,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+def _count(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def read_goals(access: ReadOnlyAccess, root: Path) -> list[Goal]:
+    """Every session goal, read from a private snapshot of the goals store."""
+    database = root / GOALS
+    if not access.exists(database):
+        return []
+    with access.sqlite_snapshot(database) as db:
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "thread_goals" not in tables:
+            return []
+        rows = db.execute(
+            "SELECT thread_id, objective, status, token_budget, tokens_used,"
+            " time_used_seconds, created_at_ms, updated_at_ms FROM thread_goals"
+        ).fetchall()
+    goals = []
+    for thread, objective, status, budget, used, seconds, created, updated in rows:
+        if not isinstance(thread, str) or not isinstance(objective, str):
+            continue
+        goals.append(
+            Goal(
+                session_id=thread,
+                objective=objective,
+                status=status if status in GOAL_STATUSES else "unknown",
+                token_budget=_count(budget),
+                tokens_used=_count(used) or 0,
+                time_used_seconds=_count(seconds) or 0,
+                created_at=parse_timestamp(created),
+                updated_at=parse_timestamp(updated),
+            )
+        )
+    return sorted(goals, key=lambda goal: goal.session_id)
+
+
+def store_goals(db: DbSession, goals: Sequence[Goal]) -> None:
+    """Put each goal on its session; a session not seen yet is created for it."""
+    for goal in goals:
+        session = find_or_create_session(db, HARNESS, goal.session_id)
+        document = goal.document()
+        if session.goal != document:
+            session.goal = document

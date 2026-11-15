@@ -6,5 +6,6 @@ thought, path, identifier, account and secret is replaced with synthetic
 content, and every date is shifted by one fixed offset. Nothing here is real
 session data.
 
-The Codex `archived_sessions/` file is a copy of one rollout placed there by the
-kit, because the source machine had no archived sessions when it ran.
+Codex archives rollouts compressed. One file in `archived_sessions/` is a real
+archived rollout; the other is a compressed copy of a live rollout, placed there
+by the kit so that one session appears both live and archived.
