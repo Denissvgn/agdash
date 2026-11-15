@@ -147,6 +147,7 @@ def test_the_openapi_document_describes_every_endpoint(client):
     assert set(document["paths"]) == {
         "/health",
         "/api/stream",
+        "/api/sessions/{session_id}/export",
         "/api/sessions",
         "/api/sessions/{session_id}",
         "/api/sessions/{session_id}/events",

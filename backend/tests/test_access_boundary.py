@@ -66,6 +66,9 @@ EXEMPT = {
     "platform/service.py": {"subprocess", "os.open", "os.replace", "mkdir", "unlink"},
     # Runs lsof to read a process's open files when psutil is refused.
     "platform/probes.py": {"subprocess"},
+    # Writes a session export to the new file the person named, never inside a harness
+    # directory and never over an existing file.
+    "export.py": {"os.open"},
     # Creates agdash's own data directory for its database, when no database URL is set.
     "connectors/cli.py": {"mkdir"},
     # Development tool, not part of the service. It reads harness files only through

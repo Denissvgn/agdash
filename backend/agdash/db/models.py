@@ -20,6 +20,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -477,3 +478,27 @@ class SourceHealth(Base):
     parse_error_count: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     first_seen_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utcnow)
+
+
+class RawChunk(Base):
+    """Original harness lines from one read of one file, redacted and zstd-compressed.
+
+    Harnesses prune and archive their own files, and normalised events keep only
+    what the contract names, so the lines themselves are kept here. A chunk is
+    stored in the same transaction as the ingest cursor that read it.
+    """
+
+    __tablename__ = "raw_chunks"
+    __table_args__ = (
+        Index(None, "source_file", "first_offset"),
+        CheckConstraint("end_offset >= first_offset", name="offsets_ordered"),
+    )
+
+    id: Mapped[int] = mapped_column(BigIntegerKey, primary_key=True)
+    harness: Mapped[str] = mapped_column(String(HARNESS_LENGTH), nullable=False)
+    source_file: Mapped[str] = mapped_column(Text, nullable=False)
+    first_offset: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    end_offset: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    line_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utcnow)

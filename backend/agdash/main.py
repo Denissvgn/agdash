@@ -6,16 +6,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from agdash import __version__
-from agdash.api import stream
+from agdash.api import exports, stream
 from agdash.api.routes import router
 from agdash.api.security import LazyToken, LocalAccess, load_or_create_token
 from agdash.api.store import Store
-from agdash.config import get_settings
+from agdash.config import database_url, get_settings
 from agdash.platform import current_host
 
 
 def default_database_url() -> str:
-    return f"sqlite:///{current_host().default_database_path()}"
+    return database_url()
 
 
 def stored_token() -> str:
@@ -48,6 +48,7 @@ def create_app(
     app.state.store = store
     app.include_router(router, prefix=settings.api_prefix)
     app.include_router(stream.router, prefix=settings.api_prefix)
+    app.include_router(exports.router, prefix=settings.api_prefix)
 
     @app.get("/health")
     def health() -> dict[str, str]:

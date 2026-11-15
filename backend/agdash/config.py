@@ -16,8 +16,22 @@ class Settings(BaseSettings):
     database_url: str | None = None
     # Origins allowed besides the service's own loopback address and the desktop app.
     extra_origins: list[str] = []
+    # Days of history to keep; unset keeps everything. Sessions that may still run are kept.
+    retention_days: int | None = None
+    # Keep the original harness lines, redacted and compressed, besides the events.
+    keep_raw: bool = True
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def database_url() -> str:
+    """The configured store, or agdash's default database on this host."""
+    configured = get_settings().database_url
+    if configured:
+        return configured
+    from agdash.platform import current_host
+
+    return f"sqlite:///{current_host().default_database_path()}"

@@ -11,6 +11,7 @@ from sqlalchemy import (
     Enum,
     Float,
     Integer,
+    LargeBinary,
     String,
     Text,
     create_engine,
@@ -27,7 +28,8 @@ from agdash.db import Base, UTCDateTime
 from agdash.db.models import Event, RunLink, Session
 from agdash.vocab import EventKind, SessionState
 
-PORTABLE_TYPES = (Integer, BigInteger, String, Text, Boolean, Float, JSON, UTCDateTime)
+# LargeBinary is BLOB on SQLite and BYTEA on PostgreSQL.
+PORTABLE_TYPES = (Integer, BigInteger, String, Text, Boolean, Float, JSON, LargeBinary, UTCDateTime)
 POSTGRESQL_IDENTIFIER_LIMIT = 63
 INSTANT_SUFFIX = "_at"
 
