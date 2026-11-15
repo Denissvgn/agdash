@@ -1,4 +1,4 @@
-"""Read a process's working directory and open files, and nothing else.
+"""Read the process table, and a process's working directory and open files.
 
 A pid is reused once its process ends, so every read is tied to the process's
 start time, checked before and after the read. The probe never signals,
@@ -6,6 +6,7 @@ suspends or otherwise touches a process; it only reads what the operating
 system reports about it.
 """
 
+import os
 import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -28,6 +29,22 @@ class ProcessIdentity:
 
     pid: int
     started_at: datetime
+
+
+def _instant(created: float) -> datetime:
+    """A process start time, rounded to the millisecond so repeated reads agree."""
+    return datetime.fromtimestamp(round(created, 3), UTC)
+
+
+@dataclass(frozen=True)
+class ProcessRow:
+    """One entry of the process table. ``argv`` is raw: redact it before storing."""
+
+    identity: ProcessIdentity
+    ppid: int | None
+    name: str
+    exe: str | None
+    argv: tuple[str, ...]
 
 
 class ProcessGone(Exception):
@@ -60,12 +77,38 @@ class ProcessProbe:
             return None
         except self._psutil.AccessDenied:
             return None
-        return ProcessIdentity(pid, datetime.fromtimestamp(started, UTC))
+        return ProcessIdentity(pid, _instant(started))
+
+    def table(self) -> list[ProcessRow]:
+        """Every process of the current user, as the operating system lists it now.
+
+        Fields the system will not show are left empty rather than failing the
+        whole read.
+        """
+        me = os.getuid()
+        rows = []
+        attributes = ["pid", "ppid", "name", "exe", "cmdline", "create_time", "uids"]
+        for process in self._psutil.process_iter(attributes):
+            info = process.info
+            uids = info.get("uids")
+            created = info.get("create_time")
+            if uids is None or uids.real != me or created is None:
+                continue
+            rows.append(
+                ProcessRow(
+                    identity=ProcessIdentity(info["pid"], _instant(created)),
+                    ppid=info.get("ppid"),
+                    name=info.get("name") or "",
+                    exe=info.get("exe") or None,
+                    argv=tuple(info.get("cmdline") or ()),
+                )
+            )
+        return rows
 
     def _process(self, identity: ProcessIdentity) -> Any:
         try:
             process = self._psutil.Process(identity.pid)
-            started = datetime.fromtimestamp(process.create_time(), UTC)
+            started = _instant(process.create_time())
         except (self._psutil.NoSuchProcess, self._psutil.ZombieProcess):
             raise ProcessGone(identity.pid) from None
         if abs((started - identity.started_at).total_seconds()) > START_TIME_TOLERANCE_SECONDS:
