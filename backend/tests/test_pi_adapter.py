@@ -19,7 +19,7 @@ from agdash.ingest import Ingestor, discover_files
 from agdash.ingest.ledger import SqlLedger
 from agdash.vocab import EventKind, ThoughtsCoverage
 
-FIXTURES = Path(__file__).parent / "fixtures" / "harness" / "pi"
+FIXTURES = Path(__file__).parent / "fixtures" / "harness" / "pi" / "agent"
 SESSION_ID = "ae2777e1-f701-460b-a586-0b12feec5e97"
 
 
@@ -44,7 +44,7 @@ def ingest(store, root: Path, writer: Writer | None = None):
 
 
 def fixture_file(root: Path = FIXTURES) -> Path:
-    (path,) = root.glob("agent/sessions/*/*.jsonl")
+    (path,) = root.glob("sessions/*/*.jsonl")
     return path
 
 
@@ -91,7 +91,7 @@ def the_session(db, native_id: str = SESSION_ID) -> Session:
 
 
 def write_session(root: Path, native_id: str, records: list[dict]) -> Path:
-    folder = root / "agent" / "sessions" / "--work-example--"
+    folder = root / "sessions" / "--work-example--"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"2024-12-01T00-00-00-000Z_{native_id}.jsonl"
     path.write_text("".join(json.dumps(r) + "\n" for r in records))

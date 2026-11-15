@@ -1,8 +1,8 @@
 """Pi: one JSONL file per session, written as a tree of entries.
 
-Layout under the Pi root:
+Layout under the Pi root (~/.pi/agent):
 
-    agent/sessions/--<cwd-slug>--/<time>_<session-id>.jsonl
+    sessions/--<cwd-slug>--/<time>_<session-id>.jsonl
 
 Each entry points at its parent, so a session can branch when the person goes
 back and edits. Entries are stored in the order they were written; the tree
@@ -38,7 +38,8 @@ from agdash.normalise import UsageFormat, normalise_usage, parse_timestamp
 from agdash.vocab import EventKind, Harness, ThoughtsCoverage
 
 HARNESS = Harness.PI.value
-PATTERNS = ["agent/sessions/*/*.jsonl"]
+# Relative to the Pi root, ~/.pi/agent.
+PATTERNS = ["sessions/*/*.jsonl"]
 _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 SESSION_FILE = re.compile(rf"(?P<time>[^_]+)_(?P<id>{_UUID})\.jsonl")
 THINKING_LEVEL = "thinking_level_change"

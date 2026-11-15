@@ -27,6 +27,7 @@ def read_only_engine(database_url: str) -> Engine:
         cursor = connection.cursor()
         if sqlite:
             cursor.execute("PRAGMA query_only = ON")
+            cursor.execute("PRAGMA busy_timeout = 5000")
         else:
             cursor.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
         cursor.close()

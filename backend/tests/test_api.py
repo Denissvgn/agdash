@@ -46,7 +46,7 @@ def fill(url: str, snapshots: Path) -> None:
     for module, root in (
         (claude_code, FIXTURES / "claude"),
         (codex, FIXTURES / "codex"),
-        (pi, FIXTURES / "pi"),
+        (pi, FIXTURES / "pi" / "agent"),
     ):
         access = ReadOnlyAccess([root], snapshot_dir=snapshots)
         Ingestor(access, SqlLedger(store, module.Writer()), harness=module.HARNESS).scan(

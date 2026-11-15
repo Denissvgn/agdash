@@ -69,6 +69,9 @@ EXEMPT = {
     # Writes a session export to the new file the person named, never inside a harness
     # directory and never over an existing file.
     "export.py": {"os.open"},
+    # Creates agdash's own data directory and store, readable by their owner only, and
+    # handles the stop signals sent to agdash's own process. It never sends a signal.
+    "runtime.py": {"mkdir", "chmod", "signal"},
     # Creates agdash's own data directory for its database, when no database URL is set.
     "connectors/cli.py": {"mkdir"},
     # Development tool, not part of the service. It reads harness files only through

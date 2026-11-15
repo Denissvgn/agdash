@@ -56,7 +56,7 @@ def store(url):
 
 @pytest.fixture
 def filled(store):
-    for module, folder in ((claude_code, "claude"), (codex, "codex"), (pi, "pi")):
+    for module, folder in ((claude_code, "claude"), (codex, "codex"), (pi, "pi/agent")):
         ingest(store, module, FIXTURES / folder)
     return store
 
@@ -69,7 +69,7 @@ def pi_session(db) -> Session:
 
 
 def test_the_archive_keeps_every_line_redacted_and_compressed(filled):
-    (source,) = (FIXTURES / "pi").glob("agent/sessions/*/*.jsonl")
+    (source,) = (FIXTURES / "pi" / "agent").glob("sessions/*/*.jsonl")
     with filled() as db:
         lines = list(raw_lines(db, pi_session(db).id))
         stored = db.scalar(
@@ -83,7 +83,7 @@ def test_the_archive_keeps_every_line_redacted_and_compressed(filled):
 def test_reading_again_archives_nothing_twice(filled):
     with filled() as db:
         before = db.scalar(select(func.count()).select_from(RawChunk))
-    ingest(filled, pi, FIXTURES / "pi")
+    ingest(filled, pi, FIXTURES / "pi" / "agent")
     with filled() as db:
         assert db.scalar(select(func.count()).select_from(RawChunk)) == before
 
@@ -101,14 +101,14 @@ def test_secrets_in_raw_lines_are_redacted(store, tmp_path):
         )
         + "\n"
     )
-    ingest(store, pi, tmp_path / "pi")
+    ingest(store, pi, tmp_path / "pi" / "agent")
     with store() as db:
         (line,) = raw_lines(db, pi_session(db).id)
     assert key not in line and "[REDACTED" in line
 
 
 def test_the_archive_can_be_turned_off(store):
-    ingest(store, pi, FIXTURES / "pi", archive=False)
+    ingest(store, pi, FIXTURES / "pi" / "agent", archive=False)
     with store() as db:
         assert db.scalar(select(func.count()).select_from(RawChunk)) == 0
         assert db.scalar(select(func.count()).select_from(Event)) > 0
