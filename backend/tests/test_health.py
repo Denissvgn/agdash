@@ -6,7 +6,8 @@ from agdash.main import create_app
 
 
 def test_health_reports_ok_and_version():
-    response = TestClient(create_app()).get("/health")
+    client = TestClient(create_app(token="unused", port=8765), base_url="http://127.0.0.1:8765")
+    response = client.get("/health")  # no token: health carries no data
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "version": __version__}

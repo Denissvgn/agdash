@@ -24,6 +24,18 @@ from agdash.main import create_app
 from agdash.vocab import EventKind
 
 FIXTURES = Path(__file__).parent / "fixtures" / "harness"
+TOKEN = "test-token-for-the-api"
+
+
+def local_client(url: str) -> TestClient:
+    """A client as agdash's own app is: on loopback, with the local token."""
+    return TestClient(
+        create_app(url, token=TOKEN, port=8765),
+        base_url="http://127.0.0.1:8765",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
+
+
 DATA_METHODS = {"GET", "HEAD"}
 
 
@@ -67,7 +79,7 @@ def filled(tmp_path_factory) -> str:
 
 @pytest.fixture(scope="module")
 def client(filled):
-    with TestClient(create_app(filled)) as test_client:
+    with local_client(filled) as test_client:
         yield test_client
 
 
@@ -117,7 +129,7 @@ def test_the_api_connection_refuses_to_write(client):
 def test_reading_every_endpoint_leaves_the_store_unchanged(filled):
     path = Path(filled.removeprefix("sqlite:///"))
     before = hashlib.sha256(path.read_bytes()).hexdigest()
-    with TestClient(create_app(filled)) as fresh:
+    with local_client(filled) as fresh:
         session_id = fresh.get("/api/sessions").json()["items"][0]["id"]
         for url in (
             "/api/sessions",
@@ -134,6 +146,7 @@ def test_the_openapi_document_describes_every_endpoint(client):
     document = client.get("/api/openapi.json").json()
     assert set(document["paths"]) == {
         "/health",
+        "/api/stream",
         "/api/sessions",
         "/api/sessions/{session_id}",
         "/api/sessions/{session_id}/events",
@@ -265,7 +278,7 @@ def test_without_the_index_search_falls_back_to_a_substring_match(filled, tmp_pa
         db.execute("DROP TABLE event_search")
     db.close()
     word, session_id = a_prompt_word(filled)
-    with TestClient(create_app(f"sqlite:///{copy}")) as fallback:
+    with local_client(f"sqlite:///{copy}") as fallback:
         hits = every(fallback, "/api/search", q=word)
     assert any(h["session_id"] == session_id for h in hits)
     assert all(
@@ -345,7 +358,7 @@ def long_session(tmp_path_factory) -> tuple[str, int]:
 
 def test_paging_a_50000_event_session_reads_one_page_at_a_time(long_session):
     url, session_id = long_session
-    with TestClient(create_app(url)) as long_client:
+    with local_client(url) as long_client:
         statements: list[tuple[str, dict]] = []
 
         @event.listens_for(long_client.app.state.store.engine, "before_cursor_execute")

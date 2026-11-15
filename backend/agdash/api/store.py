@@ -5,6 +5,7 @@ itself, so a mistake in a handler cannot change collected data.
 """
 
 from collections.abc import Iterator
+from contextlib import contextmanager
 from threading import Lock
 
 from sqlalchemy import Engine, create_engine, event, text
@@ -51,10 +52,16 @@ class Store:
                 self._sessions = sessionmaker(self._engine, expire_on_commit=False)
             return self._engine
 
-    def session(self) -> Iterator[DbSession]:
+    @contextmanager
+    def reading(self) -> Iterator[DbSession]:
         self.engine  # noqa: B018 - opens the engine on first use
         assert self._sessions is not None
         with self._sessions() as db:
+            yield db
+
+    def session(self) -> Iterator[DbSession]:
+        """For FastAPI's dependency injection."""
+        with self.reading() as db:
             yield db
 
     def has_search_index(self, db: DbSession) -> bool:

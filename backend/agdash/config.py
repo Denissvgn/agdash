@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     # No default: where the store lives is decided per platform, not here.
     database_url: str | None = None
+    # Origins allowed besides the service's own loopback address and the desktop app.
+    extra_origins: list[str] = []
 
 
 @lru_cache
