@@ -532,3 +532,15 @@ def test_media_types_are_kept_but_paths_under_them_are_not():
         "media_type": "image/png",
     }
     assert anon.value({"media_type": "/Users/janedoe/x.png"})["media_type"].startswith("/work/")
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["started_at", "startedAt", "nameSince", "last_modified_time", "timestamp", "completedAtMs"],
+)
+def test_epoch_numbers_under_time_keys_are_shifted(key):
+    anon = Anonymiser(SALT)
+    shifted = anon.value({key: 1794761852317})[key]
+    assert shifted < 1794761852317 - 360 * 86400 * 1000
+    assert anon.value({key: 1794761852})[key] < 1794761852 - 360 * 86400
+    assert anon.value({"count": 1794761852317})["count"] == 1794761852317

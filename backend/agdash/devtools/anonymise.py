@@ -59,7 +59,7 @@ TOOL_TYPES = frozenset(
         "tool_call",
     }
 )
-EPOCH_KEY = re.compile(r"(_at|_ms|[Tt]ime|timestamp|Timestamp|resetsAt)$")
+EPOCH_KEY = re.compile(r"(_at|_ms|At|Since|[Tt]ime|timestamp|Timestamp|Ms)$")
 
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 _ENUM_VALUE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:+@-]{0,79}")

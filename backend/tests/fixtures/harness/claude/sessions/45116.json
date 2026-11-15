@@ -2,7 +2,7 @@
   "pid": 45116,
   "sessionId": "9dd3762f-e899-4645-b9aa-9fda84f799f5",
   "cwd": "/work/granite/crane/atlas",
-  "startedAt": 1794761852317,
+  "startedAt": 1735214728317,
   "procStart": "citrus nectar bluff geyser kestrel",
   "version": "2.1.325",
   "peerProtocol": 1,
@@ -18,8 +18,8 @@
   "asksForConvertedSkills": null,
   "messagingSocketPath": "/work/river/blossom.sock",
   "name": "arch ivory horizon canyon",
-  "nameSince": 1794761852317,
-  "updatedAt": 1794765762988,
+  "nameSince": 1735214728317,
+  "updatedAt": 1735220107469,
   "status": "busy",
-  "statusUpdatedAt": 1794765762988
+  "statusUpdatedAt": 1735220107469
 }
