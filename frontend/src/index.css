@@ -1,3 +1,51 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /* The root keeps the browser's 16px so rem-based token sizes mean what DESIGN.md says. */
+  html {
+    @apply bg-canvas-mist font-sans text-primary-ink antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    scrollbar-color: theme('colors.strong-rule / 45%') transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply min-h-dvh text-body;
+  }
+
+  ::selection {
+    @apply bg-planning-thread-soft text-primary-ink;
+  }
+
+  input,
+  textarea {
+    caret-color: theme('colors.planning-thread');
+  }
+
+  :focus-visible {
+    outline: 2px solid theme('colors.planning-thread');
+    outline-offset: 2px;
+  }
+
+  a {
+    text-underline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Measured data and identifiers line up in columns. */
+  .data {
+    font-variant-numeric: tabular-nums;
+  }
+}

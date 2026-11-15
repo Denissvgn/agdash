@@ -1,0 +1,124 @@
+{
+  "app": {
+    "name": "agdash",
+    "home": "agdash, go to the live board"
+  },
+  "shell": {
+    "skipToContent": "Skip to content",
+    "workspaces": "Workspaces",
+    "sections": "{{workspace}} sections",
+    "openMenu": "Menu",
+    "closeMenu": "Close navigation",
+    "navigation": "Navigation",
+    "readOnly": "Read-only",
+    "readOnlyDetail": "agdash observes your agents and never changes them.",
+    "documentTitle": "{{page}} · {{app}}"
+  },
+  "unavailable": {
+    "title": "Not available yet",
+    "what": "What will appear here",
+    "waitsOn": "Waits on"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "body": "This address is not part of agdash.",
+    "action": "Go to the live board"
+  },
+  "workspaces": {
+    "live": {
+      "label": "Live",
+      "destinations": {
+        "board": {
+          "label": "Board",
+          "title": "Live board",
+          "purpose": "Every agent session running on this machine, with its state and the evidence behind it.",
+          "what": "Active, waiting and idle sessions grouped by harness and project, with sessions started by other sessions nested under them.",
+          "waitsOn": "The agdash service's live stream."
+        }
+      }
+    },
+    "history": {
+      "label": "History",
+      "destinations": {
+        "sessions": {
+          "label": "Sessions",
+          "title": "Sessions",
+          "purpose": "Every session agdash has recorded, newest first, with its task, model, usage and outcome.",
+          "what": "A filterable list of sessions; open one to read its full timeline of prompts, thoughts and tool calls.",
+          "waitsOn": "The agdash service's read API."
+        },
+        "search": {
+          "label": "Search",
+          "title": "Search",
+          "purpose": "Find sessions by what was asked, said or run.",
+          "what": "Full-text search across prompts, replies, thoughts and tool calls.",
+          "waitsOn": "The agdash service's read API."
+        }
+      }
+    },
+    "projects": {
+      "label": "Projects",
+      "destinations": {
+        "board": {
+          "label": "By project",
+          "title": "Sessions by project",
+          "purpose": "Sessions grouped by the WorkChord project they work under.",
+          "what": "Each WorkChord project with the agents working under it, their tasks, and the evidence for every mapping.",
+          "waitsOn": "A connected WorkChord server."
+        },
+        "unmapped": {
+          "label": "Unmapped",
+          "title": "Unmapped sessions",
+          "purpose": "Sessions with no evidence linking them to a WorkChord project.",
+          "what": "A queue of sessions agdash could not map, to map by hand or by a folder rule.",
+          "waitsOn": "A connected WorkChord server."
+        }
+      }
+    },
+    "analytics": {
+      "label": "Analytics",
+      "destinations": {
+        "usage": {
+          "label": "Usage",
+          "title": "Usage",
+          "purpose": "Tokens, cost and time by harness, model and project.",
+          "what": "Usage as each harness reported it, with missing numbers shown as missing rather than zero.",
+          "waitsOn": "The agdash service's read API."
+        },
+        "tools": {
+          "label": "Tools",
+          "title": "Tool use",
+          "purpose": "Which tools agents call, and how often.",
+          "what": "Tool calls by harness, model and project, with their outcomes.",
+          "waitsOn": "The agdash service's read API."
+        }
+      }
+    },
+    "settings": {
+      "label": "Settings",
+      "destinations": {
+        "sources": {
+          "label": "Sources",
+          "title": "Sources",
+          "purpose": "What agdash can see on this machine.",
+          "what": "Each harness agdash found, the files it reads, and any records it could not understand.",
+          "waitsOn": "The agdash service."
+        },
+        "workchord": {
+          "label": "WorkChord",
+          "title": "WorkChord",
+          "purpose": "Connect a WorkChord server to map sessions to projects, agents and tasks.",
+          "what": "Your connected servers and what each one lets agdash read.",
+          "waitsOn": "The connector to WorkChord."
+        },
+        "data": {
+          "label": "Data",
+          "title": "Data",
+          "purpose": "How long agdash keeps history, and exporting it.",
+          "what": "Retention settings and exports of sessions to JSONL or Markdown.",
+          "waitsOn": "The agdash service."
+        }
+      }
+    }
+  }
+}

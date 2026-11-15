@@ -1,0 +1,109 @@
+{
+  "colors": {
+    "planning-thread": "rgb(37 99 235)",
+    "planning-thread-hover": "rgb(29 78 216)",
+    "planning-thread-soft": "rgb(239 246 255)",
+    "conductor-navy": "rgb(14 30 64)",
+    "conductor-panel": "rgb(24 48 91)",
+    "canvas-mist": "rgb(248 250 252)",
+    "working-paper": "rgb(255 255 255)",
+    "primary-ink": "rgb(15 23 42)",
+    "secondary-ink": "rgb(71 85 105)",
+    "strong-rule": "rgb(100 116 139)",
+    "status-planned": "rgb(100 116 139)",
+    "status-active": "rgb(8 145 178)",
+    "status-resolved": "rgb(16 185 129)",
+    "status-closed": "rgb(168 85 247)",
+    "feedback-warning": "rgb(217 119 6)",
+    "feedback-danger": "rgb(220 38 38)"
+  },
+  "typography": {
+    "display": {
+      "fontFamily": "Inter Variable, Inter, system-ui, sans-serif",
+      "fontSize": "1.5rem",
+      "fontWeight": 600,
+      "lineHeight": 1.18,
+      "letterSpacing": "-0.02em"
+    },
+    "headline": {
+      "fontFamily": "Inter Variable, Inter, system-ui, sans-serif",
+      "fontSize": "1.25rem",
+      "fontWeight": 600,
+      "lineHeight": 1.18
+    },
+    "title": {
+      "fontFamily": "Inter Variable, Inter, system-ui, sans-serif",
+      "fontSize": "1rem",
+      "fontWeight": 600,
+      "lineHeight": 1.25
+    },
+    "body": {
+      "fontFamily": "Inter Variable, Inter, system-ui, sans-serif",
+      "fontSize": "0.875rem",
+      "fontWeight": 400,
+      "lineHeight": 1.5
+    },
+    "label": {
+      "fontFamily": "Inter Variable, Inter, system-ui, sans-serif",
+      "fontSize": "0.8125rem",
+      "fontWeight": 500,
+      "lineHeight": 1.25
+    }
+  },
+  "rounded": {
+    "compact": "4px",
+    "control": "6px",
+    "surface": "8px",
+    "panel": "10px",
+    "feature": "14px"
+  },
+  "spacing": {
+    "xs": "4px",
+    "sm": "8px",
+    "md": "16px",
+    "page-gap": "20px",
+    "lg": "24px",
+    "page-x": "32px",
+    "xl": "48px"
+  },
+  "components": {
+    "button-primary": {
+      "backgroundColor": "{colors.primary-ink}",
+      "textColor": "{colors.working-paper}",
+      "typography": "{typography.body}",
+      "rounded": "{rounded.control}",
+      "padding": "0 12px",
+      "height": "34px"
+    },
+    "button-secondary": {
+      "backgroundColor": "{colors.working-paper}",
+      "textColor": "{colors.primary-ink}",
+      "typography": "{typography.body}",
+      "rounded": "{rounded.control}",
+      "padding": "0 12px",
+      "height": "34px"
+    },
+    "input": {
+      "backgroundColor": "{colors.working-paper}",
+      "textColor": "{colors.primary-ink}",
+      "typography": "{typography.body}",
+      "rounded": "{rounded.control}",
+      "padding": "0 10px",
+      "height": "34px"
+    },
+    "card": {
+      "backgroundColor": "{colors.working-paper}",
+      "textColor": "{colors.primary-ink}",
+      "rounded": "{rounded.surface}",
+      "padding": "20px"
+    },
+    "workspace-active": {
+      "backgroundColor": "{colors.conductor-panel}",
+      "textColor": "{colors.working-paper}",
+      "typography": "{typography.body}",
+      "rounded": "{rounded.control}",
+      "padding": "6px 10px",
+      "height": "36px"
+    }
+  }
+}

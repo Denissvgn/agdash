@@ -1,0 +1,70 @@
+{
+  "source": "Values stated in the prose of WorkChord's DESIGN.md rather than in its frontmatter; each group names its section.",
+  "shadows": {
+    "section": "Elevation & Depth / Shadow Vocabulary",
+    "resting": "0 1px 0 rgba(15,18,24,.04), 0 1px 2px rgba(15,18,24,.04)",
+    "raised": "0 1px 0 rgba(15,18,24,.04), 0 4px 12px rgba(15,18,24,.06)",
+    "popover": "0 8px 28px rgba(15,18,24,.10), 0 2px 6px rgba(15,18,24,.06)"
+  },
+  "layout": {
+    "section": "Layout",
+    "conductorHeight": "52px",
+    "sidebarWidth": "220px",
+    "pageMaxWidth": "1240px",
+    "pageGutterX": "32px",
+    "pageGutterY": "24px",
+    "phoneGutterX": "16px",
+    "drawerBelow": "1180px",
+    "phoneBelow": "520px",
+    "coarseTarget": "44px"
+  },
+  "type": {
+    "section": "Typography / Hierarchy",
+    "metadata": "0.75rem",
+    "counter": "0.6875rem"
+  },
+  "controls": {
+    "section": "Components / Buttons",
+    "large": "38px",
+    "small": "30px"
+  },
+  "derived": {
+    "section": "Not stated in DESIGN.md. Each value is a token colour at a fixed opacity, filling a role DESIGN.md names but gives no value for.",
+    "colors": {
+      "hairline": {
+        "value": "rgb(100 116 139 / 0.2)",
+        "base": "strong-rule",
+        "fills": "Shapes: \"Structural containers use 1px semantic borders\"; no border token is given, and strong-rule at full strength is for high-information input borders."
+      },
+      "inverse-muted": {
+        "value": "rgb(255 255 255 / 0.75)",
+        "base": "working-paper",
+        "fills": "Navigation: inactive workspaces on the conductor bar; no inverse secondary text token is given."
+      },
+      "inverse-soft": {
+        "value": "rgb(255 255 255 / 0.85)",
+        "base": "working-paper",
+        "fills": "Navigation: secondary controls and the status marker on the conductor bar."
+      },
+      "inverse-rule": {
+        "value": "rgb(255 255 255 / 0.2)",
+        "base": "working-paper",
+        "fills": "Chips: \"Small bordered pills\" on the conductor bar; no inverse border token is given."
+      },
+      "conductor-hover": {
+        "value": "rgb(24 48 91 / 0.6)",
+        "base": "conductor-panel",
+        "fills": "Buttons: \"Fast background and border shifts\" on hover over the conductor bar."
+      },
+      "scrim": {
+        "value": "rgb(15 23 42 / 0.3)",
+        "base": "primary-ink",
+        "fills": "Elevation & Depth: drawers and temporary overlays; no scrim token is given."
+      }
+    },
+    "stateDuration": {
+      "value": "160ms",
+      "fills": "Overview: \"Motion is brief and explanatory\"; no duration is given."
+    }
+  }
+}
