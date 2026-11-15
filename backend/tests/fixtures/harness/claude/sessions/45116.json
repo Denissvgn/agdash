@@ -1,0 +1,25 @@
+{
+  "pid": 45116,
+  "sessionId": "9dd3762f-e899-4645-b9aa-9fda84f799f5",
+  "cwd": "/work/granite/crane/atlas",
+  "startedAt": 1794761852317,
+  "procStart": "citrus nectar bluff geyser kestrel",
+  "version": "2.1.325",
+  "peerProtocol": 1,
+  "peerFeatures": [
+    "lichen",
+    "XC3lOAftRGrw3HMU_PRra90aj",
+    "topaz"
+  ],
+  "kind": "interactive",
+  "entrypoint": "claude-desktop",
+  "hostSessionId": "R2BtvknG0RtNlFP4pTLriJ7DWFyD40B3VlaUDW4uP3",
+  "pidDomain": "hazel",
+  "asksForConvertedSkills": null,
+  "messagingSocketPath": "/work/river/blossom.sock",
+  "name": "arch ivory horizon canyon",
+  "nameSince": 1794761852317,
+  "updatedAt": 1794765762988,
+  "status": "busy",
+  "statusUpdatedAt": 1794765762988
+}
