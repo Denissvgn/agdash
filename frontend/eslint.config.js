@@ -21,5 +21,9 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // A labelled region that scrolls sideways must take keyboard focus, or it cannot be scrolled.
+      'jsx-a11y/no-noninteractive-tabindex': ['error', { tags: [], roles: ['tabpanel', 'region'] }],
+    },
   },
 ])

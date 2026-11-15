@@ -72,3 +72,47 @@ export interface Facets {
   first_started_at: string | null
   last_started_at: string | null
 }
+
+export type UsageGroup = 'harness' | 'model' | 'folder'
+
+/** Null means the harness did not report the number; it is never a zero. */
+export interface UsageRow {
+  key: string | null
+  sessions: number
+  sessions_with_usage: number
+  messages: number
+  input_tokens: number | null
+  output_tokens: number | null
+  cache_read_tokens: number | null
+  cache_write_tokens: number | null
+  reasoning_tokens: number | null
+  reported_cost: number | null
+  duration_seconds: number | null
+  sessions_with_duration: number | null
+  /** Per number, how many sessions reported it. */
+  reported_by?: Record<string, number>
+}
+
+export interface UsageReport {
+  group: UsageGroup
+  rows: UsageRow[]
+  total: UsageRow
+  sessions_without_usage: number
+}
+
+export interface ToolRow {
+  name: string
+  calls: number
+  sessions: number
+  outcomes_known: number
+  errors: number
+}
+
+export interface ToolReport {
+  rows: ToolRow[]
+  total_calls: number
+  total_sessions: number
+  truncated: boolean
+  outcomes_known: number
+  errors: number
+}

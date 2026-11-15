@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react'
+import { ToolsPage, UsagePage } from '../analytics/pages'
 import { SearchPage, SessionsPage } from '../history/pages'
 
 /**
@@ -8,4 +9,6 @@ import { SearchPage, SessionsPage } from '../history/pages'
 export const PAGES: Record<string, ComponentType> = {
   'history:sessions': SessionsPage,
   'history:search': SearchPage,
+  'analytics:usage': UsagePage,
+  'analytics:tools': ToolsPage,
 }

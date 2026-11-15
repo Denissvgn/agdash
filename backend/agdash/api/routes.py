@@ -660,11 +660,12 @@ def search_sessions(
 @router.get("/stats", response_model=Stats, summary="Counts and usage")
 def stats(
     db: Db,
+    filters: Filters,
     since: datetime | None = None,
     until: datetime | None = None,
 ) -> dict[str, Any]:
-    """Sessions active in the window, their events, and token usage by harness and model."""
-    sessions = select(Session.id)
+    """Sessions the filters select and active in the window, their events, and their usage."""
+    sessions = filters.apply(select(Session.id))
     if since is not None:
         sessions = sessions.where(_SORT >= since)
     if until is not None:

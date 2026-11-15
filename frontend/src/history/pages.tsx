@@ -1,45 +1,18 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { getJson } from '../api/client'
-import type { Facets, Page, SessionHit, SessionSummary } from '../api/types'
-import { useDocumentTitle } from '../shell/useDocumentTitle'
+import type { Page, SessionHit, SessionSummary } from '../api/types'
 import { FilterBar } from './FilterBar'
-import { apiParams, isFiltered, readFilters, writeFilters, type Filters } from './filters'
+import { apiParams, isFiltered } from './filters'
+import { useAddressFilters, useFacets } from './hooks'
+import { PageHeader } from './PageHeader'
 import { ErrorNotice, LoadingRows, Notice, SessionRows, ShowMore } from './SessionList'
 
 const PAGE_SIZE = 30
 
-function useFacets() {
-  return useQuery({
-    queryKey: ['session-facets'],
-    queryFn: ({ signal }) => getJson<Facets>('/api/sessions/facets', {}, signal),
-    staleTime: 60_000,
-  })
-}
-
-/** The filters in the address, and a way to change them that keeps the rest of it. */
-function useAddressFilters(): [Filters, (filters: Filters) => void, URLSearchParams] {
-  const [search, setSearch] = useSearchParams()
-  const filters = readFilters(search)
-  const change = (next: Filters) => setSearch(writeFilters(search, next))
-  return [filters, change, search]
-}
-
-function PageHeader({ titleKey, purposeKey }: { titleKey: string; purposeKey: string }) {
-  const { t } = useTranslation()
-  useDocumentTitle(t(titleKey))
-  return (
-    <header className="flex flex-col gap-xs">
-      <h1 className="text-display text-primary-ink" id="page-title">
-        {t(titleKey)}
-      </h1>
-      <p className="max-w-[70ch] text-body text-secondary-ink">{t(purposeKey)}</p>
-    </header>
-  )
-}
 
 export function SessionsPage() {
   const { t } = useTranslation()

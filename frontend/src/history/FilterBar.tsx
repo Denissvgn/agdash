@@ -158,7 +158,7 @@ export function FilterBar({ filters, facets, onChange, showCounts = true }: Prop
             </span>
           )}
         </Field>
-        <fieldset className="grid min-w-0 grid-cols-2 gap-md roomy:col-span-2 wide:col-span-2">
+        <fieldset className="grid min-w-0 grid-cols-2 gap-md roomy:col-span-2 wide:col-span-1">
           <legend className="sr-only">{t('history.filters.started')}</legend>
           <Field id={`${id}-from`} label={t('history.filters.from')}>
             <input

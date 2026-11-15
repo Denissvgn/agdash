@@ -328,6 +328,21 @@ Empty and error states share one quiet panel: working paper, hairline, 8px corne
 - **Disabled:** canvas mist and secondary ink at full opacity (browsers fade disabled controls otherwise), with a not-allowed cursor; it stays labelled.
 - **Fields:** working paper, 1px strong-rule border, 6px corners, 34px (44px on coarse pointers), 10px side padding; placeholder in secondary ink; on focus a cobalt border and a 3px planning-thread soft ring.
 
+### Data tables
+
+The Analytics pages show figures as a ledger: one table per page, never metric tiles, gauges or sparklines.
+
+- **Surface:** working paper, 1px hairline, 8px corners, resting shadow; it scrolls sideways inside its own box on narrow windows, and the page itself never does.
+- **Structure:** a visually hidden caption; column headers in Label size, 500 weight, secondary ink; row headers on the left, never wrapped; hairline row dividers; a totals row under a 1px strong rule, in 600 weight.
+- **Numbers:** right-aligned, tabular numerals, grouped digits; 12px cell padding. Cost in US dollars as reported. Durations in hours and minutes.
+- **Unknown and partial:** a number the harness did not report is a dash in secondary ink with a visually hidden "not reported", never a zero. A reported zero shows as 0. A sum built from only some of the sessions with usage carries a second line, "from 3 of 15", in 12px secondary ink, and so does a summed time that only some sessions had; a row whose sessions only partly reported usage says so under its session count ("3 with usage"). Notes under the table explain dashes, sessions with no usage, and that elapsed time includes idle time.
+- **Units and scrolling:** a "Tokens" header spans the five token columns. The table box is a labelled region that takes keyboard focus so it can be scrolled sideways, and its first column stays in view while it scrolls.
+- **Omitted columns:** a column that can never hold a value for the current grouping (time, grouped by model) is left out, and a note says why.
+
+### Grouping switch
+
+"Group by" with Harness, Model and Folder: native radio buttons, visually hidden, inside pills styled as the filter pills. The checked pill takes the planning-thread soft fill, cobalt border and cobalt text; keyboard focus draws the 2px cobalt outline around the pill. The choice lives in the page address.
+
 ### Primary action
 
 Used once per page or protected decision area, per upstream: primary-ink fill, working-paper text, 34px tall (44px on coarse pointers), 12px side padding, 6px corners, an optional 16px icon. Hover shifts the fill to conductor panel. It appears on the page-not-found view, leading back to the live board, and as "Search" on the search page.

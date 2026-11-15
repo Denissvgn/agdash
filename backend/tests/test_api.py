@@ -157,6 +157,8 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/search/sessions",
         "/api/sessions/facets",
         "/api/stats",
+        "/api/analytics/usage",
+        "/api/analytics/tools",
     }
     assert all(set(operations) == {"get"} for operations in document["paths"].values())
     for schema in ("SessionSummary", "SessionDetail", "EventOut", "SearchHit", "Stats"):
@@ -484,3 +486,156 @@ def test_session_search_without_the_index(filled, tmp_path):
     with local_client(f"sqlite:///{copy}") as fallback:
         found = every(fallback, "/api/search/sessions", q=word)
     assert any(s["id"] == session_id for s in found)
+
+
+# -- analytics ----------------------------------------------------------------------
+
+METRICS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "reasoning_tokens",
+    "reported_cost",
+)
+
+
+def summed(groups, metric):
+    values = [g[metric] for g in groups if g[metric] is not None]
+    return round(sum(values), 6) if values else None
+
+
+@pytest.mark.parametrize("group", ["harness", "model", "folder"])
+def test_analytics_totals_match_the_stats_endpoint_for_the_same_filters(client, group):
+    facets = client.get("/api/sessions/facets").json()
+    filter_sets = [
+        {},
+        {"harness": "codex"},
+        {"harness": ["claude_code", "pi"]},
+        {"model": facets["models"][0]["value"]},
+        {"folder": facets["folders"][0]["value"]},
+    ]
+    for filters in filter_sets:
+        stats = client.get("/api/stats", params=filters).json()
+        report = client.get("/api/analytics/usage", params={**filters, "group": group}).json()
+        total = report["total"]
+        assert total["sessions"] == stats["sessions"], filters
+        assert total["messages"] == sum(g["messages"] for g in stats["usage"]), filters
+        for metric in METRICS:
+            mine = None if total[metric] is None else round(total[metric], 6)
+            assert mine == summed(stats["usage"], metric), (filters, metric)
+            assert summed(report["rows"], metric) == mine, (filters, group, metric)
+        if group != "model":
+            assert sum(r["sessions"] for r in report["rows"]) == total["sessions"]
+
+
+def test_analytics_by_model_leave_duration_unknown(client):
+    report = client.get("/api/analytics/usage", params={"group": "model"}).json()
+    assert report["rows"] and all(r["duration_seconds"] is None for r in report["rows"])
+    assert report["total"]["duration_seconds"] is not None
+
+
+def test_tool_mix_counts_every_call(client, filled):
+    report = client.get("/api/analytics/tools").json()
+    engine, store = direct(filled)
+    with store() as db:
+        calls = db.scalar(
+            select(func.count()).select_from(Event).where(Event.kind == EventKind.TOOL_CALL)
+        )
+    engine.dispose()
+    assert report["total_calls"] == calls
+    assert sum(r["calls"] for r in report["rows"]) == calls
+    assert 0 < report["outcomes_known"] <= calls
+    assert all(r["errors"] <= r["outcomes_known"] <= r["calls"] for r in report["rows"])
+    counts = [r["calls"] for r in report["rows"]]
+    assert counts == sorted(counts, reverse=True)
+    pi = client.get("/api/analytics/tools", params={"harness": "pi"}).json()
+    assert 0 < pi["total_calls"] < calls
+
+
+@pytest.fixture
+def synthetic(tmp_path):
+    """Two sessions of one harness: one reports usage without cache writes, one reports none."""
+    url = f"sqlite:///{tmp_path / 'synthetic.db'}"
+    upgrade(url)
+    engine = create_engine(url)
+    start = datetime(2024, 12, 1, 9, tzinfo=UTC)
+    with sessionmaker(engine)() as db:
+        talking = Session(
+            harness="pi",
+            native_id="talking",
+            started_at=start,
+            last_activity_at=start + timedelta(minutes=30),
+            models=["m"],
+        )
+        silent = Session(harness="pi", native_id="silent", started_at=start)
+        other = Session(harness="codex", native_id="other")
+        db.add_all([talking, silent, other])
+        db.flush()
+        db.add_all(
+            [
+                Event(
+                    session_id=talking.id,
+                    sequence=0,
+                    kind=EventKind.USAGE,
+                    payload={
+                        "scope": "message",
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                        "model": "m",
+                    },
+                ),
+                Event(
+                    session_id=talking.id,
+                    sequence=32,
+                    kind=EventKind.TOOL_CALL,
+                    payload={"name": "bash", "call_id": "c1"},
+                ),
+                Event(
+                    session_id=talking.id,
+                    sequence=64,
+                    kind=EventKind.TOOL_RESULT,
+                    payload={"call_id": "c1", "output": "boom", "is_error": True},
+                ),
+                Event(
+                    session_id=talking.id,
+                    sequence=96,
+                    kind=EventKind.TOOL_CALL,
+                    payload={"name": "bash", "call_id": "c2"},
+                ),
+            ]
+        )
+        db.commit()
+    engine.dispose()
+    return url
+
+
+def test_unknown_usage_stays_unknown_and_partial_totals_say_so(synthetic):
+    with local_client(synthetic) as client:
+        report = client.get("/api/analytics/usage", params={"group": "harness"}).json()
+        tools = client.get("/api/analytics/tools").json()
+    rows = {row["key"]: row for row in report["rows"]}
+    pi, codex = rows["pi"], rows["codex"]
+    assert (pi["sessions"], pi["sessions_with_usage"]) == (2, 1), "partial, and it says so"
+    assert (pi["input_tokens"], pi["output_tokens"]) == (10, 5)
+    assert pi["cache_write_tokens"] is None and pi["reported_cost"] is None, "never zero"
+    assert pi["duration_seconds"] == 1800 and pi["sessions_with_duration"] == 1
+    assert codex["messages"] == 0 and codex["sessions_with_usage"] == 0
+    assert all(codex[m] is None for m in METRICS), "nothing reported is null, not zero"
+    assert codex["duration_seconds"] is None
+    assert report["sessions_without_usage"] == 2
+    assert report["total"]["cache_write_tokens"] is None
+    (bash,) = tools["rows"]
+    assert (bash["calls"], bash["outcomes_known"], bash["errors"]) == (2, 1, 1)
+    assert pi["reported_by"]["input_tokens"] == 1 and pi["reported_by"]["cache_write_tokens"] == 0
+    assert report["total"]["reported_by"]["reported_cost"] == 0
+    assert (tools["total_sessions"], tools["truncated"]) == (1, False)
+
+
+def test_partial_sums_say_how_many_sessions_they_cover(client):
+    total = client.get("/api/analytics/usage").json()["total"]
+    covered = total["reported_by"]
+    assert set(covered) == set(METRICS)
+    assert all(0 <= count <= total["sessions_with_usage"] for count in covered.values())
+    # Only Pi reports a cost in the fixtures: the cost sum must not read as everyone's.
+    assert covered["reported_cost"] < total["sessions_with_usage"]
