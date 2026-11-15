@@ -109,10 +109,16 @@ def store_events(
     offset: int,
     events: Iterable[ParsedEvent],
     source_file: str,
+    *,
+    first_index: int = 0,
 ) -> int:
-    """Store the events of one line. Returns how many were new; invalid events raise."""
+    """Store the events of one line. Returns how many were new; invalid events raise.
+
+    ``first_index`` places the first event further along the line's sequence range,
+    for sources that are not lines and keep several kinds of event apart.
+    """
     stored = 0
-    for index, event in enumerate(events):
+    for index, event in enumerate(events, start=first_index):
         if index >= EVENTS_PER_LINE:
             break
         payload = redact_value(event.payload)

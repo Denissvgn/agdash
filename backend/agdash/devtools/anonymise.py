@@ -252,7 +252,10 @@ class Anonymiser:
         if key in ENUM_KEYS and _ENUM_VALUE.fullmatch(value):
             return True
         is_tool_name = key in TOOL_KEYS or (
-            key == "name" and parent is not None and parent.get("type") in TOOL_TYPES
+            key == "name"
+            and parent is not None
+            # a typed tool block, or a bare call such as {"name": ..., "args": {...}}
+            and (parent.get("type") in TOOL_TYPES or ("args" in parent and len(parent) <= 3))
         )
         return is_tool_name and _ENUM_VALUE.fullmatch(value) is not None
 

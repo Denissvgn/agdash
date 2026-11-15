@@ -29,6 +29,7 @@ npm-debug.log*
 !backend/tests/fixtures/**/*.db
 !backend/tests/fixtures/**/*.sqlite
 logs/
+!backend/tests/fixtures/**/logs/
 .runtime/
 
 # Generated artifacts

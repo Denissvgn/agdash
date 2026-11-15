@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from agdash.access.guard import assert_untouched
+from agdash.adapters.antigravity import split_body
 from agdash.devtools.anonymise import LEXICON, Anonymiser
 from agdash.devtools.fixture_kit import FixtureError, generate, load_salt, main
 from agdash.ingest.compressed import compress, decompress
@@ -268,6 +269,33 @@ def build_home(home: Path) -> Path:
     ]
     jsonl(pi / f"2026-11-11T10-00-00-000Z_{PI_ID}.jsonl", records)
 
+    user_body = "PROMPTMARKER first ask\nPROMPTMARKER second ask"
+    agent_body = "THOUGHTMARKER first answer"
+    user_offsets = json.dumps([[0, 0], [5, len("PROMPTMARKER first ask\n")]]).encode()
+    agent_offsets = json.dumps([[2, 0]]).encode()
+    transcript = [
+        {
+            "step_index": 0,
+            "source": "USER_EXPLICIT",
+            "type": "USER_INPUT",
+            "status": "DONE",
+            "created_at": "2026-11-11T10:00:00Z",
+            "content": "PROMPTMARKER first ask",
+        },
+        {
+            "step_index": 1,
+            "source": "MODEL",
+            "type": "PLANNER_RESPONSE",
+            "status": "DONE",
+            "created_at": "2026-11-11T10:00:01Z",
+            "model": "gemini-4-argon-high",
+            "thinking": "THOUGHTMARKER plan",
+            "tool_calls": [{"name": "run_command", "args": {"CommandLine": f"ls {PROJECT}"}}],
+            "input_tokens": 10,
+            "cache_read_tokens": 90,
+            "output_tokens": 5,
+        },
+    ]
     for name, rows in (("antigravity", 2), ("antigravity-cli", 1)):
         base = home / ".gemini" / name
         (base / "brain" / CONVERSATION).mkdir(parents=True)
@@ -275,37 +303,50 @@ def build_home(home: Path) -> Path:
             "# TITLEMARKER\n\nPROMPTMARKER do the thing\n"
         )
         (base / "brain" / CONVERSATION / "janedoe-notes.md").write_text("THOUGHTMARKER\n")
+        jsonl(
+            base / "brain" / CONVERSATION / ".system_generated" / "logs" / "transcript_full.jsonl",
+            transcript,
+        )
         db = sqlite3.connect(base / "conversation_summaries.db")
         db.execute(
             "CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, title TEXT, "
-            "preview TEXT, step_count INTEGER, last_modified_time INTEGER, workspace_uris TEXT, "
+            "preview TEXT, step_count INTEGER, last_modified_time TEXT, workspace_uris TEXT, "
             "status TEXT, parent_conversation_id TEXT, not_fully_idle INTEGER)"
         )
         db.execute(
-            "CREATE VIRTUAL TABLE conversations_fts USING fts5("
-            "conversation_id, title, user_body, agent_body)"
+            "CREATE VIRTUAL TABLE conversations_fts USING fts5(conversation_id UNINDEXED, "
+            "chunk_index UNINDEXED, archived UNINDEXED, user_step_byte_offsets UNINDEXED, "
+            "agent_step_byte_offsets UNINDEXED, title, user_body, agent_body)"
         )
         db.execute("CREATE TABLE search_schema_version (version INTEGER)")
         db.execute("INSERT INTO search_schema_version VALUES (2)")
         for i in range(rows + 2):
             cid = CONVERSATION if i == 0 else f"{i:08d}-0000-4000-8000-000000000000"
+            child = i == 1
+            if child:
+                folder = base / "brain" / cid / ".system_generated" / "logs"
+                jsonl(folder / "transcript_full.jsonl", transcript[:1])
             db.execute(
                 "INSERT INTO conversation_summaries VALUES (?,?,?,?,?,?,?,?,?)",
                 (
                     cid,
                     "TITLEMARKER conversation",
                     "PROMPTMARKER preview",
-                    i + 1,
-                    1762855200000 + i,
+                    100 + i,
+                    f"2026-11-11T10:0{i}:00+00:00",
                     json.dumps([f"file://{PROJECT}"]),
-                    "IDLE",
-                    None,
+                    "CASCADE_RUN_STATUS_IDLE",
+                    CONVERSATION if child else "",
                     0,
                 ),
             )
             db.execute(
-                "INSERT INTO conversations_fts VALUES (?,?,?,?)",
-                (cid, "TITLEMARKER", "PROMPTMARKER body", "THOUGHTMARKER answer"),
+                "INSERT INTO conversations_fts VALUES (?,?,?,?,?,?,?,?)",
+                (cid, -1, 0, b"", b"", "TITLEMARKER", "", ""),
+            )
+            db.execute(
+                "INSERT INTO conversations_fts VALUES (?,?,?,?,?,?,?,?)",
+                (cid, 0, 0, user_offsets, agent_offsets, "", user_body, agent_body),
             )
         db.commit()
         db.close()
@@ -474,25 +515,44 @@ def test_timestamps_shift_together(home, tmp_path):
 def test_antigravity_stores_keep_their_schema_and_search(home, tmp_path):
     out = tmp_path / "fixtures"
     run(home, out)
+    anon = Anonymiser(SALT)
     with sqlite3.connect(out / "antigravity" / "app" / "conversation_summaries.db") as db:
         tables = {
             row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         assert {"conversation_summaries", "conversations_fts", "search_schema_version"} <= tables
         summaries = db.execute(
-            "SELECT conversation_id, workspace_uris, status FROM conversation_summaries"
+            "SELECT conversation_id, workspace_uris, status, parent_conversation_id"
+            " FROM conversation_summaries"
         ).fetchall()
-        assert 1 <= len(summaries) <= 3
-        assert all(json.loads(uris)[0].startswith("file:///work/") for _, uris, _ in summaries)
-        assert {status for _, _, status in summaries} == {"IDLE"}
-        word = (
-            db.execute("SELECT user_body FROM conversations_fts LIMIT 1").fetchone()[0].split()[0]
-        )
+        assert 2 <= len(summaries) <= 4
+        assert all(json.loads(uris)[0].startswith("file:///work/") for _, uris, _, _ in summaries)
+        assert {status for _, _, status, _ in summaries} == {"CASCADE_RUN_STATUS_IDLE"}
+        parents = {cid: parent for cid, _, _, parent in summaries if parent}
+        assert set(parents.values()) == {anon.uuid(CONVERSATION)}, "the parent link survives"
+        assert set(parents) <= {cid for cid, *_ in summaries}
+        chunks = db.execute(
+            "SELECT user_body, user_step_byte_offsets, agent_body, agent_step_byte_offsets"
+            " FROM conversations_fts WHERE chunk_index = 0"
+        ).fetchall()
+        word = chunks[0][0].split()[0]
         assert db.execute(
             "SELECT count(*) FROM conversations_fts WHERE conversations_fts MATCH ?", (word,)
         ).fetchone()[0]
-    names = [p.name for p in out.glob("antigravity/app/brain/*/*")]
+    db.close()
+    user_body, user_offsets, agent_body, agent_offsets = chunks[0]
+    users = split_body(user_body, user_offsets, "user")
+    agents = split_body(agent_body, agent_offsets, "agent")
+    assert [t.step for t in users] == [0, 5] and [t.step for t in agents] == [2]
+    assert all(t.text and "MARKER" not in t.text for t in users + agents)
+
+    folder = out / "antigravity" / "app" / "brain" / anon.uuid(CONVERSATION)
+    names = [p.name for p in folder.iterdir()]
     assert "task.md" in names and not any("janedoe" in n for n in names)
+    steps = records(folder / ".system_generated" / "logs" / "transcript_full.jsonl")
+    assert [s["type"] for s in steps] == ["USER_INPUT", "PLANNER_RESPONSE"]
+    assert steps[1]["tool_calls"][0]["name"] == "run_command", "tool names are kept"
+    assert steps[1]["model"] == "gemini-4-argon-high"
 
 
 def test_the_harness_tree_is_only_read(home, tmp_path):

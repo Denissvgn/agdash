@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from agdash.access import ReadOnlyAccess
+from agdash.adapters.antigravity import step_offsets
 from agdash.devtools.anonymise import Anonymiser
 from agdash.ingest.compressed import UnreadableArchive, compress, decompress
 from agdash.normalise import cwd_slug, parse_timestamp
@@ -44,8 +45,6 @@ MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
 CODEX_KINDS = 5
 RARE_TYPE = 5
 MAX_ARTIFACT_BYTES = 64 * 1024
-MAX_ARTIFACTS = 6
-TEXT_ARTIFACTS = (".md", ".txt", ".json", ".jsonl")
 KNOWN_ARTIFACT_STEMS = frozenset(
     {
         "task",
@@ -431,11 +430,44 @@ def _cell(anon: Anonymiser, column: str, value: Any) -> Any:
     return value
 
 
+TRANSCRIPT_PATH = ".system_generated/logs/transcript_full.jsonl"
+MAX_CONVERSATIONS = 4
+FTS_BODIES = (("user_body", "user_step_byte_offsets"), ("agent_body", "agent_step_byte_offsets"))
+
+
+def _fts_row(anon: Anonymiser, columns: list[str], row: tuple) -> tuple:
+    """A full-text row with its bodies replaced turn by turn, and offsets that fit them."""
+    values = dict(zip(columns, row, strict=True))
+    result = {col: _cell(anon, col, v) for col, v in values.items()}
+    if not isinstance(values.get("chunk_index"), int) or values["chunk_index"] < 0:
+        return tuple(result[col] for col in columns)
+    for body_column, offsets_column in FTS_BODIES:
+        body, raw = values.get(body_column), values.get(offsets_column)
+        if body_column not in values or offsets_column not in values:
+            continue
+        data = body.encode("utf-8") if isinstance(body, str) else b""
+        pairs = [(step, at) for step, at in step_offsets(raw) if at <= len(data)]
+        text, offsets = "", []
+        for index, (step, at) in enumerate(pairs):
+            end = pairs[index + 1][1] if index + 1 < len(pairs) else len(data)
+            piece = data[at:end].decode("utf-8", errors="replace").strip()
+            offsets.append([step, len(text.encode("utf-8"))])
+            text += (anon.text(piece) if piece else "") + "\n"
+        encoded = json.dumps(offsets, separators=(",", ":"))
+        result[body_column] = text if isinstance(body, str) else body
+        result[offsets_column] = encoded.encode() if isinstance(raw, bytes) else encoded
+    return tuple(result[col] for col in columns)
+
+
 def export_antigravity(access, base: Path, prefix: str, anon: Anonymiser, out: Writer) -> None:
     harness = Harness.ANTIGRAVITY.value
     database = base / "conversation_summaries.db"
     if not database.exists():
         return
+
+    def has_transcript(cid: str) -> bool:
+        return (base / "brain" / cid / TRANSCRIPT_PATH).is_file()
+
     with access.sqlite_snapshot(database) as db:
         schema = db.execute(
             "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql IS NOT NULL "
@@ -446,14 +478,22 @@ def export_antigravity(access, base: Path, prefix: str, anon: Anonymiser, out: W
             row[0] for row in db.execute("SELECT DISTINCT conversation_id FROM conversations_fts")
         }
         candidates = db.execute(
-            "SELECT conversation_id FROM conversation_summaries"
+            "SELECT conversation_id, parent_conversation_id FROM conversation_summaries"
             " ORDER BY step_count, conversation_id"
         ).fetchall()
-        chosen = [
-            cid for (cid,) in candidates if cid in has_fts and (base / "brain" / cid).is_dir()
-        ][:3]
-        if not chosen:
-            chosen = [cid for (cid,) in candidates][:3]
+        known = {cid for cid, _ in candidates}
+        # A conversation with its parent first, so the link survives; then the
+        # smallest conversations, those with a transcript and full-text bodies first.
+        chosen: list[str] = []
+        for cid, parent in candidates:
+            if parent and parent in known and has_transcript(cid):
+                chosen = [parent, cid]
+                break
+        ranked = sorted(
+            (cid for cid, _ in candidates if cid not in chosen),
+            key=lambda cid: (not (cid in has_fts and has_transcript(cid)), not has_transcript(cid)),
+        )
+        chosen += ranked[: MAX_CONVERSATIONS - len(chosen)]
         rows: dict[str, list[tuple]] = {}
         for name, _ in tables:
             columns = [c[1] for c in db.execute(f'PRAGMA table_info("{name}")')]
@@ -464,10 +504,13 @@ def export_antigravity(access, base: Path, prefix: str, anon: Anonymiser, out: W
                 )
             else:
                 found = db.execute(f'SELECT * FROM "{name}"')
-            rows[name] = [
-                tuple(_cell(anon, col, v) for col, v in zip(columns, row, strict=True))
-                for row in found
-            ]
+            if name == "conversations_fts":
+                rows[name] = [_fts_row(anon, columns, row) for row in found]
+            else:
+                rows[name] = [
+                    tuple(_cell(anon, col, v) for col, v in zip(columns, row, strict=True))
+                    for row in found
+                ]
     out.sqlite(
         harness, f"antigravity/{prefix}/conversation_summaries.db", [sql for _, sql in tables], rows
     )
@@ -476,34 +519,24 @@ def export_antigravity(access, base: Path, prefix: str, anon: Anonymiser, out: W
         folder = base / "brain" / cid
         if not folder.is_dir():
             continue
-        artifacts = [
-            p
-            for p in smallest(folder.rglob("*"))
-            if p.is_file() and p.suffix in TEXT_ARTIFACTS and p.stat().st_size <= MAX_ARTIFACT_BYTES
-        ][:MAX_ARTIFACTS]
-        for artifact in artifacts:
-            stem = (
-                artifact.stem
-                if artifact.stem in KNOWN_ARTIFACT_STEMS
-                else anon.word("artifact", artifact.stem)
+        target = f"antigravity/{prefix}/brain/{anon.string(cid)}"
+        transcript = folder / TRANSCRIPT_PATH
+        if transcript.is_file():
+            records = select_records(read_records(access, transcript, out.report))
+            out.jsonl(harness, f"{target}/{TRANSCRIPT_PATH}", anon.value(records))
+        # Documents the agent wrote, under the names Antigravity gives them.
+        for artifact in smallest(folder.glob("*.md")):
+            if artifact.stem not in KNOWN_ARTIFACT_STEMS:
+                continue
+            if artifact.stat().st_size > MAX_ARTIFACT_BYTES:
+                continue
+            with access.open(artifact, "r", errors="replace") as source:
+                paragraphs = source.read().split("\n\n")
+            out.text(
+                harness,
+                f"{target}/{artifact.name}",
+                "\n\n".join(anon.text(p) for p in paragraphs if p.strip()) + "\n",
             )
-            relative = f"antigravity/{prefix}/brain/{anon.string(cid)}/{stem}{artifact.suffix}"
-            if artifact.suffix == ".jsonl":
-                out.jsonl(harness, relative, anon.value(read_records(access, artifact, out.report)))
-            elif artifact.suffix == ".json":
-                with access.open(artifact, "r", errors="replace") as source:
-                    try:
-                        out.json(harness, relative, anon.value(json.load(source)))
-                    except ValueError:
-                        out.report.skipped_lines += 1
-            else:
-                with access.open(artifact, "r", errors="replace") as source:
-                    paragraphs = source.read().split("\n\n")
-                out.text(
-                    harness,
-                    relative,
-                    "\n\n".join(anon.text(p) for p in paragraphs if p.strip()) + "\n",
-                )
 
 
 # -- running -------------------------------------------------------------------------
