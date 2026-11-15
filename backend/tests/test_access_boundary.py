@@ -66,6 +66,21 @@ EXEMPT = {
     "platform/service.py": {"subprocess", "os.open", "os.replace", "mkdir", "unlink"},
     # Runs lsof to read a process's open files when psutil is refused.
     "platform/probes.py": {"subprocess"},
+    # Development tool, not part of the service. It reads harness files only through
+    # the access layer; it writes synthetic fixtures through a staging directory into
+    # an output directory that it refuses to place inside a harness root, builds their
+    # SQLite stores, and keeps its salt in agdash's own config directory.
+    "devtools/fixture_kit.py": {
+        "mkdir",
+        "open",
+        "os.open",
+        "read_bytes",
+        "rmtree",
+        "shutil",
+        "sqlite3",
+        "tempfile",
+        "unlink",
+    },
 }
 
 
