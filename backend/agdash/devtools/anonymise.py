@@ -65,6 +65,9 @@ _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}
 _ENUM_VALUE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:+@-]{0,79}")
 _MODEL_VALUE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:+@/-]{0,119}")
 _MIME_VALUE = re.compile(r"[a-z]+/[a-z0-9.+-]{1,60}")
+# Client names such as "Codex Desktop": product names, which may contain spaces.
+_LABEL_VALUE = re.compile(r"[A-Za-z][A-Za-z0-9 _.+-]{0,40}")
+LABEL_KEYS = frozenset({"originator"})
 MIME_KEYS = frozenset({"mime_type", "media_type", "mimeType", "mediaType"})
 _SAFE_KEY = re.compile(r"[A-Za-z_@$][A-Za-z0-9_.:@$-]{0,63}")
 _PREFIXED_ID = re.compile(r"([a-z]{2,10}[_-])([A-Za-z0-9]{8,})")
@@ -242,6 +245,8 @@ class Anonymiser:
             value
         ):
             return not value.startswith("/")
+        if key in LABEL_KEYS and _LABEL_VALUE.fullmatch(value):
+            return True
         if key in MIME_KEYS and _MIME_VALUE.fullmatch(value):
             return True
         if key in ENUM_KEYS and _ENUM_VALUE.fullmatch(value):

@@ -39,6 +39,7 @@ from agdash.platform.roots import is_inside
 from agdash.vocab import Harness
 
 MAX_RECORDS = 300
+CODEX_KINDS = 5
 RARE_TYPE = 5
 MAX_ARTIFACT_BYTES = 64 * 1024
 MAX_ARTIFACTS = 6
@@ -266,10 +267,20 @@ def export_codex(access, root: Path, anon: Anonymiser, out: Writer) -> None:
             meta = json.loads(first).get("payload", {})
         except (ValueError, AttributeError):
             continue
-        groups[f"{meta.get('originator')}/{meta.get('source')}"].append(rollout)
-    # The three most common kinds of session, each represented by its richest small file.
-    largest_groups = sorted(groups.values(), key=lambda paths: (-len(paths), str(paths[0])))[:3]
-    by_origin = {str(index): richest(access, paths) for index, paths in enumerate(largest_groups)}
+        source = meta.get("source")
+        source_kind = source if isinstance(source, str) else "subagent"
+        thread = meta.get("thread_source") or "user"
+        groups[f"{meta.get('originator')}|{source_kind}|{thread}"].append(rollout)
+
+    # Sessions a person drove come first, then subagents, then automatic review
+    # threads; each kind is represented by its richest small file.
+    def rank(item: tuple[str, list[Path]]) -> tuple:
+        thread = item[0].rsplit("|", 1)[1]
+        order = {"user": 0, "subagent": 1}.get(thread, 2)
+        return (order, -len(item[1]), item[0])
+
+    chosen_groups = [paths for _, paths in sorted(groups.items(), key=rank)][:CODEX_KINDS]
+    by_origin = {str(index): richest(access, paths) for index, paths in enumerate(chosen_groups)}
     chosen_ids = set()
     for index, rollout in enumerate(by_origin.values()):
         name, day, original_id = _rollout_name(anon, rollout.name)
