@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, inspect
 
 from agdash.db import Base
 from agdash.db.migrate import alembic_config, downgrade, sync_database_url, upgrade
+from agdash.db.search import SEARCH_TABLE, is_search_table
 
 
 def _describe(engine) -> dict:
@@ -19,7 +20,7 @@ def _describe(engine) -> dict:
     inspector = inspect(engine)
     described = {}
     for table in sorted(inspector.get_table_names()):
-        if table == "alembic_version":
+        if table == "alembic_version" or is_search_table(table):
             continue
         described[table] = {
             "columns": [
@@ -63,13 +64,22 @@ def migrated(tmp_path):
 
 
 def test_migrations_create_every_model_table(migrated):
-    tables = set(inspect(migrated).get_table_names())
+    tables = {t for t in inspect(migrated).get_table_names() if not is_search_table(t)}
     assert tables == set(Base.metadata.tables) | {"alembic_version"}
+    assert SEARCH_TABLE in inspect(migrated).get_table_names(), "the search index is built"
 
 
 def test_alembic_sees_no_difference_from_the_models(migrated):
     with migrated.connect() as connection:
-        context = MigrationContext.configure(connection, opts={"compare_type": True})
+        context = MigrationContext.configure(
+            connection,
+            opts={
+                "compare_type": True,
+                "include_name": lambda name, type_, _: (
+                    not (type_ == "table" and is_search_table(name))
+                ),
+            },
+        )
         assert compare_metadata(context, Base.metadata) == []
 
 
@@ -96,7 +106,7 @@ def test_downgrade_removes_every_table(tmp_path):
     downgrade(url, "base")
     engine = create_engine(url)
     try:
-        assert inspect(engine).get_table_names() == ["alembic_version"]
+        assert inspect(engine).get_table_names() == ["alembic_version"]  # index gone too
     finally:
         engine.dispose()
     upgrade(url)
