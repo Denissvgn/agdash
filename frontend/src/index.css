@@ -48,4 +48,50 @@
   .data {
     font-variant-numeric: tabular-nums;
   }
+
+  /* Buttons (WorkChord: 34px controls, 6px corners; 44px on coarse pointers). */
+  .button-primary,
+  .button-secondary,
+  .button-ghost {
+    @apply inline-flex h-control shrink-0 items-center justify-center gap-sm rounded-control px-[12px] text-body transition-colors duration-state pointer-coarse:h-touch;
+  }
+  .button-primary {
+    @apply bg-primary-ink text-working-paper hover:bg-conductor-panel;
+  }
+  .button-secondary {
+    @apply border border-hairline bg-working-paper text-primary-ink hover:bg-canvas-mist;
+  }
+  .button-ghost {
+    @apply h-[30px] px-sm text-secondary-ink hover:bg-canvas-mist hover:text-primary-ink pointer-coarse:h-touch;
+  }
+  .button-primary:disabled,
+  .button-secondary:disabled {
+    @apply cursor-not-allowed bg-canvas-mist text-secondary-ink;
+  }
+
+  /* Fields: working paper, strong border, cobalt border and a 3px soft ring on focus. */
+  .field {
+    @apply h-control w-full rounded-control border border-strong-rule bg-working-paper px-[10px] text-body text-primary-ink transition-colors duration-state pointer-coarse:h-touch;
+  }
+  .field::placeholder {
+    @apply text-secondary-ink;
+  }
+  .field:focus-visible {
+    outline: none;
+    border-color: theme('colors.planning-thread');
+    box-shadow: 0 0 0 3px theme('colors.planning-thread-soft');
+  }
+  .field:disabled {
+    @apply cursor-not-allowed bg-canvas-mist text-secondary-ink;
+    /* Browsers fade disabled controls; keep the text at secondary-ink contrast. */
+    opacity: 1;
+  }
+
+  /* Filter pills: pressed ones carry the planning thread, as a selection. */
+  .toggle-chip {
+    @apply inline-flex h-[30px] items-center gap-xs rounded-full border border-hairline bg-working-paper px-[10px] text-label text-secondary-ink transition-colors duration-state hover:bg-canvas-mist hover:text-primary-ink pointer-coarse:h-touch;
+  }
+  .toggle-chip[aria-pressed='true'] {
+    @apply border-planning-thread bg-planning-thread-soft text-planning-thread hover:bg-planning-thread-soft hover:text-planning-thread;
+  }
 }

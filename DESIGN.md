@@ -167,8 +167,8 @@ Cool paper neutrals, a deliberately scarce cobalt planning thread, and WorkChord
 
 ### Secondary
 
-- **Active Cyan, Resolved Emerald, Closed Violet, Planned Slate:** WorkChord's canonical record states. In the shell as built, only Planned Slate appears: it colours the dashed-circle icon of the unavailable-state panel, because a view that waits on its data has not begun.
-- **Feedback Warning / Danger:** Reserved for actionable exceptions; not yet used by the shell.
+- **Active Cyan, Resolved Emerald, Closed Violet, Planned Slate:** WorkChord's canonical record states. Planned Slate colours the dashed-circle icon of unavailable and empty notices, because a view that waits on its data has not begun. Session state chips map onto the four: active is cyan; ended is violet (closed, with no claim of success); waiting, idle and unknown are slate, since nothing is in progress that agdash can vouch for. The chip always carries the state's word, so colour is never the only signal.
+- **Feedback Warning:** The icon of an error notice (the service could not be reached or refused the request), an actionable exception with a retry. **Danger** is not yet used.
 
 ### Neutral
 
@@ -286,9 +286,51 @@ The narrow-window home of both the workspace switcher and the current workspace'
 - **Content:** The workspace list (34px rows, icon and label; selected rows use the soft tint and cobalt text) and, when the workspace has more than one destination, its sidebar destinations below, 24px apart.
 - **Behaviour:** Opened from the Menu button, which reports its expanded state and the dialog it controls. Focus is held inside while open and lands first on the close button. Escape, the close button, a tap on the scrim, choosing a destination or any change of address closes it, and focus returns to the Menu button.
 
+### Session list
+
+The one dominant work object of the History pages: rows, never cards.
+
+- **Surface:** One working-paper container, 1px hairline, 8px corners, resting shadow; rows separated by hairline dividers, 12px by 16px padding.
+- **Row:** A state chip and the session title (Body, 600, kept at least 12rem wide so the last-active time wraps below it rather than squeezing it; two lines at 520px and below, one truncated line above); the last-active time, or "No activity recorded" for a session known only from another's reference, which sorts last; a line of Label-size facts in secondary ink (harness and surface, models, events, subagents, matches) separated by middle dots; the folder in monospace at 12px, as an identifier, truncated from its start so the distinguishing last folders stay visible. Counts use tabular numerals.
+- **No affordance yet:** rows do not open until the session timeline exists, so they carry no link styling or hover state.
+- **Loading:** four still placeholder rows of canvas-mist bars, announced as busy. No shimmer or other motion.
+- **More:** a secondary "Show more" button below the list loads the next page; there is no infinite scroll.
+
+### State chip
+
+A 22px pill with a 1px hairline border, a 6px canonical status dot and the state's word in Label size and secondary ink.
+
+### Filter bar
+
+Secondary controls above the session list, per WorkChord's Persistent Object Rule.
+
+- **Harness pills:** 30px bordered pills (44px on coarse pointers) with the harness name and its session count in tabular numerals. They are toggle buttons (`aria-pressed`); a pressed pill takes the planning-thread soft fill, cobalt border and cobalt text, as a selection.
+- **Fields:** model, folder and sign-in method selects and two date inputs, each with a visible Label-size label above it. The dates are one fieldset, "Started between", kept side by side at every width. On wide windows they sit in one row; at 1180px and below they fold into a native disclosure, "More filters", which opens by itself when one of them is set and reports how many are set. A select with nothing to choose is disabled and says why in a helper line.
+- **Clear filters:** a ghost button, shown only while a filter is set.
+- **Address:** every filter lives in the page address, so a filtered list reloads, bookmarks and goes back as it was.
+
+### Search
+
+- **Query:** a labelled search field and the page's one primary action, "Search". The query lives in the address.
+- **Results:** the session list, each row adding its number of matches and its two best excerpts. An excerpt starts with the kind of record it came from (Prompt, Reply, Thought, Tool output…) in Label size, then the text in Body.
+- **Matches:** marked with the planning-thread soft tint behind primary ink, 4px corners, as the text-selection tint is: a match marks where the reader's words are, which is location, not status. The tint alone is too faint against working paper, so the match is also set in 600 weight.
+- **Counts:** the harness pills on the search page carry no session counts, because those would describe all sessions rather than the matches.
+- **Announcements:** one persistent status region announces the outcome of a search (results, nothing found, or a failure).
+
+### Notices
+
+Empty and error states share one quiet panel: working paper, hairline, 8px corners, 20px padding, resting shadow; a Title-size heading led by an 18px icon (dashed circle in planned slate for an empty state, alert circle in feedback warning for an error) and one Body line in secondary ink saying what is true and what to do next. An error notice adds a secondary "Try again" button.
+
+### Buttons and fields
+
+- **Secondary:** working paper, 1px hairline border, primary ink; hover canvas mist.
+- **Ghost:** no border, secondary ink, 30px; hover canvas mist and primary ink.
+- **Disabled:** canvas mist and secondary ink at full opacity (browsers fade disabled controls otherwise), with a not-allowed cursor; it stays labelled.
+- **Fields:** working paper, 1px strong-rule border, 6px corners, 34px (44px on coarse pointers), 10px side padding; placeholder in secondary ink; on focus a cobalt border and a 3px planning-thread soft ring.
+
 ### Primary action
 
-Used once per page or protected decision area, per upstream: primary-ink fill, working-paper text, 34px tall (44px on coarse pointers), 12px side padding, 6px corners, an optional trailing 16px icon. Hover shifts the fill to conductor panel. In the shell it appears only on the page-not-found view, leading back to the live board.
+Used once per page or protected decision area, per upstream: primary-ink fill, working-paper text, 34px tall (44px on coarse pointers), 12px side padding, 6px corners, an optional 16px icon. Hover shifts the fill to conductor panel. It appears on the page-not-found view, leading back to the live board, and as "Search" on the search page.
 
 ### Skip link
 

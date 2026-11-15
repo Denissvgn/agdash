@@ -4,9 +4,11 @@ Every list is paged with a cursor and every query is bounded by the page size,
 so no request reads a whole session, however long it is.
 """
 
+import json
 import re
 from collections.abc import Iterator
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -16,10 +18,13 @@ from sqlalchemy.orm import Session as DbSession
 from agdash.api import cursors
 from agdash.api.schemas import (
     EventOut,
+    Excerpt,
+    Facets,
     HealthRow,
     Page,
     SearchHit,
     SessionDetail,
+    SessionHit,
     SessionProcessOut,
     SessionSummary,
     SnippetPart,
@@ -49,7 +54,11 @@ Db = Annotated[DbSession, Depends(get_db)]
 
 # -- sessions -----------------------------------------------------------------------
 
-_SORT = func.coalesce(Session.last_activity_at, Session.created_at, type_=UTCDateTime())
+# Most recent activity first; a session with no recorded activity or start goes last.
+NO_ACTIVITY = datetime(1970, 1, 1, tzinfo=UTC)
+_SORT = func.coalesce(
+    Session.last_activity_at, Session.started_at, NO_ACTIVITY, type_=UTCDateTime()
+)
 
 
 def _counts(db: DbSession, column, ids: list[int]) -> dict[int, int]:
@@ -83,9 +92,68 @@ def _summary(session: Session, events: int, children: int) -> dict[str, Any]:
     }
 
 
-@router.get("/sessions", response_model=Page[SessionSummary], summary="List sessions")
-def list_sessions(
-    db: Db,
+@dataclass
+class SessionFilters:
+    """Which sessions a list or a search covers. Every filter narrows; they combine."""
+
+    harness: list[str] | None = None
+    state: list[SessionState] | None = None
+    surface: list[Surface] | None = None
+    parent: int | None = None
+    roots_only: bool = False
+    q: str | None = None
+    active_since: datetime | None = None
+    model: str | None = None
+    folder: str | None = None
+    auth_method: str | None = None
+    started_from: datetime | None = None
+    started_before: datetime | None = None
+
+    def apply(self, query):
+        if self.harness:
+            query = query.where(Session.harness.in_(self.harness))
+        if self.state:
+            query = query.where(Session.state.in_(self.state))
+        if self.surface:
+            query = query.where(Session.surface.in_(self.surface))
+        if self.parent is not None:
+            query = query.where(Session.parent_session_id == self.parent)
+        if self.roots_only:
+            query = query.where(Session.parent_session_id.is_(None))
+        if self.q:
+            pattern = f"%{self.q}%"
+            query = query.where(
+                or_(
+                    Session.title.ilike(pattern),
+                    Session.initial_task.ilike(pattern),
+                    Session.cwd.ilike(pattern),
+                )
+            )
+        if self.active_since is not None:
+            query = query.where(_SORT >= self.active_since)
+        if self.model:
+            # The models list is stored as JSON text; a quoted name matches one entry exactly.
+            query = query.where(
+                cast(Session.models, String).contains(json.dumps(self.model), autoescape=True)
+            )
+        if self.folder:
+            folder = self.folder.rstrip("/") or "/"
+            query = query.where(
+                or_(
+                    Session.cwd == folder,
+                    Session.cwd.startswith(folder.rstrip("/") + "/", autoescape=True),
+                )
+            )
+        if self.auth_method:
+            query = query.where(Session.auth_method == self.auth_method)
+        if self.started_from is not None:
+            query = query.where(Session.started_at >= self.started_from)
+        if self.started_before is not None:
+            query = query.where(Session.started_at < self.started_before)
+        return query
+
+
+def session_filters(
     harness: Annotated[list[str] | None, Query()] = None,
     state: Annotated[list[SessionState] | None, Query()] = None,
     surface: Annotated[list[Surface] | None, Query()] = None,
@@ -95,32 +163,45 @@ def list_sessions(
         str | None, Query(max_length=200, description="Text in the title, first prompt or folder.")
     ] = None,
     active_since: Annotated[datetime | None, Query()] = None,
+    model: Annotated[
+        str | None, Query(max_length=255, description="A model the session used.")
+    ] = None,
+    folder: Annotated[
+        str | None,
+        Query(max_length=1024, description="The session's folder, or a folder above it."),
+    ] = None,
+    auth_method: Annotated[str | None, Query(max_length=64)] = None,
+    started_from: Annotated[datetime | None, Query(description="Started at or after.")] = None,
+    started_before: Annotated[datetime | None, Query(description="Started before.")] = None,
+) -> SessionFilters:
+    return SessionFilters(
+        harness,
+        state,
+        surface,
+        parent,
+        roots_only,
+        q,
+        active_since,
+        model,
+        folder,
+        auth_method,
+        started_from,
+        started_before,
+    )
+
+
+Filters = Annotated[SessionFilters, Depends(session_filters)]
+
+
+@router.get("/sessions", response_model=Page[SessionSummary], summary="List sessions")
+def list_sessions(
+    db: Db,
+    filters: Filters,
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> dict[str, Any]:
     """Most recently active first."""
-    query = select(Session)
-    if harness:
-        query = query.where(Session.harness.in_(harness))
-    if state:
-        query = query.where(Session.state.in_(state))
-    if surface:
-        query = query.where(Session.surface.in_(surface))
-    if parent is not None:
-        query = query.where(Session.parent_session_id == parent)
-    if roots_only:
-        query = query.where(Session.parent_session_id.is_(None))
-    if q:
-        pattern = f"%{q}%"
-        query = query.where(
-            or_(
-                Session.title.ilike(pattern),
-                Session.initial_task.ilike(pattern),
-                Session.cwd.ilike(pattern),
-            )
-        )
-    if active_since is not None:
-        query = query.where(_SORT >= active_since)
+    query = filters.apply(select(Session))
     position = cursors.decode(cursor, "at", "id")
     if position:
         try:
@@ -136,11 +217,52 @@ def list_sessions(
     next_cursor = None
     if more:
         last = page[-1]
-        at = last.last_activity_at or last.created_at
+        at = last.last_activity_at or last.started_at or NO_ACTIVITY
         next_cursor = cursors.encode({"at": at.isoformat(), "id": last.id})
     return {
         "items": [_summary(s, events.get(s.id, 0), children.get(s.id, 0)) for s in page],
         "next_cursor": next_cursor,
+    }
+
+
+MAX_FOLDERS = 100
+
+
+def _facet(rows) -> list[dict[str, Any]]:
+    counted = [{"value": str(value), "count": count} for value, count in rows if value]
+    return sorted(counted, key=lambda item: (-item["count"], item["value"]))
+
+
+@router.get("/sessions/facets", response_model=Facets, summary="Values to filter sessions by")
+def session_facets(db: Db) -> dict[str, Any]:
+    """Harnesses, models, folders and the rest, each with its number of sessions."""
+
+    def grouped(column):
+        return _facet(db.execute(select(column, func.count()).group_by(column)))
+
+    models: dict[str, int] = {}
+    for (names,) in db.execute(select(Session.models)):
+        for name in set(names or []):
+            models[name] = models.get(name, 0) + 1
+    folders = db.execute(
+        select(Session.cwd, func.count())
+        .where(Session.cwd.is_not(None))
+        .group_by(Session.cwd)
+        .order_by(func.count().desc(), Session.cwd)
+        .limit(MAX_FOLDERS)
+    )
+    first, last = db.execute(
+        select(func.min(Session.started_at), func.max(Session.started_at))
+    ).one()
+    return {
+        "harnesses": grouped(Session.harness),
+        "surfaces": grouped(Session.surface),
+        "states": grouped(Session.state),
+        "models": _facet(models.items()),
+        "folders": _facet(folders),
+        "auth_methods": grouped(Session.auth_method),
+        "first_started_at": first,
+        "last_started_at": last,
     }
 
 
@@ -416,6 +538,118 @@ def search(
     more = len(hits) > limit
     return {
         "items": hits[:limit],
+        "next_cursor": cursors.encode({"offset": offset + limit}) if more else None,
+    }
+
+
+EXCERPTS_PER_SESSION = 2
+FALLBACK_SCAN = 2000
+
+
+@router.get(
+    "/search/sessions", response_model=Page[SessionHit], summary="Find sessions by their text"
+)
+def search_sessions(
+    request: Request,
+    db: Db,
+    filters: Filters,
+    q: Annotated[str, Query(min_length=1, max_length=500)],
+    cursor: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> dict[str, Any]:
+    """Sessions whose events match, best match first, each with its best excerpts."""
+    position = cursors.decode(cursor, "offset")
+    offset = position["offset"] if position else 0
+    if not isinstance(offset, int) or offset < 0:
+        raise HTTPException(status_code=400, detail="invalid cursor")
+    store: Store = request.app.state.store
+    allowed = filters.apply(select(Session.id))
+    if store.has_search_index(db):
+        expression = match_expression(q)
+        if not expression:
+            raise HTTPException(status_code=422, detail="the query has no words")
+        # The filters stay bound parameters: compiled with named placeholders, merged below.
+        named = type(db.bind.dialect)(paramstyle="named")
+        compiled = allowed.compile(dialect=named, compile_kwargs={"render_postcompile": True})
+        rows = db.execute(
+            text(
+                f"WITH hits AS (SELECT e.session_id AS sid, e.id AS eid,"
+                f" bm25({SEARCH_TABLE}) AS score,"
+                f" snippet({SEARCH_TABLE}, 0, char(2), char(3), '…', 16) AS marked"
+                f" FROM {SEARCH_TABLE} JOIN events e ON e.id = {SEARCH_TABLE}.rowid"
+                f" WHERE {SEARCH_TABLE} MATCH :match AND e.session_id IN ({compiled})),"
+                " ranked AS (SELECT *,"
+                " row_number() OVER (PARTITION BY sid ORDER BY score, eid) AS rn,"
+                " count(*) OVER (PARTITION BY sid) AS hits,"
+                " min(score) OVER (PARTITION BY sid) AS best FROM hits),"
+                " paged AS (SELECT *, dense_rank() OVER (ORDER BY best, sid) AS place"
+                " FROM ranked WHERE rn <= :excerpts)"
+                " SELECT sid, eid, hits, marked FROM paged"
+                " WHERE place > :offset AND place <= :end ORDER BY place, rn"
+            ),
+            {
+                **compiled.params,
+                "match": expression,
+                "excerpts": EXCERPTS_PER_SESSION,
+                "offset": offset,
+                "end": offset + limit + 1,
+            },
+        ).all()
+        order: list[int] = []
+        found: dict[int, dict[str, Any]] = {}
+        for sid, eid, hits, marked in rows:
+            if sid not in found:
+                order.append(sid)
+                found[sid] = {"hits": hits, "excerpts": []}
+            found[sid]["excerpts"].append((eid, _snippet(marked or "")))
+    else:
+        rows = db.execute(
+            select(Event.session_id, Event.id, Event.payload)
+            .where(cast(Event.payload, String).ilike(f"%{q}%"), Event.session_id.in_(allowed))
+            .order_by(Event.id.desc())
+            .limit(FALLBACK_SCAN)
+        ).all()
+        order, found = [], {}
+        for sid, eid, payload in rows:
+            if sid not in found:
+                order.append(sid)
+                found[sid] = {"hits": 0, "excerpts": []}
+            found[sid]["hits"] += 1
+            if len(found[sid]["excerpts"]) < EXCERPTS_PER_SESSION:
+                found[sid]["excerpts"].append((eid, _plain_snippet(payload, q)))
+        order = order[offset : offset + limit + 1]
+    more = len(order) > limit
+    order = order[:limit]
+    sessions = {s.id: s for s in db.scalars(select(Session).where(Session.id.in_(order)))}
+    event_ids = [eid for sid in order for eid, _ in found[sid]["excerpts"]]
+    events = {e.id: e for e in db.scalars(select(Event).where(Event.id.in_(event_ids)))}
+    counts = _counts(db, Event.session_id, order)
+    children = _counts(db, Session.parent_session_id, order)
+    items = []
+    for sid in order:
+        session = sessions.get(sid)
+        if session is None:
+            continue
+        excerpts = [
+            Excerpt(
+                event_id=eid,
+                sequence=events[eid].sequence,
+                kind=events[eid].kind,
+                occurred_at=events[eid].occurred_at,
+                snippet=[SnippetPart(**part) for part in parts],
+            )
+            for eid, parts in found[sid]["excerpts"]
+            if eid in events
+        ]
+        items.append(
+            {
+                **_summary(session, counts.get(sid, 0), children.get(sid, 0)),
+                "hits": found[sid]["hits"],
+                "excerpts": excerpts,
+            }
+        )
+    return {
+        "items": items,
         "next_cursor": cursors.encode({"offset": offset + limit}) if more else None,
     }
 

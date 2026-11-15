@@ -105,7 +105,7 @@ def direct(url: str):
 
 
 def test_only_get_is_routed_for_data(client):
-    assert len(router.routes) == 5
+    assert len(router.routes) == 7
     for route in router.routes:
         assert isinstance(route, APIRoute) and route.methods <= DATA_METHODS, route.path
     session_id = client.get("/api/sessions").json()["items"][0]["id"]
@@ -114,6 +114,8 @@ def test_only_get_is_routed_for_data(client):
         f"/api/sessions/{session_id}",
         f"/api/sessions/{session_id}/events",
         "/api/search",
+        "/api/search/sessions",
+        "/api/sessions/facets",
         "/api/stats",
     ):
         for method in ("post", "put", "patch", "delete"):
@@ -152,6 +154,8 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/sessions/{session_id}",
         "/api/sessions/{session_id}/events",
         "/api/search",
+        "/api/search/sessions",
+        "/api/sessions/facets",
         "/api/stats",
     }
     assert all(set(operations) == {"get"} for operations in document["paths"].values())
@@ -171,6 +175,9 @@ def test_sessions_page_through_every_session_most_recent_first(client, filled):
     assert len(sessions) == total and len({s["id"] for s in sessions}) == total
     moments = [s["last_activity_at"] for s in sessions if s["last_activity_at"]]
     assert moments == sorted(moments, reverse=True)
+    # A session known only from another's reference has no activity and comes last.
+    silent = [i for i, s in enumerate(sessions) if not (s["last_activity_at"] or s["started_at"])]
+    assert silent and silent == list(range(len(sessions) - len(silent), len(sessions)))
 
 
 def test_sessions_filter_by_harness_family_and_text(client):
@@ -393,3 +400,87 @@ def test_paging_a_50000_event_session_reads_one_page_at_a_time(long_session):
         assert 501 in tuple(parameters.values() if isinstance(parameters, dict) else parameters)
     # One page of 500 events, not 50,000: well under what the whole session would take.
     assert max(peaks) < 12 * 1024 * 1024, max(peaks)
+
+
+# -- filters, facets and session search ---------------------------------------------
+
+
+def test_facets_describe_every_session(client, filled):
+    facets = client.get("/api/sessions/facets").json()
+    engine, store = direct(filled)
+    with store() as db:
+        total = db.scalar(select(func.count()).select_from(Session))
+        models = {m for (names,) in db.execute(select(Session.models)) for m in names or []}
+    engine.dispose()
+    assert sum(f["count"] for f in facets["harnesses"]) == total
+    assert {f["value"] for f in facets["models"]} == models
+    assert facets["folders"] and all(f["value"].startswith("/work/") for f in facets["folders"])
+    counts = [f["count"] for f in facets["folders"]]
+    assert counts == sorted(counts, reverse=True)
+    assert facets["first_started_at"] <= facets["last_started_at"]
+
+
+def test_filters_combine(client):
+    facets = client.get("/api/sessions/facets").json()
+    model = facets["models"][0]["value"]
+    with_model = every(client, "/api/sessions", model=model)
+    assert with_model and all(model in s["models"] for s in with_model)
+    folder = facets["folders"][0]["value"]
+    parent = folder.rsplit("/", 1)[0]
+    in_folder = every(client, "/api/sessions", folder=folder)
+    assert in_folder and {s["cwd"] for s in in_folder} == {folder}
+    under_parent = every(client, "/api/sessions", folder=parent)
+    assert {s["id"] for s in in_folder} <= {s["id"] for s in under_parent}
+    harness = in_folder[0]["harness"]
+    both = every(client, "/api/sessions", folder=folder, harness=harness)
+    assert {s["id"] for s in both} == {s["id"] for s in in_folder if s["harness"] == harness}
+    started = sorted(s["started_at"] for s in every(client, "/api/sessions") if s["started_at"])
+    middle = started[len(started) // 2]
+    later = every(client, "/api/sessions", started_from=middle)
+    earlier = every(client, "/api/sessions", started_before=middle)
+    assert all(s["started_at"] >= middle for s in later)
+    assert all(s["started_at"] < middle for s in earlier)
+    assert len(later) + len(earlier) == len(started)
+    assert every(client, "/api/sessions", model="no-such-model") == []
+
+
+def test_session_search_returns_sessions_with_highlighted_excerpts(client, filled):
+    word, session_id = a_prompt_word(filled)
+    found = every(client, "/api/search/sessions", q=word, limit=3)
+    assert any(s["id"] == session_id for s in found)
+    assert len({s["id"] for s in found}) == len(found), "a session appears once"
+    for session in found:
+        assert session["hits"] >= len(session["excerpts"]) >= 1
+        assert len(session["excerpts"]) <= 2
+        for excerpt in session["excerpts"]:
+            marked = "".join(p["text"] for p in excerpt["snippet"] if p["match"])
+            assert word.lower() in marked.lower()
+
+
+def test_session_search_honours_the_filters(client, filled):
+    word, session_id = a_prompt_word(filled)
+    harness = client.get(f"/api/sessions/{session_id}").json()["harness"]
+    scoped = every(client, "/api/search/sessions", q=word, harness=harness)
+    assert scoped and {s["harness"] for s in scoped} == {harness}
+    other = [
+        h["value"]
+        for h in client.get("/api/sessions/facets").json()["harnesses"]
+        if h["value"] != harness
+    ]
+    elsewhere = every(client, "/api/search/sessions", q=word, harness=other)
+    assert session_id not in {s["id"] for s in elsewhere}
+    assert client.get("/api/search/sessions", params={"q": "***"}).status_code == 422
+
+
+def test_session_search_without_the_index(filled, tmp_path):
+    copy = tmp_path / "copy.db"
+    copy.write_bytes(Path(filled.removeprefix("sqlite:///")).read_bytes())
+    with sqlite3.connect(copy) as db:
+        for trigger in ("event_search_insert", "event_search_delete", "event_search_update"):
+            db.execute(f"DROP TRIGGER {trigger}")
+        db.execute("DROP TABLE event_search")
+    db.close()
+    word, session_id = a_prompt_word(filled)
+    with local_client(f"sqlite:///{copy}") as fallback:
+        found = every(fallback, "/api/search/sessions", q=word)
+    assert any(s["id"] == session_id for s in found)

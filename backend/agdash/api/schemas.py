@@ -123,3 +123,34 @@ class Stats(BaseModel):
     events_by_kind: dict[str, int]
     usage: list[UsageGroup]
     source_health: list[HealthRow]
+
+
+class FacetValue(BaseModel):
+    value: str
+    count: int
+
+
+class Facets(BaseModel):
+    """The values session filters can take, with how many sessions have each."""
+
+    harnesses: list[FacetValue]
+    surfaces: list[FacetValue]
+    states: list[FacetValue]
+    models: list[FacetValue]
+    folders: list[FacetValue] = Field(description="The most used folders, at most 100.")
+    auth_methods: list[FacetValue]
+    first_started_at: datetime | None
+    last_started_at: datetime | None
+
+
+class Excerpt(BaseModel):
+    event_id: int
+    sequence: int
+    kind: EventKind
+    occurred_at: datetime | None
+    snippet: list[SnippetPart]
+
+
+class SessionHit(SessionSummary):
+    hits: int = Field(description="How many of the session's events match.")
+    excerpts: list[Excerpt] = Field(description="The best matching events, at most two.")

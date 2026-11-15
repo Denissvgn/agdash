@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import ts from 'typescript'
 import { describe, expect, test } from 'vitest'
 import App from '../App'
+import { PAGES } from '../pages/registry'
 import { WORKSPACES } from '../shell/navigation'
 import { catalogue, createI18n, LANGUAGE } from '.'
 
@@ -64,7 +65,11 @@ describe('every visible string comes from the catalogue', () => {
       expect(typeof workspaces[workspace.id]?.label).toBe('string')
       for (const destination of workspace.destinations) {
         const strings = (workspaces[workspace.id].destinations as Tree)[destination.id] as Tree
-        for (const field of ['label', 'title', 'purpose', 'what', 'waitsOn']) {
+        // A destination without its own page shows the unavailable panel, which needs two more strings.
+        const fields = PAGES[`${workspace.id}:${destination.id}`]
+          ? ['label', 'title', 'purpose']
+          : ['label', 'title', 'purpose', 'what', 'waitsOn']
+        for (const field of fields) {
           expect(typeof strings?.[field], `${workspace.id}.${destination.id}.${field}`).toBe('string')
         }
       }

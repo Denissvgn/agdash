@@ -43,16 +43,12 @@
         "sessions": {
           "label": "Sessions",
           "title": "Sessions",
-          "purpose": "Every session agdash has recorded, newest first, with its task, model, usage and outcome.",
-          "what": "A filterable list of sessions; open one to read its full timeline of prompts, thoughts and tool calls.",
-          "waitsOn": "The agdash service's read API."
+          "purpose": "Every session agdash has recorded, most recently active first, with its harness, model, folder and size."
         },
         "search": {
           "label": "Search",
           "title": "Search",
-          "purpose": "Find sessions by what was asked, said or run.",
-          "what": "Full-text search across prompts, replies, thoughts and tool calls.",
-          "waitsOn": "The agdash service's read API."
+          "purpose": "Find sessions by what was asked, said or run."
         }
       }
     },
@@ -119,6 +115,101 @@
           "waitsOn": "The agdash service."
         }
       }
+    }
+  },
+  "history": {
+    "filters": {
+      "label": "Filters",
+      "harness": "Harness",
+      "model": "Model",
+      "anyModel": "Any model",
+      "folder": "Folder",
+      "anyFolder": "Any folder",
+      "auth": "Sign-in method",
+      "anyAuth": "Any sign-in method",
+      "authNone": "No sign-in methods detected yet.",
+      "from": "Started on or after",
+      "to": "Started on or before",
+      "clear": "Clear filters",
+      "more": "More filters",
+      "moreActive_one": "More filters ({{count}} set)",
+      "moreActive_other": "More filters ({{count}} set)",
+      "started": "Started between"
+    },
+    "list": {
+      "label": "Sessions",
+      "loading": "Loading sessions",
+      "untitled": "Untitled session",
+      "lastActive": "Last active {{when}}",
+      "harnessSurface": "{{harness}} · {{surface}}",
+      "noModel": "Model not recorded",
+      "events_one": "{{count}} event",
+      "events_other": "{{count}} events",
+      "subagents_one": "{{count}} subagent",
+      "subagents_other": "{{count}} subagents",
+      "more": "Show more",
+      "loadingMore": "Loading more…",
+      "noActivity": "No activity recorded"
+    },
+    "states": {
+      "active": "Active",
+      "waiting": "Waiting",
+      "idle": "Idle",
+      "ended": "Ended",
+      "unknown": "Unknown"
+    },
+    "harnesses": {
+      "claude_code": "Claude Code",
+      "codex": "Codex",
+      "antigravity": "Antigravity",
+      "pi": "Pi"
+    },
+    "surfaces": {
+      "cli": "CLI",
+      "desktop": "Desktop app",
+      "ide": "IDE",
+      "exec": "Non-interactive"
+    },
+    "kinds": {
+      "user_prompt": "Prompt",
+      "assistant_text": "Reply",
+      "thinking": "Thought",
+      "tool_call": "Tool call",
+      "tool_result": "Tool output",
+      "subagent": "Subagent",
+      "model_change": "Model change",
+      "compaction": "Compaction",
+      "status": "Status",
+      "usage": "Usage"
+    },
+    "empty": {
+      "noneTitle": "No sessions recorded yet",
+      "noneBody": "Sessions appear here once the agdash service has read your harnesses' files.",
+      "filteredTitle": "No sessions match these filters",
+      "filteredBody": "Clear a filter or widen the dates to see more."
+    },
+    "error": {
+      "unreachableTitle": "Can't reach the agdash service",
+      "unreachableBody": "Make sure the service is running on this machine, then try again.",
+      "refusedTitle": "The service refused this request",
+      "refusedBody": "The page did not present the service's local token. Open agdash from its app, or restart it.",
+      "serverTitle": "The service could not answer",
+      "serverBody": "Something went wrong while reading the history. Try again.",
+      "retry": "Try again"
+    },
+    "search": {
+      "label": "Search sessions",
+      "placeholder": "Words from a prompt, reply, thought or command",
+      "submit": "Search",
+      "promptTitle": "Search your history",
+      "promptBody": "Type words from what was asked, said or run. End a word with * to match its beginning.",
+      "noneTitle": "Nothing matches “{{query}}”",
+      "noneBody": "Check the spelling, try fewer words, or clear the filters.",
+      "results": "Sessions matching “{{query}}”",
+      "excerpts": "Matching text",
+      "hits_one": "{{count}} match",
+      "hits_other": "{{count}} matches",
+      "failed": "The search could not be completed."
     }
   }
 }
