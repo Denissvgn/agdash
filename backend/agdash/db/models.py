@@ -132,7 +132,7 @@ class Event(Base):
     session_id: Mapped[int] = mapped_column(
         ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
     )
-    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
     occurred_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     kind: Mapped[EventKind] = mapped_column(vocabulary(EventKind), nullable=False, index=True)
     payload: Mapped[dict[str, Any]] = mapped_column(json_document(), nullable=False)
