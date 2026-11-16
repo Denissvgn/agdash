@@ -74,6 +74,9 @@ EXEMPT = {
     "runtime.py": {"mkdir", "chmod", "signal"},
     # Creates agdash's own data directory for its database, when no database URL is set.
     "connectors/cli.py": {"mkdir"},
+    # Uses only sqlite3's authorizer constants, to let the API's settings writer change
+    # nothing but the connector's own tables in agdash's store. It opens no file.
+    "api/store.py": {"sqlite3"},
     # Development tool, not part of the service. It reads harness files only through
     # the access layer; it writes synthetic fixtures through a staging directory into
     # an output directory that it refuses to place inside a harness root, builds their

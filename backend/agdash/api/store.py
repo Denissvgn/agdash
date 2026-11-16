@@ -1,9 +1,14 @@
-"""The API's connection to the store: opened lazily and only ever for reading.
+"""The API's connections to the store, opened lazily.
 
-Every connection the API makes is put in read-only mode by the database
-itself, so a mistake in a handler cannot change collected data.
+Every reading connection is put in read-only mode by the database itself, so a
+mistake in a handler cannot change collected data. The WorkChord settings
+routes have one more connection, for writing, which on SQLite the database lets
+change only the connector's own tables: connections, mapping rules and pins,
+and the mappings worked out from them. Sessions, events and everything else
+collected stay out of its reach.
 """
 
+import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from threading import Lock
@@ -35,6 +40,42 @@ def read_only_engine(database_url: str) -> Engine:
     return engine
 
 
+# What the API's writer may change; every other table is read-only to it.
+WRITABLE = frozenset({"connections", "mapping_rules", "identity_links", "project_links"})
+_WRITES = {sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE}
+_SCHEMA = {
+    action
+    for name, action in vars(sqlite3).items()
+    if name.startswith(("SQLITE_CREATE", "SQLITE_DROP", "SQLITE_ALTER")) and isinstance(action, int)
+}
+
+
+def _authorize(action: int, first, _second, _database, _source) -> int:
+    if action in _SCHEMA:
+        return sqlite3.SQLITE_DENY
+    if action in _WRITES and first not in WRITABLE:
+        return sqlite3.SQLITE_DENY
+    return sqlite3.SQLITE_OK
+
+
+def settings_engine(database_url: str) -> Engine:
+    """A connection that may write the connector's own tables and nothing else."""
+    url = sync_database_url(database_url)
+    sqlite = url.startswith("sqlite")
+    engine = create_engine(url, connect_args={"check_same_thread": False} if sqlite else {})
+    if sqlite:
+
+        @event.listens_for(engine, "connect")
+        def guard(connection, _record) -> None:
+            cursor = connection.cursor()
+            cursor.execute("PRAGMA busy_timeout = 5000")
+            cursor.execute("PRAGMA foreign_keys = ON")
+            cursor.close()
+            connection.set_authorizer(_authorize)
+
+    return engine
+
+
 class Store:
     """Where the API reads from. Nothing is opened until the first request."""
 
@@ -44,6 +85,7 @@ class Store:
         self._sessions: sessionmaker[DbSession] | None = None
         self._has_index: bool | None = None
         self._lock = Lock()
+        self._writer: sessionmaker[DbSession] | None = None
 
     @property
     def engine(self) -> Engine:
@@ -58,6 +100,17 @@ class Store:
         self.engine  # noqa: B018 - opens the engine on first use
         assert self._sessions is not None
         with self._sessions() as db:
+            yield db
+
+    @contextmanager
+    def writing(self) -> Iterator[DbSession]:
+        """For the WorkChord settings routes only; see ``settings_engine``."""
+        with self._lock:
+            if self._writer is None:
+                self._writer = sessionmaker(
+                    settings_engine(self.database_url), expire_on_commit=False
+                )
+        with self._writer() as db:
             yield db
 
     def session(self) -> Iterator[DbSession]:
@@ -82,3 +135,5 @@ class Store:
     def dispose(self) -> None:
         if self._engine is not None:
             self._engine.dispose()
+        if self._writer is not None:
+            self._writer.kw["bind"].dispose()

@@ -60,7 +60,7 @@ describe('pages', () => {
   })
 
   test('a view without its data says what it will show and what it waits on', () => {
-    open('/projects/unmapped')
+    open('/projects')
     const panel = screen.getByRole('region', { name: 'Not available yet' })
     expect(within(panel).getByText('What will appear here')).toBeInTheDocument()
     expect(within(panel).getByText('A connected WorkChord server.')).toBeInTheDocument()

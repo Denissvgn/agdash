@@ -118,3 +118,82 @@ export interface ToolReport {
   outcomes_known: number
   errors: number
 }
+
+// -- the WorkChord connector --------------------------------------------------------
+
+export interface SyncedObject {
+  kind: string
+  state: 'ok' | 'unavailable' | 'unparseable' | 'error'
+  detail: string | null
+  rows: number | null
+  checked_at: string
+  synced_at: string | null
+}
+
+export interface WorkChordConnection {
+  id: number
+  name: string | null
+  server: string
+  auth_mode: string | null
+  credential: 'read_only_session' | 'full_session' | 'none'
+  agent_key: boolean
+  publish: boolean
+  sync_state: 'never' | 'ok' | 'error'
+  last_synced_at: string | null
+  last_error: string | null
+  objects: SyncedObject[]
+}
+
+export interface Pairing {
+  status: 'connected' | 'waiting'
+  connection_id: number | null
+  pairing_id: string | null
+  verification_code: string | null
+  verification_url: string | null
+  expires_at: string | null
+  read_only: boolean | null
+}
+
+export interface ProjectOption {
+  id: number
+  name: string
+}
+
+export interface MappingRule {
+  id: number
+  match: 'folder' | 'repository' | 'launcher' | 'session'
+  value: string | null
+  session_id: number | null
+  target: 'project' | 'actor' | 'runtime_ref'
+  target_value: string
+  target_name: string | null
+  harness: string | null
+  note: string | null
+}
+
+export type MappingBasis = 'capabilities' | 'run' | 'runtime_ref' | 'task' | 'assignment' | 'rule' | 'manual'
+
+export interface MappingEvidence {
+  basis: MappingBasis
+  target: number
+  name: string | null
+  evidence: Record<string, unknown>
+}
+
+export interface UnmappedItem {
+  session_id: number
+  harness: string
+  title: string | null
+  cwd: string | null
+  state: SessionState
+  last_activity_at: string | null
+  connection_id: number
+  reason: 'no evidence' | 'conflicting evidence'
+  suggestion: number | null
+  evidence: MappingEvidence[]
+}
+
+export interface UnmappedQueue {
+  items: UnmappedItem[]
+  total: number
+}

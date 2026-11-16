@@ -65,9 +65,7 @@
         "unmapped": {
           "label": "Unmapped",
           "title": "Unmapped sessions",
-          "purpose": "Sessions with no evidence linking them to a WorkChord project.",
-          "what": "A queue of sessions agdash could not map, to map by hand or by a folder rule.",
-          "waitsOn": "A connected WorkChord server."
+          "purpose": "Sessions with no WorkChord project: nothing points at one, or the evidence disagrees."
         }
       }
     },
@@ -99,9 +97,7 @@
         "workchord": {
           "label": "WorkChord",
           "title": "WorkChord",
-          "purpose": "Connect a WorkChord server to map sessions to projects, agents and tasks.",
-          "what": "Your connected servers and what each one lets agdash read.",
-          "waitsOn": "The connector to WorkChord."
+          "purpose": "Connect a WorkChord server to map sessions to projects, agents and tasks."
         },
         "data": {
           "label": "Data",
@@ -336,5 +332,129 @@
       "serverBody": "Something went wrong while reading the live sessions. The board tries again when the live stream reconnects.",
       "retry": "Try again"
     }
+  },
+  "workchord": {
+    "loading": "Loading connected servers",
+    "servers": "Connected servers",
+    "unnamed": "WorkChord server",
+    "credential": {
+      "read_only_session": "Read-only session",
+      "full_session": "Full session",
+      "none": "Open local workspace"
+    },
+    "credentialDetail": {
+      "read_only_session": "WorkChord refuses any change made with this session.",
+      "full_session": "This server has no read-only sessions; agdash still only reads.",
+      "none": "This server lets local readers in without signing in."
+    },
+    "agentKey": "Agent key stored",
+    "publishOn": "Publish mode on",
+    "lastSynced": "Last synced {{when}}",
+    "neverSynced": "Not synced yet",
+    "syncProblem": "Last sync: {{problem}}",
+    "objectsLabel": "What agdash copies from this server",
+    "objects": {
+      "projects": "Projects",
+      "tasks": "Tasks",
+      "pipeline": "Pipeline",
+      "assignments": "Assignments",
+      "actors": "Agents",
+      "runs": "Runs"
+    },
+    "objectStates": {
+      "ok": "Synced",
+      "unavailable": "Not readable",
+      "unparseable": "Unexpected answer",
+      "error": "Could not sync"
+    },
+    "noneTitle": "No WorkChord server connected",
+    "noneBody": "Connect a server to map sessions to its projects, agents and tasks. agdash only reads from it.",
+    "connect": {
+      "title": "Connect a server",
+      "address": "Server address",
+      "addressHint": "Such as https://work.example, or http://127.0.0.1:8480 on this computer.",
+      "name": "Name (optional)",
+      "submit": "Connect",
+      "starting": "Connecting…",
+      "failed": "Not connected: {{reason}}",
+      "failedUnknown": "Not connected. Check the address and try again.",
+      "approveTitle": "Approve agdash in WorkChord",
+      "approveBody": "Open the approval page, sign in, check that it shows this code, and approve.",
+      "approveReadOnly": "agdash asks for a read-only session.",
+      "approveFull": "This server only offers full sessions; agdash still only reads.",
+      "code": "Code",
+      "open": "Open the approval page",
+      "waiting": "Waiting for your approval…",
+      "connected": "Connected.",
+      "cancel": "Cancel"
+    },
+    "rules": {
+      "title": "Rules and pins",
+      "purpose": "Map sessions that never talk to WorkChord: by folder, repository or launcher, or one at a time.",
+      "loading": "Loading rules",
+      "none": "No rules yet.",
+      "folder": "Folder {{value}}",
+      "repository": "Repository {{value}}",
+      "launcher": "Launcher {{value}}",
+      "session": "Session {{value}}",
+      "toProject": "to project {{name}}",
+      "toActor": "to agent {{name}}",
+      "toRuntime": "to runtime {{name}}",
+      "harnessOnly": "{{harness}} only",
+      "remove": "Remove",
+      "removeLabel": "Remove the rule for {{what}}",
+      "addTitle": "Add a folder rule",
+      "folder_field": "Folder",
+      "folderHint": "An absolute path. Sessions in this folder or below map to the project.",
+      "project": "Project",
+      "chooseProject": "Choose a project",
+      "noProjects": "No projects copied from this server yet. Sync it first.",
+      "add": "Add rule",
+      "adding": "Adding…",
+      "failed": "Not added: {{reason}}",
+      "failedUnknown": "Not added. Try again."
+    },
+    "error": {
+      "unreachableTitle": "Can't reach the agdash service",
+      "unreachableBody": "Make sure the service is running on this machine, then try again.",
+      "refusedTitle": "The service refused this request",
+      "refusedBody": "The page did not present the service's local token. Open agdash from its app, or restart it.",
+      "serverTitle": "The service could not answer",
+      "serverBody": "Something went wrong while reading the WorkChord settings. Try again.",
+      "retry": "Try again"
+    }
+  },
+  "mapping": {
+    "basis": {
+      "capabilities": "Its own WorkChord call",
+      "run": "Its run",
+      "runtime_ref": "Runtime rule",
+      "task": "Its task",
+      "assignment": "Its agent's assignments",
+      "rule": "Folder or repository rule",
+      "manual": "Pinned by you"
+    },
+    "evidenceItem": "{{basis}}: {{name}}",
+    "unnamedProject": "project {{id}}",
+    "loading": "Loading unmapped sessions",
+    "queueLabel": "Unmapped sessions",
+    "noEvidence": "No evidence points at a project.",
+    "conflict": "The evidence disagrees:",
+    "evidenceLabel": "Evidence for {{title}}",
+    "pin": {
+      "label": "Pin to project",
+      "choose": "Choose a project",
+      "submit": "Pin",
+      "pinning": "Pinning…",
+      "failed": "Not pinned: {{reason}}",
+      "failedUnknown": "Not pinned. Try again."
+    },
+    "total_one": "{{count}} session without a project",
+    "total_other": "{{count}} sessions without a project",
+    "noServerTitle": "No WorkChord server connected",
+    "noServerBody": "Connect a server in Settings to map sessions to its projects.",
+    "noServerAction": "Open WorkChord settings",
+    "emptyTitle": "Every session is mapped",
+    "emptyBody": "Each top-level session has a project, from its own evidence, a rule or a pin."
   }
 }

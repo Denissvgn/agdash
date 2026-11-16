@@ -98,6 +98,7 @@ class QueueItem(BaseModel):
     connection_id: int
     reason: Literal["no evidence", "conflicting evidence"]
     suggestion: int | None
+    evidence: list[Evidence] = Field(description="What points where, strongest basis first.")
 
 
 class Queue(BaseModel):
@@ -239,6 +240,13 @@ def unmapped(
     ).all()
     items: list[QueueItem] = []
     for connection in connections:
+        names = dict(
+            db.execute(
+                select(WcProject.remote_id, WcProject.name).where(
+                    WcProject.connection_id == connection.id
+                )
+            ).all()
+        )
         evidence = defaultdict(list)
         for row in db.scalars(
             select(ProjectLink).where(ProjectLink.connection_id == connection.id)
@@ -261,6 +269,15 @@ def unmapped(
                     connection_id=connection.id,
                     reason="no evidence" if mapping.state == "unmapped" else "conflicting evidence",
                     suggestion=mapping.suggestion,
+                    evidence=[
+                        Evidence(
+                            basis=c.basis,
+                            target=c.target,
+                            name=names.get(c.target),
+                            evidence=c.evidence,
+                        )
+                        for c in mapping.candidates
+                    ],
                 )
             )
     ordered = sorted(
