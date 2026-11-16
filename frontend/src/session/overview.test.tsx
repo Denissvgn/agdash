@@ -7,6 +7,7 @@ import type { EventOut, SessionDetail, SessionOverview, StateHistory } from '../
 import { formatMoment } from '../charts/format'
 import { createI18n } from '../i18n'
 import { SessionOverviewFigure } from './Overview'
+import { openTwin } from '../test/twin'
 import { overviewModel } from './overviewModel'
 
 // A synthetic session over two mornings: 09:00 to 12:00 on 16 and 17 November, with
@@ -95,8 +96,12 @@ describe('the session overview', () => {
     const { container } = draw()
     const lane = (name: string) => container.querySelector(`[data-lane="${name}"]`)!
     // Counts: prompts, replies, thoughts and tool calls as columns, the parts textured.
-    expect(lane('counts').querySelectorAll('path').length).toBeGreaterThan(20)
-    expect(lane('counts').querySelectorAll('path[fill^="url(#"]').length).toBeGreaterThan(0)
+    // Each count lane is one path of columns, one column per busy bucket (six of them).
+    const columnsOf = (name: string) => (lane('counts').querySelector(`[data-count="${name}"] path`)!.getAttribute('d')!.match(/M/g) ?? []).length
+    for (const name of ['prompts', 'replies', 'thoughts', 'tools']) expect(columnsOf(name)).toBe(6)
+    expect(lane('counts').querySelector('[data-count="thoughts"] [data-part]')).not.toBeNull()
+    expect(lane('counts').querySelector('[data-count="tools"] [data-part]')).not.toBeNull()
+    expect(lane('counts').querySelector('[data-count="prompts"] [data-part]')).toBeNull()
     expect(lane('subagents').querySelectorAll('rect')).toHaveLength(1)
     expect(lane('markers').querySelectorAll('circle')).toHaveLength(1)
     expect(lane('markers').querySelectorAll('rect')).toHaveLength(1)
@@ -180,6 +185,11 @@ describe('the session overview', () => {
     // Timed in a real browser (the WebKit run, as on the CI runner); jsdom is far slower at layout-free DOM work.
     if (!navigator.userAgent.includes('jsdom')) expect(took).toBeLessThan(200)
     expect(document.querySelectorAll('[data-lane="tokens"] [data-turn]').length).toBe(1000)
+    // The twin's 120 rows are built when it is opened, and list every bucket.
+    const twin = document.querySelector('details')!
+    expect(twin.querySelectorAll('tbody tr')).toHaveLength(0)
+    openTwin()
+    expect(twin.querySelectorAll('tbody tr')).toHaveLength(120)
   })
 })
 

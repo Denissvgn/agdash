@@ -16,6 +16,12 @@ export type Bucket = {
   thoughtsNotKept: number
   toolCalls: number
   toolErrors: number
+  /** Turns started in the bucket, and their tokens: null where none of them reported usage. */
+  turns: number
+  tokens: number | null
+  subagents: number
+  modelChanges: number
+  compactions: number
 }
 
 export type Span = { start: number; end: number }
@@ -67,6 +73,11 @@ export function overviewModel(overview: SessionOverview, states: StateHistory | 
       thoughtsNotKept: thoughts.encrypted + thoughts.absent + thoughts.not_recorded,
       toolCalls: activity.tool_calls,
       toolErrors: activity.tool_errors,
+      turns: 0,
+      tokens: null,
+      subagents: 0,
+      modelChanges: 0,
+      compactions: 0,
     }
   })
   if (!buckets.length) return null
@@ -93,6 +104,35 @@ export function overviewModel(overview: SessionOverview, states: StateHistory | 
     const next = dated[i + 1] ? time(dated[i + 1].started_at) : end
     return { index: turn.index, start: from, end: Math.max(from, next), tokens: tokensOf(turn), messages: turn.messages }
   })
+
+  // Each turn, subagent and marker counted into the bucket it starts in, in one pass each.
+  const starts = buckets.map((bucket) => bucket.start)
+  const bucketOf = (at: number) => {
+    let low = 0
+    let high = starts.length - 1
+    if (at < starts[0] || at >= buckets[high].end) return null
+    while (low < high) {
+      const middle = (low + high + 1) >> 1
+      if (starts[middle] <= at) low = middle
+      else high = middle - 1
+    }
+    return buckets[low]
+  }
+  for (const turn of turns) {
+    const bucket = bucketOf(turn.start)
+    if (!bucket) continue
+    bucket.turns += 1
+    if (turn.tokens !== null) bucket.tokens = (bucket.tokens ?? 0) + turn.tokens
+  }
+  for (const agent of subagents) {
+    const bucket = bucketOf(agent.start)
+    if (bucket) bucket.subagents += 1
+  }
+  for (const marker of markers) {
+    const bucket = bucketOf(marker.at)
+    if (bucket && marker.kind === 'model_change') bucket.modelChanges += 1
+    else if (bucket) bucket.compactions += 1
+  }
 
   // States over the session, from its recorded changes; the last runs to the end.
   const changes = states?.changes ?? []

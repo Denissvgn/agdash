@@ -14,7 +14,7 @@ import { Plot, type Mark } from '../charts/Plot'
 import { UnknownPattern } from '../charts/StateStrips'
 import { stateBlock, STATE_FORMS, STRIP_STATES } from '../charts/states'
 import { useWidth } from '../charts/useWidth'
-import { overviewModel, type OverviewModel } from './overviewModel'
+import { overviewModel, type Bucket, type OverviewModel } from './overviewModel'
 
 /** The lane names' column; narrower on a phone, so the drawing keeps its width. */
 const leftFor = (width: number) => (width < 520 ? 84 : 112)
@@ -40,22 +40,38 @@ function PartPattern({ id }: { id: string }) {
   )
 }
 
-/** A column in a count lane, with an optional part at its top in the part texture. */
-function Column({ x0, x1, lane, share, part, pattern }: { x0: number; x1: number; lane: Lane; share: number; part: number; pattern: string }) {
-  if (share <= 0) return null
+/**
+ * The columns of one count lane as three paths: the whole in the mark ink, and the
+ * part at the top (reasoning not kept, calls that failed) as an ink step 2 underlay
+ * with the part texture over it. One path each, so hundreds of buckets stay light.
+ */
+function laneColumns(
+  lane: Lane,
+  columns: { x0: number; x1: number; share: number; part: number }[],
+): { whole: string; part: string } {
   const base = laneTop(lane) + LANE - 3
-  const tall = Math.max(2, Math.round(share * (LANE - 6)))
-  const width = Math.max(1, x1 - x0)
-  const partTall = part > 0 ? Math.max(1, Math.round(tall * part)) : 0
+  const whole: string[] = []
+  const part: string[] = []
+  for (const { x0, x1, share, part: partShare } of columns) {
+    if (share <= 0) continue
+    const tall = Math.max(2, Math.round(share * (LANE - 6)))
+    const width = Math.max(1, x1 - x0)
+    const partTall = partShare > 0 ? Math.max(1, Math.round(tall * partShare)) : 0
+    if (tall - partTall > 0) whole.push(verticalBar(x0, base, base - (tall - partTall), width, partTall === 0))
+    if (partTall > 0) part.push(verticalBar(x0, base - (tall - partTall), base - tall, width))
+  }
+  return { whole: whole.join(''), part: part.join('') }
+}
+
+/** A count lane drawn from its columns' paths. */
+function CountLane({ lane, paths, pattern }: { lane: Lane; paths: { whole: string; part: string }; pattern: string }) {
   return (
-    <g>
-      {tall - partTall > 0 ? (
-        <path className={FILL.mark} d={verticalBar(x0, base, base - (tall - partTall), width, partTall === 0)} />
-      ) : null}
-      {partTall > 0 ? (
+    <g data-count={lane}>
+      {paths.whole ? <path className={FILL.mark} d={paths.whole} /> : null}
+      {paths.part ? (
         <>
-          <path className={FILL['ink-2']} d={verticalBar(x0, base - (tall - partTall), base - tall, width)} />
-          <path d={verticalBar(x0, base - (tall - partTall), base - tall, width)} fill={`url(#${pattern})`} />
+          <path className={FILL['ink-2']} d={paths.part} />
+          <path d={paths.part} data-part="" fill={`url(#${pattern})`} />
         </>
       ) : null}
     </g>
@@ -141,8 +157,7 @@ export function SessionOverviewFigure({
     const x = compressedScale(model.busy, model.threshold, [LEFT, right])
     const columns = (from: number, to: number) => [x(from), Math.max(x(from) + 1, x(to) - GAP)] as const
     const marks: Mark[] = model.buckets.map((bucket) => {
-      const turns = model.turns.filter((turn) => turn.start >= bucket.start && turn.start < bucket.end)
-      const tokens = turns.reduce<number | null>((sum, turn) => (turn.tokens === null ? sum : (sum ?? 0) + turn.tokens), null)
+      const { tokens } = bucket
       return {
         x: (x(bucket.start) + x(bucket.end)) / 2,
         y: TOP,
@@ -159,7 +174,7 @@ export function SessionOverviewFigure({
             name: t('session.overview.lanes.tools'),
             value: t('session.overview.toolsValue', { count: bucket.toolCalls, errors: bucket.toolErrors }),
           },
-          ...(turns.length
+          ...(bucket.turns
             ? [{ name: t('session.overview.lanes.tokens'), value: tokens === null ? t('charts.notReported') : formatValue(tokens) }]
             : []),
         ],
@@ -176,12 +191,33 @@ export function SessionOverviewFigure({
       const newDay = !previous || previous.toDateString() !== from.toDateString()
       return s === 0 || span >= 44 ? [{ key: `s${s}`, x: stretch.left, text: newDay ? formatDay(from) : formatTick(from, HOUR) }] : []
     })
-    return { x, right, marks, bucketAt, columns, ticks, LEFT }
+    const lane = (name: Lane, share: (b: Bucket) => number, part: (b: Bucket) => number) =>
+      laneColumns(
+        name,
+        model.buckets.map((bucket) => {
+          const [x0, x1] = columns(bucket.start, bucket.end)
+          return { x0, x1, share: share(bucket), part: part(bucket) }
+        }),
+      )
+    const thoughtsOf = (b: Bucket) => b.thoughtsKept + b.thoughtsNotKept
+    const counts = [
+      { lane: 'prompts' as const, paths: lane('prompts', (b) => b.prompts / model.max.prompts, () => 0) },
+      { lane: 'replies' as const, paths: lane('replies', (b) => b.replies / model.max.replies, () => 0) },
+      {
+        lane: 'thoughts' as const,
+        paths: lane('thoughts', (b) => thoughtsOf(b) / model.max.thoughts, (b) => (thoughtsOf(b) ? b.thoughtsNotKept / thoughtsOf(b) : 0)),
+      },
+      {
+        lane: 'tools' as const,
+        paths: lane('tools', (b) => b.toolCalls / model.max.toolCalls, (b) => (b.toolCalls ? b.toolErrors / b.toolCalls : 0)),
+      },
+    ]
+    return { x, right, marks, bucketAt, columns, ticks, LEFT, counts }
   }, [model, width, t])
 
   let plot = null
   if (model && drawing) {
-    const { x, right, marks, bucketAt, columns, ticks, LEFT } = drawing
+    const { x, right, marks, bucketAt, columns, ticks, LEFT, counts } = drawing
     const bottom = height - AXIS
     const [view0, view1] = view ?? [model.start, model.start]
     const wx0 = x(view0)
@@ -263,32 +299,9 @@ export function SessionOverviewFigure({
                   </g>
                 </g>
                 <g aria-hidden="true" data-lane="counts">
-                  {model.buckets.map((bucket) => {
-                    const [x0, x1] = columns(bucket.start, bucket.end)
-                    const thoughts = bucket.thoughtsKept + bucket.thoughtsNotKept
-                    return (
-                      <g key={bucket.start}>
-                        <Column lane="prompts" part={0} pattern={`${ids}-part`} share={bucket.prompts / model.max.prompts} x0={x0} x1={x1} />
-                        <Column lane="replies" part={0} pattern={`${ids}-part`} share={bucket.replies / model.max.replies} x0={x0} x1={x1} />
-                        <Column
-                          lane="thoughts"
-                          part={thoughts ? bucket.thoughtsNotKept / thoughts : 0}
-                          pattern={`${ids}-part`}
-                          share={thoughts / model.max.thoughts}
-                          x0={x0}
-                          x1={x1}
-                        />
-                        <Column
-                          lane="tools"
-                          part={bucket.toolCalls ? bucket.toolErrors / bucket.toolCalls : 0}
-                          pattern={`${ids}-part`}
-                          share={bucket.toolCalls / model.max.toolCalls}
-                          x0={x0}
-                          x1={x1}
-                        />
-                      </g>
-                    )
-                  })}
+                  {counts.map(({ lane, paths }) => (
+                    <CountLane key={lane} lane={lane} paths={paths} pattern={`${ids}-part`} />
+                  ))}
                 </g>
                 <g aria-hidden="true" data-lane="subagents">
                   {model.subagents.map((agent, i) => (
@@ -447,9 +460,6 @@ function overviewTable(model: OverviewModel, t: (key: string, options?: Record<s
       'state',
     ].map((key) => ({ key, label: t(`session.overview.table.${key}`) })),
     rows: model.buckets.map((bucket) => {
-      const inside = (at: number) => at >= bucket.start && at < bucket.end
-      const turns = model.turns.filter((turn) => inside(turn.start))
-      const tokens = turns.reduce<number | null>((sum, turn) => (turn.tokens === null ? sum : (sum ?? 0) + turn.tokens), null)
       const state = stateAt(bucket.start)
       return {
         key: String(bucket.start),
@@ -461,10 +471,10 @@ function overviewTable(model: OverviewModel, t: (key: string, options?: Record<s
           formatValue(bucket.thoughtsNotKept),
           formatValue(bucket.toolCalls),
           formatValue(bucket.toolErrors),
-          formatValue(model.subagents.filter((agent) => inside(agent.start)).length),
-          formatValue(model.markers.filter((marker) => marker.kind === 'model_change' && inside(marker.at)).length),
-          formatValue(model.markers.filter((marker) => marker.kind === 'compaction' && inside(marker.at)).length),
-          turns.length ? (tokens === null ? null : formatValue(tokens)) : '',
+          formatValue(bucket.subagents),
+          formatValue(bucket.modelChanges),
+          formatValue(bucket.compactions),
+          bucket.turns ? (bucket.tokens === null ? null : formatValue(bucket.tokens)) : '',
           state ? t(`charts.states.${state}`) : '',
         ],
       }
