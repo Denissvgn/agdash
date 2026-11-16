@@ -19,6 +19,7 @@ from agdash.api import (
 from agdash.api.routes import router
 from agdash.api.security import LazyToken, LocalAccess, load_or_create_token
 from agdash.api.store import Store
+from agdash.api.ui import mount_ui, ui_directory
 from agdash.config import database_url, get_settings
 from agdash.platform import current_host
 
@@ -36,6 +37,7 @@ def create_app(
     *,
     token: str | Callable[[], str] | None = None,
     port: int | None = None,
+    ui_dir: str | None = None,
 ) -> FastAPI:
     """The service's API. Nothing touches the database or the keyring until the first request."""
     settings = get_settings()
@@ -70,6 +72,10 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
+    # Last, so the API and /health come first.
+    directory = ui_directory(ui_dir if ui_dir is not None else settings.ui_dir)
+    open_paths, open_prefixes = mount_ui(app, directory) if directory else ((), ())
+
     if isinstance(token, str):
         fixed = token
         source: Callable[[], str] = lambda: fixed  # noqa: E731
@@ -80,6 +86,8 @@ def create_app(
         token=LazyToken(source),
         port=port or settings.port,
         extra_origins=settings.extra_origins,
+        open_paths=open_paths,
+        open_prefixes=open_prefixes,
     )
     return app
 

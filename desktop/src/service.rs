@@ -44,6 +44,51 @@ pub fn find_bin(env_bin: Option<String>, app_exe: Option<PathBuf>) -> PathBuf {
     PathBuf::from("agdash")
 }
 
+/// The agdash command to run. Inside an AppImage the bundled one lives in a mount that
+/// goes away when the app exits, so a service started from it, or set to start at login,
+/// would lose its binary. There the bundled command is copied to
+/// `<data home>/agdash/bin/agdash`, once per version, and that copy is used.
+pub fn settle_bin(bin: &Path, appimage: bool, data_home: &Path) -> PathBuf {
+    if !appimage || !bin.is_file() {
+        return bin.to_path_buf();
+    }
+    let target = data_home.join("agdash").join("bin").join("agdash");
+    if same_file_contents(bin, &target) {
+        return target;
+    }
+    match copy_executable(bin, &target) {
+        Ok(()) => target,
+        Err(_) => bin.to_path_buf(), // better a binary that goes away with the app than none
+    }
+}
+
+fn same_file_contents(a: &Path, b: &Path) -> bool {
+    match (std::fs::read(a), std::fs::read(b)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn copy_executable(from: &Path, to: &Path) -> std::io::Result<()> {
+    let dir = to.parent().expect("a file in a folder");
+    std::fs::create_dir_all(dir)?;
+    let partial = dir.join(".agdash.partial");
+    std::fs::copy(from, &partial)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o755))?;
+    }
+    std::fs::rename(&partial, to)
+}
+
+/// Where per-user data goes: `XDG_DATA_HOME`, else `~/.local/share`.
+pub fn data_home(xdg: Option<String>, home: &Path) -> PathBuf {
+    xdg.filter(|value| value.starts_with('/'))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local").join("share"))
+}
+
 /// How to start the installed service, when it is installed: through the system's
 /// service manager, so it runs as it does at login.
 pub fn manager_command(macos: bool, home: &Path, uid: u32) -> Option<Vec<String>> {
@@ -229,6 +274,54 @@ mod tests {
         fs::write(dir.join("agdash"), "").unwrap();
         assert_eq!(find_bin(None, Some(app)), dir.join("agdash"));
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_appimage_runs_a_copy_of_its_service_that_outlives_it() {
+        let dir = scratch("appimage");
+        let bundled = dir.join("mount/usr/bin/agdash");
+        fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        fs::write(&bundled, b"service v1").unwrap();
+        let data = dir.join("data");
+        // Outside an AppImage nothing is copied.
+        assert_eq!(settle_bin(&bundled, false, &data), bundled);
+        assert!(!data.exists());
+        let settled = settle_bin(&bundled, true, &data);
+        assert_eq!(settled, data.join("agdash/bin/agdash"));
+        assert_eq!(fs::read(&settled).unwrap(), b"service v1");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&settled).unwrap().permissions().mode() & 0o777,
+                0o755
+            );
+        }
+        // A newer AppImage replaces the copy; the same one leaves it alone.
+        fs::write(&bundled, b"service v2").unwrap();
+        assert_eq!(
+            fs::read(settle_bin(&bundled, true, &data)).unwrap(),
+            b"service v2"
+        );
+        assert_eq!(settle_bin(&bundled, true, &data), settled);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn data_goes_where_xdg_says() {
+        let home = Path::new("/home/someone");
+        assert_eq!(
+            data_home(None, home),
+            PathBuf::from("/home/someone/.local/share")
+        );
+        assert_eq!(
+            data_home(Some("/srv/data".into()), home),
+            PathBuf::from("/srv/data")
+        );
+        assert_eq!(
+            data_home(Some("relative".into()), home),
+            PathBuf::from("/home/someone/.local/share")
+        );
     }
 
     #[test]

@@ -28,6 +28,13 @@ datas = collect_data_files(
 )
 # keyring finds its backends through package metadata.
 datas += copy_metadata("keyring")
+# The built UI, when AGDASH_UI_DIST names it, so the service can serve it to a browser
+# on a host with no desktop app (agdash.api.ui looks for it as agdash/ui).
+UI_DIST = os.environ.get("AGDASH_UI_DIST")
+if UI_DIST:
+    if not os.path.isfile(os.path.join(UI_DIST, "index.html")):
+        raise SystemExit(f"AGDASH_UI_DIST has no index.html: {UI_DIST}")
+    datas += [(UI_DIST, "agdash/ui")]
 
 hiddenimports = collect_submodules("agdash", filter=lambda name: ".tests" not in name)
 

@@ -1,0 +1,26 @@
+agdash on Ubuntu
+================
+
+The service runs as your own user and reads only your sessions. Installing the
+package starts nothing; start it for your user:
+
+    agdash install          start the service now and at every login
+    agdash status           whether it runs, and what it holds
+    agdash uninstall        stop starting it at login; your data stays
+
+On a server you log out of, a user service stops at logout unless lingering is
+enabled for your account. agdash does not change that; to keep it running:
+
+    loginctl enable-linger "$USER"
+
+With no display, open the UI in a browser on your own computer. On the server:
+
+    agdash open
+
+prints a link that carries the service's local token. Anyone who opens it can
+read your sessions, so keep it to yourself. Then, on your computer, forward the
+port and open the link:
+
+    ssh -N -L 8765:127.0.0.1:8765 <server>
+
+The service listens on 127.0.0.1 only, and refuses requests from other web pages.

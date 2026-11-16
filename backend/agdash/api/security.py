@@ -12,7 +12,9 @@ Three checks run on every request before any handler, the live stream included:
   in agdash's secret store and is created on first use.
 
 ``/health`` answers without the token, so the app can tell whether the service
-runs, but it carries no data and still needs a loopback Host.
+runs, but it carries no data and still needs a loopback Host. So do the files of
+the UI, when the service serves it (``agdash.api.ui``): they hold no data, and
+every ``/api`` request they make needs the token.
 """
 
 import hmac
@@ -96,9 +98,13 @@ class LocalAccess:
         token: Callable[[], str],
         port: int,
         extra_origins: Iterable[str] = (),
+        open_paths: Iterable[str] = (),
+        open_prefixes: Iterable[str] = (),
     ) -> None:
         self.app = app
         self.token = token
+        self.open_paths = OPEN_PATHS | frozenset(open_paths)
+        self.open_prefixes = tuple(open_prefixes)
         self.hosts = allowed_hosts(port)
         self.origins = allowed_origins(port, extra_origins)
 
@@ -120,7 +126,7 @@ class LocalAccess:
         origin = headers.get("origin")
         if origin is not None and origin not in self.origins:
             return 403, "requests from other web pages are refused"
-        if path in OPEN_PATHS:
+        if path in self.open_paths or path.startswith(self.open_prefixes):
             return None
         scheme, _, presented = headers.get("authorization", "").partition(" ")
         if scheme.lower() != "bearer" or not hmac.compare_digest(

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { localToken } from '../api/client'
 
 /**
  * The service's live stream, read with fetch: the stream needs the local token in an
@@ -60,7 +61,8 @@ export function useLiveStream(onMessage: (message: StreamMessage) => void): Stre
     const connect = async () => {
       const config = window.__AGDASH__ ?? {}
       const headers: Record<string, string> = { Accept: 'text/event-stream' }
-      if (config.token) headers.Authorization = `Bearer ${config.token}`
+      const token = localToken()
+      if (token) headers.Authorization = `Bearer ${token}`
       // One connection; a proxy or a sleeping machine can leave it open but dead, so
       // silence past the service's keep-alive ends it.
       const attempt = new AbortController()
