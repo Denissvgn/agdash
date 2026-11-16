@@ -4,6 +4,7 @@ import resolveConfig from 'tailwindcss/resolveConfig'
 import { describe, expect, test } from 'vitest'
 import { designTokens, parseDesignFrontmatter } from '../../scripts/design-tokens.mjs'
 import tailwindConfig from '../../tailwind.config.js'
+import figures from './agdash-figures.json'
 import prose from './workchord-prose.json'
 import tokens from './workchord-tokens.json'
 
@@ -35,8 +36,11 @@ describe('the tokens are WorkChord DESIGN.md', () => {
 })
 
 describe('the styles are built from the tokens', () => {
-  test('colours: exactly the palette plus the cited derived roles, nothing else', () => {
-    const derived = Object.keys(prose.derived.colors)
+  test('colours: exactly the palette, the cited derived roles and the figure layer, nothing else', () => {
+    const derived = [
+      ...Object.keys(prose.derived.colors),
+      ...[...Object.keys(figures.ink.light.steps), ...Object.keys(figures.roles)].map((name) => `figure-${name}`),
+    ]
     const keywords = ['transparent', 'current', 'inherit']
     expect(Object.keys(theme.colors).sort()).toEqual([...keywords, ...Object.keys(tokens.colors), ...derived].sort())
     const palette = Object.fromEntries(

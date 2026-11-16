@@ -25,6 +25,14 @@ colors:
   inverse-rule: "rgb(255 255 255 / 0.2)"
   conductor-hover: "rgb(24 48 91 / 0.6)"
   scrim: "rgb(15 23 42 / 0.3)"
+  # agdash figure layer: conductor navy over working paper at fixed opacities (see Figures).
+  figure-ink-1: "rgb(236 237 240)"
+  figure-ink-2: "rgb(216 219 224)"
+  figure-ink-3: "rgb(188 192 202)"
+  figure-ink-4: "rgb(154 161 175)"
+  figure-ink-5: "rgb(118 127 146)"
+  figure-ink-6: "rgb(72 84 110)"
+  figure-ink-7: "rgb(14 30 64)"
 typography:
   display:
     fontFamily: "Inter Variable, Inter, system-ui, sans-serif"
@@ -142,13 +150,14 @@ components:
 
 **Creative North Star: "The Planning Thread, Observing"**
 
-agdash uses WorkChord's design system unchanged. WorkChord's DESIGN.md is the upstream authority for every token, rule and component pattern in this file: the colours, type ramp, radii, spacing, shadows, layout measurements and component tokens above are copied from it verbatim, and where this file and WorkChord's design system disagree, WorkChord's wins. agdash adds only the six derived colour roles and the one state duration listed under Colors and Components; each fills a role WorkChord names but gives no value for. The upstream token file in the frontend is generated from WorkChord's frontmatter, never edited by hand.
+agdash uses WorkChord's design system unchanged. WorkChord's DESIGN.md is the upstream authority for every token, rule and component pattern in this file: the colours, type ramp, radii, spacing, shadows, layout measurements and component tokens above are copied from it verbatim, and where this file and WorkChord's design system disagree, WorkChord's wins. agdash adds only the six derived colour roles and the one state duration listed under Colors and Components, each filling a role WorkChord names but gives no value for, and the figure layer for charts and diagrams, which WorkChord's design system does not cover. The figure layer is built the same way, from WorkChord's own colours at fixed opacities, and adds no hue (see Figures). The upstream token file in the frontend is generated from WorkChord's frontmatter, never edited by hand.
 
 Within that system agdash is a calm workspace that carries an observer, not a control room. A canvas-mist ground holds working-paper surfaces; a 52px conductor-navy bar owns workspace switching; the cobalt planning thread marks only where the person is. State and its evidence come first, and where nothing is known yet the page says so in words instead of showing an empty frame or a placeholder metric. Nothing in the shell may suggest that agdash can act on an agent.
 
 **Key Characteristics:**
 
 - WorkChord tokens unchanged; six fixed-opacity derived roles, each traced to a named gap.
+- Figures drawn in one navy ink ramp, with cobalt for selection and the status colours for state only; no new hues.
 - Inter Variable at a 14px operational base; hierarchy by weight, not by typeface.
 - A conductor bar of five workspaces, a 220px contextual sidebar, a page column capped at 1240px.
 - A labelled, focus-managed navigation drawer at 1180px and below.
@@ -195,7 +204,7 @@ Each is an upstream colour at a fixed opacity. They exist because WorkChord's de
 
 **The Canonical Status Rule.** (Upstream.) Planned is slate, active is cyan, resolved is emerald, closed is violet, everywhere.
 
-**The Closed Palette Rule.** The frontend's colour scale contains only the upstream tokens and the six derived roles; Tailwind's default palette is removed, so an off-palette colour cannot be written by accident. A new derived role needs a cited upstream gap.
+**The Closed Palette Rule.** The frontend's colour scale contains only the upstream tokens, the six derived roles and the figure layer's ink steps and roles; Tailwind's default palette is removed, so an off-palette colour cannot be written by accident. A new derived role needs a cited upstream gap; a new figure colour must be an upstream colour at a fixed opacity and pass the figure checks.
 
 ## Typography
 
@@ -344,7 +353,7 @@ Empty and error states share one quiet panel: working paper, hairline, 8px corne
 
 ### Data tables
 
-The Analytics pages show figures as a ledger: one table per page, never metric tiles, gauges or sparklines.
+On the Analytics pages the ledger stays the authoritative object: one table per page, which a figure may lead (see Figures), and never metric tiles or gauges.
 
 - **Surface:** working paper, 1px hairline, 8px corners, resting shadow; it scrolls sideways inside its own box on narrow windows, and the page itself never does.
 - **Structure:** a visually hidden caption; column headers in Label size, 500 weight, secondary ink; row headers on the left, never wrapped; hairline row dividers; a totals row under a 1px strong rule, in 600 weight.
@@ -387,6 +396,35 @@ The first focusable element on every page. Hidden until focused, then fixed near
 
 Every visible string and every accessible name (labels, titles, tooltips, placeholders) comes from the English message catalogue. Components hold keys, never literal copy; workspace and destination labels, titles, purposes and unavailable-state text live under each workspace's entry. A test renders every route with a marked pseudo-locale and fails on any text that did not come from the catalogue. English is the only language.
 
+## Figures
+
+Charts and diagrams, which WorkChord's design system does not cover. They follow one rule, **ink first, colour for meaning**: WorkChord's reserved colours (cobalt for location, the four status colours for record state, warning and danger for exceptions) leave no room for a palette of identity hues, so figures add none. Measured in OKLab, a standard chart palette's blue sits ΔE 6.5 from cobalt, its aqua 2.8 from resolved emerald, its orange 5.4 from warning and its red 5.2 from danger, and no set of four distinct hues stays clear of them in both the light theme and WorkChord's dark theme.
+
+### Roles
+
+- **Ink ramp:** seven steps of conductor navy over working paper at fixed opacities (8, 16, 28, 42, 57, 76 and 100%), `figure-ink-1` nearest the surface to `figure-ink-7`. It carries magnitude: bars, columns, areas, heatmap cells and activity strips. Its dark values, working paper over WorkChord's dark card surface (4, 8, 18, 28, 38, 75 and 87%), are set now and switch with the dark theme; they leave out the band around dark cobalt's lightness, and stop short of pure white, which has no hue.
+- **Mark** (`figure-mark`, ink step 6) is the default mark; **mark hover** (step 7) lifts a hovered or focused mark; **context** and **Other** (step 3) carry de-emphasised series and folded tails.
+- **Identity:** a harness, model, folder or tool is told apart by position and label (lanes, small multiples, row labels), never by a hue of its own. Many entities are ranked bars, or the first six as small multiples with the rest folded into Other.
+- **Selection and location:** the planning thread, as everywhere: a selected mark or series, the part of a session in view, the "now" line on a time axis. Keyboard focus keeps the 2px cobalt outline.
+- **State:** the canonical status colours, only in state strips and state segments, always with the state's word in the legend or tooltip. Waiting, idle and unknown share planned slate, so they differ by form: active is a full-height block in active cyan, waiting a two-thirds block and idle a one-third block in slate, unknown a full-height slate block hatched, and ended a 2px closed-violet cap.
+- **Not reported:** a 45° hatch of 1px strong-rule lines at 35% opacity, 6px apart, with a label; never a zero. A sum built from part of the sessions says "from n of m", as the ledger does.
+
+### Furniture and marks
+
+- Gridlines are the hairline role, solid and 1px; the baseline is strong rule. Axis labels are Counter size (11px, which WorkChord reserves for axes and counters) in secondary ink, with tabular numerals.
+- A tooltip is a working-paper panel with the popover shadow and 8px corners: the value first in primary ink, the name after in secondary ink. A crosshair is a strong-rule hairline. Tooltips add to labels and the table, never replace them.
+- Bars are at most 24px thick, with a 4px rounded data end and a square base on one baseline. Touching fills are parted by a 2px gap of the surface colour, never a stroke. Lines are 2px with round joins; dots are at least 8px with a 2px surface ring; an area is its line's colour at 10%.
+
+### Behaviour
+
+- **Table twin:** every figure has a table of the same values, so nothing is only drawn.
+- **Keyboard:** a figure is one tab stop; the arrow keys move between its marks and show the same tooltip as hover, and every mark has an accessible name from the catalogue.
+- **Motion:** none. Figures do not animate in, and new data replaces old in place.
+
+### Checks
+
+The values are generated by `frontend/scripts/figure-colours.mjs` from WorkChord's tokens and tested on every build: each ink step is at least ΔE 18 (OKLab × 100) from cobalt in its mode (19.1 at the closest in light, 18.5 in dark); the steps read in order away from the surface; the steps that carry marks (4 to 7) are at least 0.06 apart in lightness; and each mode keeps one hue. The ordinal checks of the dataviz palette validator pass for steps 4 to 7 on working paper (lightest 2.62:1) and on the dark card surface (2.49:1). Step 5 in light sits ΔE 4.3 from planned slate, which WorkChord also uses as its strong rule; a state is never told by that colour alone, since it always carries a dot and a word.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -398,11 +436,13 @@ Every visible string and every accessible name (labels, titles, tooltips, placeh
 - **Do** answer missing data with an unavailable-state panel naming what will appear and what it waits on.
 - **Do** take every visible string and accessible name from the English message catalogue.
 - **Do** keep 44px coarse-pointer targets, the 2px cobalt focus outline and the reduced-motion instant switch.
+- **Do** draw figures in the ink ramp, mark selection with cobalt, use the status colours only for state, and give every figure a table twin.
 
 ### Don't:
 
 - **Don't** add colours outside the upstream tokens and the six derived roles.
 - **Don't** build metric tiles, gauges or placeholder numbers where real data is absent.
+- **Don't** give a harness, model, folder or tool a colour of its own, and don't draw a number that was not reported as zero.
 - **Don't** add controls, wording or affordances that suggest agdash can start, stop, message or change an agent.
 - **Don't** reuse cobalt for record status, success, warning or danger.
 - **Don't** add continuous motion or motion longer than the brief state and drawer transitions.
