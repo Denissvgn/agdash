@@ -11,7 +11,7 @@ export default defineConfig({
   optimizeDeps: { include: ['react/jsx-dev-runtime'] },
   test: {
     include: ['src/**/*.shots.tsx'],
-    // Thirty-seven captures per width at twice the pixel density; WebKit on Linux is slow at it.
+    // Sixty-nine captures per width at twice the pixel density; WebKit on Linux is slow at it.
     testTimeout: 120_000,
     setupFiles: ['./src/test/setup.ts', './src/test/styles.ts'],
     browser: {

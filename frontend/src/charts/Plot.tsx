@@ -39,6 +39,7 @@ export function Plot({
   marks,
   pick,
   stride,
+  navigate,
   crosshair,
   children,
 }: {
@@ -50,6 +51,8 @@ export function Plot({
   pick: (x: number, y: number) => number | null
   /** Up and down move this many marks, such as from one small multiple to the next. */
   stride?: number
+  /** Where an arrow key goes from a mark, for figures laid out other than in a row; undefined keeps the default. */
+  navigate?: (from: number, key: string) => number | null | undefined
   /** Where the crosshair runs for a mark, on figures that have one. */
   crosshair?: (index: number) => { x: number; top: number; bottom: number } | null
   children: (state: PlotState) => ReactNode
@@ -80,7 +83,11 @@ export function Plot({
     const step = next[event.key]
     if (!step) return
     event.preventDefault()
-    setActive((value) => step(value !== null && value < marks.length ? value : -1))
+    setActive((value) => {
+      const from = value !== null && value < marks.length ? value : -1
+      const custom = from >= 0 && navigate ? navigate(from, event.key) : undefined
+      return custom === undefined ? step(from) : custom
+    })
   }
 
   const point = (event: PointerEvent<HTMLDivElement>) => {

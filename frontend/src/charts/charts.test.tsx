@@ -182,8 +182,8 @@ describe('the share bar', () => {
 describe('the specimen page', () => {
   test('shows every component in every state, with copy from the catalogue', () => {
     const { container } = show(<SpecimenPage />, createI18n({ [LANGUAGE]: { translation: wrap(withSpecimen()) } }))
-    // Five sections of seven states each, and the share-bar table.
-    expect(container.querySelectorAll('figure')).toHaveLength(35)
+    // Seven states for each figure that can leave a value unreported, six for the rest.
+    expect(container.querySelectorAll('figure')).toHaveLength(7 * 7 + 3 * 6)
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
     const stray: string[] = []
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
