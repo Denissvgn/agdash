@@ -39,6 +39,25 @@ class SessionState(StrEnum):
     UNKNOWN = "unknown"
 
 
+class StateBasis(StrEnum):
+    """Why a session's state was chosen. Stored with every state."""
+
+    PROCESS_EXITED = "process_exited"
+    HARNESS_CLOSED = "harness_closed"
+    END_RECORD = "end_record"
+    ARCHIVED = "archived"
+    HARNESS_BUSY = "harness_busy"
+    HARNESS_WAITING = "harness_waiting"
+    HARNESS_IDLE = "harness_idle"
+    MID_TURN = "mid_turn"
+    TURN_ENDED = "turn_ended"
+    QUIET = "quiet"
+    PROCESS_RUNNING = "process_running"
+    RECENT_WRITES = "recent_writes"
+    PROCESS_HIDDEN = "process_hidden"
+    NO_EVIDENCE = "no_evidence"
+
+
 class ParentBasis(StrEnum):
     """Why a session is recorded as the child of another."""
 

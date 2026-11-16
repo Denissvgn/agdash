@@ -10,13 +10,15 @@ Events:
 * ``sessions``: sessions whose record changed (state, activity, title…),
   oldest change first.
 * ``events``: sessions that gained events, with their newest sequence.
+* ``activity``: the per-minute counts of ``/api/live/activity`` may have
+  changed, because sessions changed or gained events or a new minute began.
 * a comment line every fifteen seconds, so idle connections stay open.
 """
 
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -38,10 +40,17 @@ PAGE = 200
 class Watermark:
     """How far the stream has told its client about."""
 
-    def __init__(self, changed_at: datetime | None, session_id: int, event_id: int) -> None:
+    def __init__(
+        self,
+        changed_at: datetime | None,
+        session_id: int,
+        event_id: int,
+        minute: datetime | None = None,
+    ) -> None:
         self.changed_at = changed_at
         self.session_id = session_id
         self.event_id = event_id
+        self.minute = minute
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -51,14 +60,20 @@ class Watermark:
         }
 
 
-def start(db: DbSession) -> Watermark:
+def _minute(now: datetime | None) -> datetime:
+    return (now or datetime.now(UTC)).astimezone(UTC).replace(second=0, microsecond=0)
+
+
+def start(db: DbSession, now: datetime | None = None) -> Watermark:
     latest = db.execute(
         select(Session.updated_at, Session.id)
         .order_by(Session.updated_at.desc(), Session.id.desc())
         .limit(1)
     ).first()
     event_id = db.scalar(select(func.max(Event.id))) or 0
-    return Watermark(latest[0] if latest else None, latest[1] if latest else 0, event_id)
+    return Watermark(
+        latest[0] if latest else None, latest[1] if latest else 0, event_id, _minute(now)
+    )
 
 
 def _session(session: Session) -> dict[str, Any]:
@@ -76,7 +91,9 @@ def _session(session: Session) -> dict[str, Any]:
     }
 
 
-def changes(db: DbSession, mark: Watermark) -> list[tuple[str, dict[str, Any]]]:
+def changes(
+    db: DbSession, mark: Watermark, now: datetime | None = None
+) -> list[tuple[str, dict[str, Any]]]:
     """What changed since ``mark``, as (event name, data) pairs; ``mark`` moves past it."""
     found: list[tuple[str, dict[str, Any]]] = []
     query = select(Session)
@@ -111,6 +128,18 @@ def changes(db: DbSession, mark: Watermark) -> list[tuple[str, dict[str, Any]]]:
             )
         )
         mark.event_id = max(last for _, last, _, _ in grown)
+    minute = _minute(now)
+    if found or minute != mark.minute:
+        found.append(
+            (
+                "activity",
+                {
+                    "minute": minute.isoformat(),
+                    "sessions": sorted({s.id for s in changed} | {sid for sid, _, _, _ in grown}),
+                },
+            )
+        )
+        mark.minute = minute
     return found
 
 
@@ -125,7 +154,7 @@ def frame(name: str, data: dict[str, Any]) -> bytes:
     responses={200: {"content": {"text/event-stream": {}}}},
 )
 async def stream(request: Request) -> StreamingResponse:
-    """Server-sent events: ``hello``, then ``sessions`` and ``events`` as they happen."""
+    """Server-sent events: ``hello``, then ``sessions``, ``events`` and ``activity``."""
     store: Store = request.app.state.store
 
     def look(mark: Watermark | None):
