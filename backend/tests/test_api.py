@@ -159,9 +159,19 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/stats",
         "/api/analytics/usage",
         "/api/analytics/tools",
+        "/api/analytics/series",
+        "/api/analytics/activity",
     }
     assert all(set(operations) == {"get"} for operations in document["paths"].values())
-    for schema in ("SessionSummary", "SessionDetail", "EventOut", "SearchHit", "Stats"):
+    for schema in (
+        "SessionSummary",
+        "SessionDetail",
+        "EventOut",
+        "SearchHit",
+        "Stats",
+        "SeriesReport",
+        "ActivityReport",
+    ):
         assert schema in document["components"]["schemas"]
 
 
