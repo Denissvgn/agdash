@@ -9,8 +9,11 @@
     agdash connect ...  connect a WorkChord server (see agdash connect --help)
     agdash export ...   export a session to a file you name
     agdash retention    see or apply the retention setting
+    agdash token        the local API token, for the desktop app, through a pipe only
 
-Nothing here starts, stops or changes an agent, and no output holds a secret.
+Nothing here starts, stops or changes an agent. No output holds a secret except
+``agdash token``, which the desktop app reads through a pipe and which refuses to
+print to a terminal.
 """
 
 import argparse
@@ -340,6 +343,7 @@ def main(argv: Sequence[str] | None = None, *, host: Host | None = None, manager
         ("doctor", "check this host's setup"),
         ("install", "start the service at login"),
         ("uninstall", "stop starting the service at login; data stays"),
+        ("token", "the local API token, for the desktop app (pipe only)"),
     ):
         commands.add_parser(name, help=text)
     for name in ("connect", "export", "retention"):
@@ -351,6 +355,19 @@ def main(argv: Sequence[str] | None = None, *, host: Host | None = None, manager
         from agdash.runtime import serve
 
         return serve()
+    if args.command == "token":
+        if sys.stdout.isatty():
+            print(
+                "agdash token is for the desktop app, which reads it through a pipe;"
+                " it does not print the token to a terminal.",
+                file=sys.stderr,
+            )
+            return 2
+        from agdash.api.security import load_or_create_token
+
+        sys.stdout.write(load_or_create_token(host.secret_store()))
+        sys.stdout.flush()
+        return 0
     if args.command == "backfill":
         from agdash.runtime import collector_for, prepare
 

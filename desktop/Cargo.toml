@@ -1,0 +1,23 @@
+[package]
+name = "agdash-desktop"
+version = "0.1.0"
+description = "The agdash desktop app: a window on the UI and a tray item, around the agdash service."
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+name = "agdash_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "agdash-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.5", features = ["tray-icon"] }
+tauri-plugin-single-instance = "=2.5.5"
+serde_json = "=1.0.154"

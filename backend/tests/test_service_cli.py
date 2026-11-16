@@ -317,6 +317,21 @@ class FakeManager:
         return self._state
 
 
+def test_the_token_goes_to_a_pipe_and_never_to_a_terminal(tmp_path, monkeypatch, capsys):
+    home = make_home(tmp_path)
+    host = Host(OperatingSystem.LINUX, home, {})
+    assert cli.main(["token"], host=host) == 0
+    first = capsys.readouterr().out
+    assert len(first) >= 32 and "\n" not in first
+    assert cli.main(["token"], host=host) == 0
+    assert capsys.readouterr().out == first  # the same token each time
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    assert cli.main(["token"], host=host) == 2
+    shown = capsys.readouterr()
+    assert first not in shown.out and first not in shown.err
+    assert "does not print the token to a terminal" in shown.err
+
+
 def test_status_and_doctor_report_without_secrets(tmp_path, monkeypatch, capsys):
     home = make_home(tmp_path)
     host = Host(OperatingSystem.LINUX, home, {})
