@@ -1,4 +1,5 @@
-"""Running agdash on this host: its private store, the collector and the API in one process.
+"""Running agdash on this host: its private store, the collector, the WorkChord mirror and
+the API in one process.
 
 The data directory is created readable by its owner only (0700) and the SQLite
 database likewise (0600). The store runs in write-ahead mode, so the API reads
@@ -24,6 +25,7 @@ from sqlalchemy.orm import sessionmaker
 from agdash.api.security import NotLoopback, ensure_loopback
 from agdash.collector.run import Collector
 from agdash.config import database_url, get_settings
+from agdash.connectors.mirror import MirrorSync
 from agdash.db.migrate import sync_database_url, upgrade
 from agdash.main import create_app
 from agdash.platform import Host, current_host
@@ -135,6 +137,9 @@ def serve() -> int:
     collector, engine = collector_for(store)
     stop = threading.Event()
     threads = collector.run(stop)
+    threads += MirrorSync(
+        sessionmaker(engine, expire_on_commit=False), current_host().secret_store()
+    ).run(stop)
     log.info("collecting; serving on %s:%d", settings.host, settings.port)
     try:
         config = uvicorn.Config(

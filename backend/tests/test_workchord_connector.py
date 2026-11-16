@@ -395,10 +395,26 @@ def test_the_run_key_travels_alone_and_only_to_run_endpoints(server):
 
 def test_without_an_agent_key_agent_reads_are_not_asked_for(server):
     with WorkChordClient(ORIGIN, transport=server.transport) as client:
-        for call in (client.assignments, client.actors, client.model_bindings):
+        for call in (client.actors, client.model_bindings, lambda: client.run(1)):
             with pytest.raises(PermissionError):
                 call()
     assert server.requests == []
+
+
+def test_without_an_agent_key_assignments_are_asked_of_the_person():
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json=[])
+
+    with WorkChordClient(
+        ORIGIN, session_token="person-token", transport=httpx.MockTransport(handler)
+    ) as client:
+        assert client.assignments() == []
+    assert seen[0].url.path == "/api/agent/assignments"
+    assert seen[0].headers["Authorization"] == "Bearer person-token"
+    assert "X-Agent-API-Key" not in seen[0].headers
 
 
 def test_redirects_are_not_followed(server):

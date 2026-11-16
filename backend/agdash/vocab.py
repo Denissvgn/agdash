@@ -81,6 +81,32 @@ class SyncState(StrEnum):
     ERROR = "error"
 
 
+class MirrorObject(StrEnum):
+    """The kinds of WorkChord object agdash keeps a local copy of."""
+
+    PROJECTS = "projects"
+    TASKS = "tasks"
+    PIPELINE = "pipeline"
+    ASSIGNMENTS = "assignments"
+    ACTORS = "actors"
+    RUNS = "runs"
+
+
+class MirrorState(StrEnum):
+    """How the last sync of one kind of object went.
+
+    ``unavailable``: the stored credentials may not read it. ``unparseable``: the
+    server answered in a shape agdash does not know, so the copy is left as it
+    was rather than filled with a guess. ``error``: the server could not be
+    reached or failed; the next sync retries.
+    """
+
+    OK = "ok"
+    UNAVAILABLE = "unavailable"
+    UNPARSEABLE = "unparseable"
+    ERROR = "error"
+
+
 class RunLinkBasis(StrEnum):
     """Evidence for a session-to-run link, strongest first."""
 

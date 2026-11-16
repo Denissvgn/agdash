@@ -38,6 +38,8 @@ from agdash.db.base import (
 from agdash.vocab import (
     EventKind,
     IdentityLinkBasis,
+    MirrorObject,
+    MirrorState,
     ParentBasis,
     ProjectLinkBasis,
     RuleMatchKind,
@@ -243,6 +245,25 @@ class WcTask(Base):
     claim_holder_remote_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     claim_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    pipeline_stage: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+
+class WcSyncObject(Base):
+    """How the last sync of one kind of WorkChord object went, per connection."""
+
+    __tablename__ = "wc_sync_objects"
+    __table_args__ = (UniqueConstraint("connection_id", "kind"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    connection_id: Mapped[int] = mapped_column(
+        ForeignKey("connections.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[MirrorObject] = mapped_column(vocabulary(MirrorObject), nullable=False)
+    state: Mapped[MirrorState] = mapped_column(vocabulary(MirrorState), nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    checked_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    synced_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
 class WcActor(Base):

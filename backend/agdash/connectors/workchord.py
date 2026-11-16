@@ -14,10 +14,10 @@ How agdash gets in depends on the server's access mode, which it reports at
   credential at all.
 
 A second, optional credential, an agent key with ``planning:read``, reads what
-a person's session cannot: assignments, runs, the actor roster and model
-bindings. WorkChord refuses a request that carries credentials of two
-different principals, so the agent key is only ever sent, alone, to those
-agent endpoints. docs/workchord-access.md lists who may read what.
+a person's session cannot: runs, the actor roster and model bindings, and on
+older servers assignments too. WorkChord refuses a request that carries
+credentials of two different principals, so the agent key is only ever sent,
+alone, to those agent endpoints. docs/workchord-access.md lists who may read what.
 
 Credentials live in agdash's secret store under names derived from the
 connection id; the ``connections`` row holds only those names.
@@ -126,6 +126,10 @@ class WorkChordClient:
     def iteration_tasks(self, iteration_id: int) -> Any:
         return self._get(f"/iterations/{iteration_id}/tasks")
 
+    def project_tasks(self, project_id: int) -> Any:
+        """Every task of a project the reader can see, backlog included, as task trees."""
+        return self._get(f"/projects/{project_id}/tasks")
+
     def task(self, task_id: int) -> Any:
         return self._get(f"/tasks/{task_id}")
 
@@ -136,13 +140,19 @@ class WorkChordClient:
         """People and local readers see it on the same rule as tasks."""
         return self._get("/agent/pipeline")
 
-    # These need the agent key.
-
     def assignments(self, **filters: Any) -> Any:
-        return self._get("/agent/assignments", runs=True, **filters)
+        """With the agent key, its queue boundary; without it, current servers let a person
+        or local reader see the assignments of the tasks they can see."""
+        return self._get("/agent/assignments", runs=self.can_read_runs, **filters)
+
+    # These need the agent key.
 
     def run(self, run_id: int) -> Any:
         return self._get(f"/agent/runs/{run_id}", runs=True)
+
+    def run_usage(self, run_id: int) -> Any:
+        """The usage the run's actor declared, or None when it declared none."""
+        return self._get(f"/agent/runs/{run_id}/usage", runs=True)
 
     def actors(self) -> Any:
         return self._get("/agent/actors", runs=True)

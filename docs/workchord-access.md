@@ -2,8 +2,9 @@
 
 agdash reads WorkChord; it never writes to it. This page records, from
 WorkChord's own code, which credential can read each thing agdash uses. It was
-checked against WorkChord commit `8efbcef87`; paths below are under
-`backend/app/` in the WorkChord repository.
+checked against WorkChord commit `8efbcef87`, and the assignment and
+project-task rows again at `3032919bd`; paths below are under `backend/app/`
+in the WorkChord repository.
 
 ## How agdash connects
 
@@ -47,9 +48,10 @@ trusted-local server; "agent" is an agent key with `planning:read`.
 
 | Endpoint | Guard | Person | Local | Agent |
 |---|---|---|---|---|
-| `GET /projects`, `/iterations`, `/tasks/{id}`, `/tasks/lookup`, `/iterations/{id}/tasks` | global guard and row scoping | filtered | all | filtered |
+| `GET /projects`, `/iterations`, `/tasks/{id}`, `/tasks/lookup`, `/iterations/{id}/tasks`, `/projects/{id}/tasks` | global guard and row scoping; a project's tree is capped at 2,500 tasks (`query_limits.py`) | filtered | all | filtered |
 | `GET /agent/pipeline` | `require_pipeline_read_access` (`routers/agent.py:252-266`) | filtered; needs a workspace role or a project | all | filtered |
-| `GET /agent/assignments` | `get_agent_actor` (`routers/agent.py:157-173`); `assignments:read` or `planning:read` (`services/agent_work_service.py:1071-1076`) | no | no | yes |
+| `GET /agent/assignments` | `get_assignment_reader` (`routers/agent.py:274-291`): an agent key reads its queue boundary; without one, people read the assignments of the tasks they can see (`services/agent_work_service.py:1127`). Servers before `3032919bd` need the agent key | filtered | all | yes |
+| `GET /agent/runs/{id}/usage` | as `/agent/runs/{id}` | operators only | no | yes |
 | `GET /agent/runs/{id}` | `require_agent_read_access` (`routers/agent.py:219-249`) | operators only | no | yes |
 | `GET /agent/actors` | `get_agent_admin_actor` (`routers/agent.py:189-216`); limited to the caller's team topology (`services/agent_work_service.py:787-828`) | operators only | no | yes, its topology |
 | `GET /agent/model-bindings` | `get_agent_actor`; `planning:read` (`services/agent_model_catalog_service.py:91-93`) | no | no | yes |
@@ -57,8 +59,9 @@ trusted-local server; "agent" is an agent key with `planning:read`.
 
 ## Assignments and team topology
 
-- **Assignments** need the agent key: neither a person's session nor a local
-  reader can list them. Each row carries `task_id`, `actor_id`,
+- **Assignments** are readable by a person's session or a local reader on
+  current servers, limited to the tasks they can see; older servers need the
+  agent key. Each row carries `task_id`, `actor_id`,
   `team_member_id`, `purpose`, `state` and the model binding; the project comes
   from the task (`schemas/agent.py:643-669`).
 - **Team topology** has no read endpoint of its own. It shows through
@@ -75,7 +78,28 @@ trusted-local server; "agent" is an agent key with `planning:read`.
 ## What this means for agdash
 
 - With a session alone, agdash maps sessions to projects and tasks, and shows
-  the pipeline.
-- Agents, assignments, model bindings and runs need the agent key. Without it,
+  the pipeline and assignments.
+- The actor roster, model bindings and runs need the agent key. Without it,
   agdash learns actors from the evidence it observes and shows no run detail.
 - The operator admin key is never needed, and agdash does not ask for it.
+
+## How agdash keeps its copy
+
+The service polls each connected server every minute, and backs off, doubling
+up to fifteen minutes, while the server cannot be reached. Runs have no list
+endpoint, so agdash refreshes only the runs it already knows of: those a
+session links to, and those not yet ended. Actors come from the roster when the
+agent key may read it, and are otherwise learned from task claims and
+assignments, which name them.
+
+Each kind of object (projects, tasks, pipeline, assignments, actors, runs) is
+synced on its own, and `agdash connect status ID` shows how its last sync went:
+
+- **ok**: the copy matches the server.
+- **unavailable**: the stored credentials may not read it. The rest still syncs.
+- **unparseable**: the server answered in a shape agdash does not know. The copy
+  is left as it was, never filled with a guess, and the status names where the
+  shape broke, not the values.
+- **error**: the server failed or could not be reached; the next sync retries.
+
+`agdash connect sync ID` runs one sync now.

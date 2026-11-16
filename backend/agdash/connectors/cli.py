@@ -3,6 +3,7 @@
     python -m agdash.connectors.cli pair https://work.example [--name Team]
     python -m agdash.connectors.cli list
     python -m agdash.connectors.cli status ID
+    python -m agdash.connectors.cli sync ID          (refresh the local copy once)
     python -m agdash.connectors.cli run-key ID        (reads the key without echoing it)
     python -m agdash.connectors.cli forget ID
 
@@ -20,6 +21,7 @@ from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import sessionmaker
 
 from agdash.config import get_settings
+from agdash.connectors.mirror import object_states, sync_connection
 from agdash.connectors.workchord import (
     KIND,
     PairingError,
@@ -41,6 +43,13 @@ def _show(pending: PendingPairing) -> None:
     print(f"Waiting until {pending.expires_at:%H:%M:%S} UTC…", flush=True)
 
 
+def _print_objects(db: DbSession, connection_id: int) -> None:
+    for item in object_states(db, connection_id):
+        rows = f", {item.rows} rows" if item.rows is not None else ""
+        detail = f": {item.detail}" if item.detail else ""
+        print(f"  {item.kind.value}: {item.state.value}{rows}{detail}")
+
+
 def _connection(db: DbSession, connection_id: int) -> Connection:
     row = db.get(Connection, connection_id)
     if row is None or row.kind != KIND:
@@ -57,6 +66,7 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
     commands.add_parser("list", help="the connected servers")
     for command, text in (
         ("status", "whether a connection still works"),
+        ("sync", "refresh the local copy of the server's objects once"),
         ("run-key", "store or clear an agent key with planning:read"),
         ("forget", "remove a connection and its stored credentials"),
     ):
@@ -100,7 +110,17 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
                 print(f"  {label}: {value}")
         for note in access.notes:
             print(f"  {note}")
+        _print_objects(db, row.id)
         return 0 if state == "works" else 1
+    if args.command == "sync":
+        report = sync_connection(db, secrets, row, transport=transport)
+        db.commit()
+        if not report.reachable:
+            print(f"Not synced: {report.problem}", file=sys.stderr)
+            return 1
+        print(f"Synced connection {row.id} from {row.base_url}.")
+        _print_objects(db, row.id)
+        return 0
     if args.command == "run-key":
         key = (
             getpass.getpass("Agent key with planning:read (empty to clear): ")
