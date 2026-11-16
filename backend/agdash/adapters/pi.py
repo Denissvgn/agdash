@@ -231,6 +231,7 @@ class Writer:
                 continue
             if record.get("type") == "session" and isinstance(record.get("version"), int):
                 version = str(record["version"])
+                session.harness_version = version
             parsed = parse_record(record)
             if parsed.unknown_type:
                 unknown += 1
@@ -238,7 +239,8 @@ class Writer:
                 self._model_change(db, session, record, parsed)
             apply_facts(session, parsed.facts, self._title_ranks)
             store_events(db, session, line.offset, parsed.events, cursor.path)
-        record_health(db, HARNESS, version, unknown, errors)
+        # A read that starts after the header still counts under the session's version.
+        record_health(db, HARNESS, version or session.harness_version, unknown, errors)
 
     def _model_change(self, db: DbSession, session: Session, record: dict, parsed: ParsedRecord):
         """A model or provider switch, compared with what the session used before."""

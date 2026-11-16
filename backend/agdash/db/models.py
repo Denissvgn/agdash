@@ -103,6 +103,8 @@ class Session(Base):
     goal: Mapped[dict[str, Any] | None] = mapped_column(json_document(), nullable=True)
     # What auth_method rests on; NULL while it is unknown.
     auth_basis: Mapped[AuthBasis | None] = mapped_column(vocabulary(AuthBasis), nullable=True)
+    # The harness version its records state, such as a CLI version or a format number.
+    harness_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class SessionProcess(Base):
