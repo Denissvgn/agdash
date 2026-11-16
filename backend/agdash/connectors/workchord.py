@@ -145,6 +145,10 @@ class WorkChordClient:
         or local reader see the assignments of the tasks they can see."""
         return self._get("/agent/assignments", runs=self.can_read_runs, **filters)
 
+    def run_list(self, **filters: Any) -> Any:
+        """Runs, newest first, on servers that let a person read them without an agent key."""
+        return self._get("/agent/runs", **filters)
+
     # These need the agent key.
 
     def run(self, run_id: int) -> Any:

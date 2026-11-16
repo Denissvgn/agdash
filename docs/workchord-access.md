@@ -92,18 +92,22 @@ trusted-local server; "agent" is an agent key with `planning:read`.
 
 - With a session alone, agdash maps sessions to projects and tasks, and shows
   the pipeline and assignments.
-- The actor roster, model bindings and runs need the agent key. Without it,
-  agdash learns actors from the evidence it observes and shows no run detail.
+- The actor roster, model bindings and run detail need the agent key. Without
+  it, agdash learns actors from the evidence it observes. A server that lists
+  `person-run-reads-v1` among the features at `GET /api/auth/me` lets a
+  session read its run list, with each run's declared harness session but no
+  run detail.
 - The operator admin key is never needed, and agdash does not ask for it.
 
 ## How agdash keeps its copy
 
 The service polls each connected server every minute, and backs off, doubling
-up to fifteen minutes, while the server cannot be reached. Runs have no list
-endpoint, so agdash refreshes only the runs it already knows of: those a
-session links to, and those not yet ended. Actors come from the roster when the
-agent key may read it, and are otherwise learned from task claims and
-assignments, which name them.
+up to fifteen minutes, while the server cannot be reached. With the agent key,
+agdash refreshes the runs it already knows of: those a session links to, and
+those not yet ended. Without it, on a server that offers the run list to
+people, agdash reads the newest 200 runs from that list. Actors come from the
+roster when the agent key may read it, and are otherwise learned from task
+claims and assignments, which name them.
 
 Each kind of object (projects, tasks, pipeline, assignments, actors, runs) is
 synced on its own, and `agdash connect status ID` shows how its last sync went:
@@ -114,6 +118,18 @@ synced on its own, and `agdash connect status ID` shows how its last sync went:
   is left as it was, never filled with a guess, and the status names where the
   shape broke, not the values.
 - **error**: the server failed or could not be reached; the next sync retries.
+
+After each sync, agdash links sessions to runs and tasks from what it observed,
+and keeps the evidence for each link, strongest first:
+
+1. **tool_call**: the session's transcript holds the result of a WorkChord work
+   call (begin, renew, submit or fail), which names the run and the task.
+2. **trace_id**: a run's actor declared the session when it began.
+3. **mcp_config**: an agent process was started with the server's address in
+   its arguments. This links to the server, not to a task.
+4. **heuristic**: the branch or worktree names a task key, and the session
+   overlaps one of the task's runs. Kept only as a suggestion, and dropped once
+   the session has an exact link.
 
 `agdash connect sync ID` runs one sync now.
 
