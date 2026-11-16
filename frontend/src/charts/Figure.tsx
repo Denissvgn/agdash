@@ -8,7 +8,17 @@ import { TableTwin, type TableTwinData } from './TableTwin'
 export type FigureStatus = 'ready' | 'loading' | 'empty' | 'error'
 
 /** A legend entry: a block or a line in an ink step, or the not-reported hatch. */
-export type LegendEntry = { key: string; label: string; swatch: Ink | 'hatch'; kind?: 'block' | 'line' }
+export type LegendEntry = {
+  key: string
+  label: string
+  swatch: Ink | 'hatch' | Swatch
+  kind?: 'block' | 'line'
+  dash?: string
+  cap?: 'round' | 'butt'
+}
+
+/** A legend swatch drawn by the figure itself, such as a state's form. */
+export type Swatch = { draw: () => ReactNode }
 
 type Content = { plot: ReactNode; table?: TableTwinData }
 
@@ -135,7 +145,9 @@ function Legend({ entries }: { entries: LegendEntry[] }) {
       {entries.map((entry) => (
         <li key={entry.key} className="flex items-center gap-xs">
           <svg aria-hidden="true" className="shrink-0" height={12} width={entry.kind === 'line' ? 16 : 12}>
-            {entry.swatch === 'hatch' ? (
+            {typeof entry.swatch === 'object' ? (
+              entry.swatch.draw()
+            ) : entry.swatch === 'hatch' ? (
               <>
                 <defs>
                   <pattern height={HATCH_SPACING} id={pattern} patternTransform="rotate(45)" patternUnits="userSpaceOnUse" width={HATCH_SPACING}>
@@ -145,7 +157,16 @@ function Legend({ entries }: { entries: LegendEntry[] }) {
                 <rect fill={`url(#${pattern})`} height={12} rx={2} width={12} />
               </>
             ) : entry.kind === 'line' ? (
-              <line className={STROKE[entry.swatch]} strokeLinecap="round" strokeWidth={2} x1={1} x2={15} y1={6} y2={6} />
+              <line
+                className={STROKE[entry.swatch]}
+                strokeDasharray={entry.dash}
+                strokeLinecap={entry.cap ?? (entry.dash ? 'butt' : 'round')}
+                strokeWidth={2}
+                x1={1}
+                x2={entry.dash ? 16 : 15}
+                y1={6}
+                y2={6}
+              />
             ) : (
               <rect className={FILL[entry.swatch]} height={12} rx={2} width={12} />
             )}

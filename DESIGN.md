@@ -414,11 +414,18 @@ Charts and diagrams, which WorkChord's design system does not cover. They follow
 - Gridlines are the hairline role, solid and 1px; the baseline is strong rule. Axis labels are Counter size (11px, which WorkChord reserves for axes and counters) in secondary ink, with tabular numerals.
 - A tooltip is a working-paper panel with the popover shadow and 8px corners: the value first in primary ink, the name after in secondary ink. A crosshair is a strong-rule hairline. Tooltips add to labels and the table, never replace them.
 - Bars are at most 24px thick, with a 4px rounded data end and a square base on one baseline. Touching fills are parted by a 2px gap of the surface colour, never a stroke. Lines are 2px with round joins; dots are at least 8px with a 2px surface ring; an area is its line's colour at 10%.
+- **Time lanes:** one lane per entity on a shared time axis; a span is a 12px block in the mark ink with 2px corners, a moment a dot. An idle gap longer than the figure's threshold is squeezed into an 18px break, filled canvas mist and marked on the axis by two slanted strong-rule strokes, and its length is in the tooltip and the table. The "now" line is a 2px planning-thread line labelled "Now".
+- **State strips:** an 18px strip per session on a hairline baseline, its blocks parted by the 2px gap. The unknown texture is planned-slate lines at 45°, 4px apart, inside a slate outline, so it never reads as the not-reported hatch.
+- **Heatmap:** square cells up to 28px, parted by the 2px gap, with 2px corners. A reported zero takes ink step 1, and the rest of the range is cut into six equal bins on steps 2 to 7; a scale legend under the grid names each bin's upper bound.
+- **Tree:** laid out left to right, nodes as dots with their names. An edge's line says how its link is known: solid for a recorded tool call, 8–4 dashes for a trace id, 3–3 dashes for an MCP configuration, dots for a heuristic, always 2px in the mark ink, with the link's label on the edge where there is room and always in the tooltip and table.
+- **Selection window:** the selected range of an overview is planning-thread soft behind the marks, outlined in a 2px planning-thread rule, with a 6px planning-thread grip at each edge; the marks inside are the mark ink and those outside the context ink.
 
 ### Behaviour
 
 - **Table twin:** every figure has a table of the same values, so nothing is only drawn.
 - **Keyboard:** a figure is one tab stop; the arrow keys move between its marks and show the same tooltip as hover, and every mark has an accessible name from the catalogue.
+  In lanes and strips, up and down move to the nearest mark on the row above or below; in a heatmap, to the cell above or below; in a tree, up and down move through the nodes in order, left to the parent and right to the first child.
+- **Selection window:** its two edges are sliders, the one place a figure has two tab stops. The arrow keys move an edge by one step, Page Up and Page Down by seven, Home and End to the ends; with Shift the arrow keys move the whole window. The pointer drags an edge or the window, and a press outside the window centres it there.
 - **Motion:** none. Figures do not animate in, and new data replaces old in place.
 
 ### Checks

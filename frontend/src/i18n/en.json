@@ -573,6 +573,62 @@
       "region": "{{title}}, as a table",
       "dash": "–",
       "notReported": "not reported"
+    },
+    "duration": {
+      "hours": "{{hours}} h {{minutes}} min",
+      "minutes": "{{minutes}} min",
+      "under": "under a minute"
+    },
+    "lanes": {
+      "span": "{{lane}}, {{from}} to {{to}} ({{duration}})",
+      "moment": "{{lane}}, {{at}}",
+      "gap": "Idle for {{duration}}",
+      "gapName": "compressed, {{from}} to {{to}}",
+      "gapRow": "Compressed idle gap",
+      "now": "Now",
+      "what": "What",
+      "start": "Start",
+      "end": "End",
+      "duration": "Duration",
+      "instant": "–"
+    },
+    "states": {
+      "active": "Active",
+      "waiting": "Waiting",
+      "idle": "Idle",
+      "unknown": "Unknown",
+      "ended": "Ended"
+    },
+    "strips": {
+      "span": "{{strip}}, {{from}} to {{to}} ({{duration}})",
+      "state": "State"
+    },
+    "heatmap": {
+      "cell": "{{row}}, {{column}}",
+      "scale": "Scale",
+      "upTo": "≤ {{value}}"
+    },
+    "tree": {
+      "root": "Root",
+      "via": "from {{parent}}, {{label}} ({{evidence}})",
+      "parent": "Parent",
+      "link": "Link",
+      "evidence": "Evidence"
+    },
+    "tiers": {
+      "tool_call": "Tool call",
+      "trace_id": "Trace id",
+      "mcp_config": "MCP configuration",
+      "heuristic": "Heuristic"
+    },
+    "selection": {
+      "start": "Start of the selected range",
+      "end": "End of the selected range",
+      "keys": "Arrow keys move this edge; with Shift they move the whole range.",
+      "value": "Selected: {{from}} to {{to}}",
+      "inside": "In the selected range",
+      "yes": "Yes",
+      "no": "No"
     }
   }
 }

@@ -32,3 +32,15 @@ export function formatTick(at: Date, step: number): string {
 export function formatWhen(at: Date, step: number): string {
   return step >= 86_400_000 ? day.format(at) : stamp.format(at)
 }
+
+/** A moment, with its day: Oct 5, 14:05. */
+export const formatMoment = (at: Date) => stamp.format(at)
+
+/** Hours and minutes of a span, for a catalogue string to put words around. */
+export function splitSpan(milliseconds: number): { hours: number; minutes: number } {
+  const minutes = Math.round(milliseconds / 60_000)
+  return { hours: Math.floor(minutes / 60), minutes: minutes % 60 }
+}
+
+/** A day on its own: Oct 5. */
+export const formatDay = (at: Date) => day.format(at)

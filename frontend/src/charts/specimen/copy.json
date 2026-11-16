@@ -27,7 +27,22 @@
       "tool": "Tool",
       "calls": "Calls",
       "share": "Share of the largest",
-      "day": "Day"
+      "day": "Day",
+      "lanes": "Time lanes",
+      "strips": "State strips",
+      "heatmap": "Heatmap",
+      "tree": "Tree",
+      "selection": "Selection window",
+      "lanesCaption": "Each agent's work in one day; the lunch break is compressed.",
+      "lanesDenseCaption": "Six agents over three days; nights are compressed into breaks.",
+      "stripsCaption": "Each session's state over an afternoon.",
+      "heatmapCaption": "Tool calls by weekday and hour.",
+      "heatmapDenseCaption": "Calls of sixteen tools by hour.",
+      "treeCaption": "A session and the agents it started, by how each link is known.",
+      "selectionCaption": "Drag the window or its edges, or use the arrow keys on an edge.",
+      "agent": "Agent",
+      "session": "Session",
+      "weekday": "Weekday"
     }
   }
 }

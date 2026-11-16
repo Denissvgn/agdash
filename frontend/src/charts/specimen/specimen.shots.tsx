@@ -50,7 +50,7 @@ describe('the chart-kit specimen', () => {
         shots.push({ element: figure, name: `${heading}-${i + 1}-${slug(figure.querySelector('h3')?.textContent ?? '')}` }),
       )
     }
-    expect(shots).toHaveLength(37)
+    expect(shots).toHaveLength(69)
 
     for (const [i, shot] of shots.entries()) {
       const tall = Math.ceil(shot.element.getBoundingClientRect().height) + 48

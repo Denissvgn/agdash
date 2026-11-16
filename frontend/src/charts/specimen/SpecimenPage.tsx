@@ -6,11 +6,20 @@ import type { FigureStatus } from '../Figure'
 import { formatValue } from '../format'
 import { LineChart } from '../LineChart'
 import { ShareBar } from '../ShareBar'
+import { Heatmap } from '../Heatmap'
+import { Lanes } from '../Lanes'
+import type { Range } from '../range'
+import { SelectionWindow } from '../SelectionWindow'
 import { SmallMultiples } from '../SmallMultiples'
-import { categories, daily, harnesses, hourly, manyNames } from './samples'
+import { StateStrips } from '../StateStrips'
+import { Tree } from '../Tree'
+import { agentTree, categories, daily, harnesses, heatmap, hourly, lanes, manyNames, strips } from './samples'
 
 const STATES = ['ready', 'held', 'loading', 'empty', 'unreported', 'error', 'dense'] as const
 type State = (typeof STATES)[number]
+/** Figures with no number to leave unreported skip that state. */
+const PLAIN_STATES = STATES.filter((state) => state !== 'unreported')
+const nothing = (state: State, status: FigureStatus) => state === 'loading' || state === 'error' || status === 'loading'
 
 /** Shows a figure drawn, then loading with nothing new yet, so the held drawing is on view. */
 function useHeld(state: State): FigureStatus {
@@ -173,6 +182,102 @@ function ShareBars() {
   )
 }
 
+function LanesSample({ state }: { state: State }) {
+  const { t } = useTranslation()
+  const status = useHeld(state)
+  const sample = state === 'empty' || nothing(state, status) ? undefined : lanes(state === 'dense')
+  return (
+    <Lanes
+      caption={t(state === 'dense' ? 'charts.specimen.lanesDenseCaption' : 'charts.specimen.lanesCaption')}
+      lanes={state === 'empty' ? [] : sample?.lanes}
+      now={sample?.now}
+      rowHeader={t('charts.specimen.agent')}
+      status={status}
+      title={t(`charts.specimen.states.${state}`)}
+      onRetry={() => undefined}
+    />
+  )
+}
+
+function StripsSample({ state }: { state: State }) {
+  const { t } = useTranslation()
+  const status = useHeld(state)
+  return (
+    <StateStrips
+      caption={t('charts.specimen.stripsCaption')}
+      rowHeader={t('charts.specimen.session')}
+      status={status}
+      strips={state === 'empty' ? [] : nothing(state, status) ? undefined : strips(state === 'dense')}
+      title={t(`charts.specimen.states.${state}`)}
+      onRetry={() => undefined}
+    />
+  )
+}
+
+function HeatmapSample({ state }: { state: State }) {
+  const { t } = useTranslation()
+  const status = useHeld(state)
+  return (
+    <Heatmap
+      caption={t(state === 'dense' ? 'charts.specimen.heatmapDenseCaption' : 'charts.specimen.heatmapCaption')}
+      data={
+        state === 'empty'
+          ? { rows: [], columns: [], values: [] }
+          : nothing(state, status)
+            ? undefined
+            : heatmap({ dense: state === 'dense', unreported: state === 'unreported' })
+      }
+      rowHeader={t(state === 'dense' ? 'charts.specimen.tool' : 'charts.specimen.weekday')}
+      status={status}
+      title={t(`charts.specimen.states.${state}`)}
+      onRetry={() => undefined}
+    />
+  )
+}
+
+function TreeSample({ state }: { state: State }) {
+  const { t } = useTranslation()
+  const status = useHeld(state)
+  return (
+    <Tree
+      caption={t('charts.specimen.treeCaption')}
+      root={state === 'empty' || nothing(state, status) ? undefined : agentTree(state === 'dense')}
+      rowHeader={t('charts.specimen.agent')}
+      status={state === 'empty' ? 'ready' : status}
+      title={t(`charts.specimen.states.${state}`)}
+      onRetry={() => undefined}
+    />
+  )
+}
+
+function SelectionSample({ state }: { state: State }) {
+  const { t } = useTranslation()
+  const status = useHeld(state)
+  const [range, setRange] = useState<Range>(state === 'dense' ? [120, 150] : [3, 8])
+  const data =
+    state === 'empty'
+      ? { ...daily(), series: [] }
+      : nothing(state, status)
+        ? undefined
+        : state === 'dense'
+          ? daily(harnesses.slice(0, 1), { buckets: 180, seed: 6 })
+          : state === 'unreported'
+            ? daily(harnesses.slice(0, 1), { gaps: [[5, 6]] })
+            : daily()
+  return (
+    <SelectionWindow
+      caption={t('charts.specimen.selectionCaption')}
+      data={data}
+      rowHeader={t('charts.specimen.day')}
+      status={status}
+      title={t(`charts.specimen.states.${state}`)}
+      value={range}
+      onChange={setRange}
+      onRetry={() => undefined}
+    />
+  )
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-md">
@@ -222,6 +327,31 @@ export function SpecimenPage() {
           ))}
         </div>
       </section>
+      <Section title={t('charts.specimen.lanes')}>
+        {PLAIN_STATES.map((state) => (
+          <LanesSample key={state} state={state} />
+        ))}
+      </Section>
+      <Section title={t('charts.specimen.strips')}>
+        {PLAIN_STATES.map((state) => (
+          <StripsSample key={state} state={state} />
+        ))}
+      </Section>
+      <Section title={t('charts.specimen.heatmap')}>
+        {STATES.map((state) => (
+          <HeatmapSample key={state} state={state} />
+        ))}
+      </Section>
+      <Section title={t('charts.specimen.tree')}>
+        {PLAIN_STATES.map((state) => (
+          <TreeSample key={state} state={state} />
+        ))}
+      </Section>
+      <Section title={t('charts.specimen.selection')}>
+        {STATES.map((state) => (
+          <SelectionSample key={state} state={state} />
+        ))}
+      </Section>
       <section className="flex flex-col gap-md">
         <h2 className="text-headline text-primary-ink">{t('charts.specimen.shares')}</h2>
         <ShareBars />
