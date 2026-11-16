@@ -7,8 +7,10 @@ How agdash gets in depends on the server's access mode, which it reports at
   starts a connection with an S256 proof, the person opens the verification
   page in their browser, signs in, compares the code and approves; agdash then
   exchanges its private verifier for a bearer session of that person. The
-  session sees what the person can see. It is not read-only on the server, so
-  the client below can only send GET requests.
+  session sees what the person can see. On a server that offers observer
+  sessions (``observer-sessions-v1``), agdash asks for one, and the server
+  refuses every write made with it; older servers only issue full sessions.
+  Either way the client below can only send GET requests.
 * **trusted_local** — the server lets local readers in without a credential,
   and has no signed-in person to approve a pairing. agdash connects with no
   credential at all.
@@ -49,6 +51,9 @@ START = f"{API}/auth/native-connections/start"
 EXCHANGE = f"{API}/auth/native-connections/exchange"
 PAIRING_POSTS = (START, EXCHANGE)
 MODES = ("managed", "trusted_local")
+OBSERVER_SESSIONS = "observer-sessions-v1"
+OBSERVE, FULL = "observe", "full"
+READ_LABEL = "agdash"
 POLL_SECONDS = 2.0
 
 
@@ -198,10 +203,13 @@ class PendingPairing:
 class Session:
     token: str
     expires_at: datetime | None
+    # What the server granted: "observe" (read-only) or "full". A server that does
+    # not say issues full sessions only.
+    access: str = FULL
 
     def dump(self) -> str:
         expires = self.expires_at.isoformat() if self.expires_at else None
-        return json.dumps({"token": self.token, "expires_at": expires})
+        return json.dumps({"token": self.token, "expires_at": expires, "access": self.access})
 
     @classmethod
     def load(cls, raw: str | None) -> "Session | None":
@@ -210,7 +218,10 @@ class Session:
         try:
             stored = json.loads(raw)
             expires = stored.get("expires_at")
-            return cls(stored["token"], datetime.fromisoformat(expires) if expires else None)
+            access = stored.get("access") if stored.get("access") in (OBSERVE, FULL) else FULL
+            return cls(
+                stored["token"], datetime.fromisoformat(expires) if expires else None, access
+            )
         except (ValueError, KeyError, TypeError):
             return None
 
@@ -291,7 +302,8 @@ def finish_pairing(
                     sleep(POLL_SECONDS)
                     continue
                 if body.get("token_type") == "Bearer" and body.get("access_token"):
-                    return Session(body["access_token"], _when(body.get("expires_at")))
+                    granted = OBSERVE if body.get("access") == OBSERVE else FULL
+                    return Session(body["access_token"], _when(body.get("expires_at")), granted)
             if response.status_code in (401, 403):
                 raise PairingError(
                     "the approval was withdrawn; sign in in the browser and start again"
@@ -328,7 +340,12 @@ def save_connection(
     """Record a paired server; its session, if any, goes to the secret store."""
     row = _row(db, origin)
     row.name = name or row.name
-    row.contract_seen = {"auth_mode": me.get("mode"), "seen_at": datetime.now(UTC).isoformat()}
+    row.contract_seen = {
+        "auth_mode": me.get("mode"),
+        "seen_at": datetime.now(UTC).isoformat(),
+        "features": sorted(f for f in me.get("features") or [] if isinstance(f, str)),
+        "session_access": session.access if session is not None else None,
+    }
     if session is None:
         if row.credential_ref:
             secrets.delete(row.credential_ref)
@@ -402,6 +419,7 @@ class WorkChordConnector:
             problem = me.get("authentication_error") or "the server no longer accepts the session"
         return Access(
             mode=mode,
+            session_access=session.access if session is not None else None,
             authenticated=bool(me.get("authenticated")) or local,
             principal=principal,
             workspace_role=me.get("workspace_role"),
@@ -440,11 +458,18 @@ def pair(
     me = server_mode(origin, transport)
     if me["mode"] == "trusted_local":
         return save_connection(db, secrets, origin, me, None, name=name)
-    pending = start_pairing(origin, transport)
+    observe = OBSERVER_SESSIONS in (me.get("features") or [])
+    pending = (
+        start_pairing(origin, transport, access=OBSERVE, label=READ_LABEL)
+        if observe
+        else start_pairing(origin, transport)
+    )
     show(pending)
     session = finish_pairing(pending, transport=transport, sleep=sleep)
     with WorkChordClient(origin, session_token=session.token, transport=transport) as client:
         confirmed = client.me()
     if not confirmed.get("authenticated"):
         raise PairingError("WorkChord did not accept the new session")
+    if observe and session.access != OBSERVE:
+        raise PairingError("WorkChord issued a full session instead of a read-only one; not kept")
     return save_connection(db, secrets, origin, confirmed, session, name=name)
