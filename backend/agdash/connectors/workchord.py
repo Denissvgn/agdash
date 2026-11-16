@@ -64,6 +64,11 @@ def run_key_ref(connection_id: int) -> str:
     return f"workchord.{connection_id}.run-key"
 
 
+def publish_ref(connection_id: int) -> str:
+    """The full session publish mode writes with on a managed server, kept apart."""
+    return f"workchord.{connection_id}.publish"
+
+
 def webhook_ref(connection_id: int) -> str:
     """The secret WorkChord signs this connection's webhook deliveries with."""
     return f"workchord.{connection_id}.webhook"
@@ -238,10 +243,22 @@ def server_mode(origin: str, transport: httpx.BaseTransport | None = None) -> di
     return me
 
 
-def start_pairing(origin: str, transport: httpx.BaseTransport | None = None) -> PendingPairing:
+def start_pairing(
+    origin: str,
+    transport: httpx.BaseTransport | None = None,
+    *,
+    access: str | None = None,
+    label: str | None = None,
+) -> PendingPairing:
+    """Start a pairing. ``access`` and ``label`` are sent only when given."""
     verifier, challenge = _verifier()
+    body: dict[str, str] = {"code_challenge": challenge}
+    if access:
+        body["access"] = access
+    if label:
+        body["client_label"] = label
     with pairing_client(origin, PAIRING_POSTS, transport=transport) as client:
-        response = client.post(START, json={"code_challenge": challenge})
+        response = client.post(START, json=body)
     if response.status_code != 201:
         raise PairingError(f"WorkChord did not start a connection (HTTP {response.status_code})")
     body = response.json()
@@ -400,6 +417,7 @@ class WorkChordConnector:
             connection.credential_ref,
             connection.run_credential_ref,
             webhook_ref(connection.id),
+            publish_ref(connection.id),
         ):
             if ref:
                 secrets.delete(ref)

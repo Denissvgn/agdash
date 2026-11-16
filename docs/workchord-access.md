@@ -162,6 +162,37 @@ agdash connect rules ID
 agdash connect unrule ID RULE
 ```
 
+## Publish mode, optional
+
+agdash only reads WorkChord, with one exception that is off unless you turn it
+on for a server: publish mode. When it is on, each session with an exact task
+link (a work call in its transcript, or a run that declared it) gets one
+external link on that task, with provider `agdash`, pointing at the session in
+agdash. Suggestions and server-only links never publish. agdash never posts run
+events or usage, which in WorkChord are the actor's own declarations.
+
+```bash
+agdash connect publish ID on
+agdash connect publish ID off
+```
+
+- The server must list `agdash-external-links-v1` among its features. agdash
+  never falls back to another provider.
+- On a managed server, turning it on pairs a second, full session through the
+  browser, for this write alone. It is stored apart from the read session, and
+  removed when you turn publish mode off. A trusted-local server takes the link
+  with no credential.
+- The writer can send only `POST /api/tasks/<id>/external-links`. Anything else
+  is refused before it leaves the machine.
+- A link is sent once per session and task. WorkChord also returns the existing
+  link when the same session comes again, so a retry cannot duplicate it. A
+  refusal is recorded and not retried.
+- The link sends the harness, the session's id and a loopback address
+  (`AGDASH_PUBLISH_LINK`, by default
+  `http://127.0.0.1:8765/#/history/sessions/{session_id}`). It sends no title,
+  prompt or path. WorkChord keeps the first link it gets, so a later change of
+  address applies only to new links.
+
 ## Webhooks, optional
 
 Polling is enough on its own. A webhook only makes agdash sync a connection as

@@ -24,7 +24,9 @@ claims and assignments, which name them.
 Only GET requests leave this module (the client refuses anything else). A
 server that cannot be reached is retried with exponential backoff. After each
 pass, sessions are linked to runs and tasks (``agdash.connectors.links``),
-then mapped to actors and projects (``agdash.connectors.resolver``).
+then mapped to actors and projects (``agdash.connectors.resolver``). Where the
+person turned publish mode on for a server, ``agdash.connectors.publish`` then
+adds the one kind of link agdash ever writes.
 """
 
 import logging
@@ -42,6 +44,7 @@ from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import sessionmaker
 
 from agdash.connectors.links import Linker
+from agdash.connectors.publish import Publisher
 from agdash.connectors.resolver import Resolver
 from agdash.connectors.workchord import KIND, Session, WorkChordClient, open_client
 from agdash.db.models import (
@@ -696,6 +699,10 @@ def sync_connection(
         features = me.get("features")
         if isinstance(features, list):
             syncer.seen.features = frozenset(f for f in features if isinstance(f, str))
+            seen = dict(row.contract_seen or {})
+            if seen.get("features") != sorted(syncer.seen.features):
+                seen["features"] = sorted(syncer.seen.features)
+                row.contract_seen = seen
         outcomes: dict[MirrorObject, Outcome] = {}
         for kind in ORDER:
             savepoint = db.begin_nested()
@@ -758,6 +765,7 @@ class MirrorSync:
         self._failures: dict[int, int] = {}
         self._linker = Linker()
         self._resolver = Resolver()
+        self._publisher = Publisher(transport)
 
     def delay(self, connection_id: int) -> float:
         failures = self._failures.get(connection_id, 0)
@@ -809,6 +817,9 @@ class MirrorSync:
             connections = [c for c in connections if c is not None]
             self._linker.run(db, connections)
             self._resolver.run(db, connections)
+            db.commit()
+            # The one write to WorkChord, only where publish mode is on.
+            self._publisher.run(db, self._secrets, connections)
             db.commit()
         except Exception:
             db.rollback()

@@ -11,6 +11,7 @@
     python -m agdash.connectors.cli rule ID --launcher 'codex *' --runtime-ref REF
     python -m agdash.connectors.cli pin ID SESSION --project N | --actor N
     python -m agdash.connectors.cli unrule ID RULE
+    python -m agdash.connectors.cli publish ID on|off (session links on WorkChord tasks)
 
 Secrets are never taken from the command line, where other processes can see
 them, and never printed.
@@ -28,6 +29,9 @@ from sqlalchemy.orm import sessionmaker
 from agdash.config import get_settings
 from agdash.connectors.links import Linker
 from agdash.connectors.mirror import object_states, sync_connection
+from agdash.connectors.publish import Publisher, PublishError
+from agdash.connectors.publish import disable as disable_publish
+from agdash.connectors.publish import enable as enable_publish
 from agdash.connectors.resolver import Resolver
 from agdash.connectors.workchord import (
     KIND,
@@ -186,6 +190,11 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
     pinned = pin.add_mutually_exclusive_group(required=True)
     pinned.add_argument("--project", type=int)
     pinned.add_argument("--actor", type=int)
+    publish = commands.add_parser(
+        "publish", help="add a link to each observed session on its WorkChord task (off by default)"
+    )
+    publish.add_argument("id", type=int)
+    publish.add_argument("switch", choices=("on", "off"))
     unrule = commands.add_parser("unrule", help="remove a rule or a pin")
     unrule.add_argument("id", type=int)
     unrule.add_argument("rule", type=int)
@@ -209,7 +218,8 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
         ):
             how = "session" if row.credential_ref else "open"
             runs = ", agent key" if row.run_credential_ref else ""
-            print(f"{row.id}\t{row.base_url}\t{how}{runs}\t{row.name or ''}")
+            publishing = ", publish on" if row.publish_enabled else ""
+            print(f"{row.id}\t{row.base_url}\t{how}{runs}{publishing}\t{row.name or ''}")
         return 0
     row = _connection(db, args.id)
     if args.command == "status":
@@ -235,6 +245,12 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
         linked = Linker().run(db, [row])
         Resolver().run(db, [row])
         db.commit()
+        published = Publisher(transport).run(db, secrets, [row])
+        db.commit()
+        if published.sent or published.refused:
+            print(f"Session links: {published.sent} added, {published.refused} refused.")
+        for why in published.skipped.values():
+            print(f"Publish mode: {why}.", file=sys.stderr)
         if linked.added:
             added = ", ".join(f"{n} {basis}" for basis, n in sorted(linked.added.items()))
             print(f"New session links: {added}.")
@@ -268,6 +284,24 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
         else:
             secrets.delete(webhook_ref(row.id))
             print("Webhook secret cleared; deliveries for this connection are refused.")
+        return 0
+    if args.command == "publish":
+        if args.switch == "off":
+            disable_publish(db, secrets, row)
+            db.commit()
+            print(f"Publish mode is off for connection {row.id}.")
+            return 0
+        try:
+            enable_publish(db, secrets, row, show=_show, transport=transport)
+        except (PublishError, PairingError) as error:
+            db.rollback()
+            print(f"Publish mode stays off: {error}", file=sys.stderr)
+            return 1
+        db.commit()
+        print(
+            f"Publish mode is on for connection {row.id}: each session with an exact task "
+            "link gets one link on that task."
+        )
         return 0
     if args.command in ("rules", "rule", "pin", "unrule"):
         return _rules(args, db, row)
