@@ -123,6 +123,17 @@ export interface SeriesReport {
   undated_usage: number
 }
 
+/** When sessions were active: an hour-of-week grid, and sessions at once per bucket. */
+export interface ActivityReport {
+  time_zone: string
+  bucket: 'quarter-hour' | 'hour' | 'day'
+  /** 0 is Monday. */
+  hour_of_week: { weekday: number; hour: number; session_hours: number }[]
+  buckets: { start: string; end: string }[]
+  parallel: { key: string | null; sessions: number[] }[]
+  total: { key: string | null; sessions: number[] }
+}
+
 export interface UsageReport {
   group: UsageGroup
   rows: UsageRow[]

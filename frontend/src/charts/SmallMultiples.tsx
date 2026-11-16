@@ -3,7 +3,7 @@ import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import { foldSeries, isPartial, unreportedRuns, type Coverage, type Reported, type TimeData } from './data'
 import { Figure, type FigureStatus, type LegendEntry } from './Figure'
-import { formatCompact, formatTick, formatValue as formatWhole, formatWhen } from './format'
+import { formatCompact, formatDay, formatTick, formatValue as formatWhole, formatWhen } from './format'
 import { AREA_OPACITY, barThickness, crisp, HAIRLINE, labelWidth, LINE, svgId, verticalBar } from './geometry'
 import { HatchPattern, NotReportedBand } from './Hatch'
 import { FILL } from './ink'
@@ -85,6 +85,9 @@ export function SmallMultiples({
     const thickness = barThickness(slot)
     const origin = (p: number) => ({ x: (p % columns) * (panelWidth + GAP_X), y: Math.floor(p / columns) * (panel + GAP_Y) })
     const centre = (i: number) => left + i * slot + slot / 2
+    // A panel that spans more than a day names its ends by day, not by the clock.
+    const spansDays = n * folded.step > 86_400_000
+    const edgeLabel = (at: Date) => (spansDays ? formatDay(at) : formatTick(at, folded.step))
     const from = (coverage: Coverage) => t('charts.from', { count: coverage.count, total: coverage.total })
     const describe = (value: Reported, coverage?: Coverage | null) =>
       value === null
@@ -174,7 +177,7 @@ export function SmallMultiples({
                     </text>
                     <line className="stroke-strong-rule" strokeWidth={HAIRLINE} x1={left} x2={panelWidth} y1={crisp(bottom)} y2={crisp(bottom)} />
                     <text className="fill-secondary-ink text-counter tabular-nums" x={left} y={bottom + 13 + (partial ? STRIP + 4 : 0)}>
-                      {formatTick(folded.buckets[0], folded.step)}
+                      {edgeLabel(folded.buckets[0])}
                     </text>
                     <text
                       className="fill-secondary-ink text-counter tabular-nums"
@@ -182,7 +185,7 @@ export function SmallMultiples({
                       x={panelWidth}
                       y={bottom + 13 + (partial ? STRIP + 4 : 0)}
                     >
-                      {formatTick(folded.buckets[n - 1], folded.step)}
+                      {edgeLabel(folded.buckets[n - 1])}
                     </text>
                   </g>
                   {unreportedRuns(series.values).map(([first, last]) => (
