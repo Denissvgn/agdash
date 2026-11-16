@@ -109,6 +109,32 @@ def apply_facts(session: Session, facts: SessionFacts, title_ranks: dict[int, in
             session.last_activity_at = facts.timestamp
 
 
+# Stored sequences are looked up a window of file offsets at a time, not one query
+# per event: a batch of lines then costs a query or two. The window lives on the
+# database session and belongs to one transaction, so it never outlasts the read.
+_WINDOW_SEQUENCES = 16 * 1024 * 1024 * EVENTS_PER_LINE
+_KNOWN = "agdash.known_sequences"
+
+
+def _known_sequences(db: DbSession, session_id: int, sequence: int) -> set[int]:
+    transaction = db.get_transaction()
+    cached = db.info.get(_KNOWN)
+    if cached is None or cached[0] is not transaction:
+        cached = db.info[_KNOWN] = (transaction, {})
+    windows = cached[1]
+    window = windows.get(session_id)
+    if window is None or not window[0] <= sequence < window[1]:
+        low, high = sequence, sequence + _WINDOW_SEQUENCES
+        found = db.scalars(
+            select(Event.sequence).where(
+                Event.session_id == session_id, Event.sequence >= low, Event.sequence < high
+            )
+        )
+        window = (low, high, set(found))
+        windows[session_id] = window
+    return window[2]
+
+
 def store_events(
     db: DbSession,
     session: Session,
@@ -131,11 +157,10 @@ def store_events(
         coverage = event.thoughts_coverage
         validate_event(event.kind, payload, coverage)
         sequence = offset * EVENTS_PER_LINE + index
-        exists = db.scalar(
-            select(Event.id).where(Event.session_id == session.id, Event.sequence == sequence)
-        )
-        if exists:
+        known = _known_sequences(db, session.id, sequence)
+        if sequence in known:
             continue
+        known.add(sequence)
         db.add(
             Event(
                 session_id=session.id,

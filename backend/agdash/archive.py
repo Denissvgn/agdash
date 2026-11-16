@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from agdash.db.models import Event, RawChunk
-from agdash.ingest.compressed import compress, decompress
+from agdash.ingest.compressed import Compressor, decompress
 from agdash.ingest.engine import Cursor, Line
 from agdash.redaction import redact_text
 
@@ -29,15 +29,16 @@ class Archiving:
         self._inner = inner
         self._harness = harness
         self._enabled = enabled
+        self._compressor = Compressor()
 
     def __call__(self, db: DbSession, cursor: Cursor, lines: Sequence[Line]) -> None:
         self._inner(db, cursor, lines)
         if not self._enabled or not lines:
             return
-        text = "".join(
-            redact_text(line.data.decode("utf-8", errors="replace")) + "\n" for line in lines
+        data = self._compressor.frame(
+            (redact_text(line.data.decode("utf-8", errors="replace")) + "\n").encode("utf-8")
+            for line in lines
         )
-        data = compress(text.encode("utf-8"))
         first, end = lines[0].offset, lines[-1].end
         same = db.scalars(
             select(RawChunk.data).where(

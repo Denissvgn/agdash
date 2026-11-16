@@ -40,6 +40,39 @@ def _validator() -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
+def _other_kind(branch: dict[str, Any], kind: str) -> bool:
+    """Whether ``branch`` is an "if kind is X then ..." rule for another kind than ``kind``.
+
+    Only a rule with no "else" says nothing about the other kinds.
+    """
+    if set(branch) != {"if", "then"}:
+        return False
+    condition = branch.get("if")
+    if not isinstance(condition, dict) or set(condition) != {"properties"}:
+        return False
+    properties = condition["properties"]
+    if set(properties) != {"kind"} or set(properties["kind"]) != {"const"}:
+        return False
+    return properties["kind"]["const"] != kind
+
+
+@lru_cache
+def _validator_for(kind: str) -> Draft202012Validator:
+    """The schema without the rules for other kinds.
+
+    An event of one kind fails every other kind's "if", so those rules can never
+    report anything for it; leaving them out gives the same verdict, faster.
+    """
+    schema = event_schema()
+    if kind not in schema["properties"]["kind"]["enum"]:
+        return _validator()
+    narrowed = {
+        **schema,
+        "allOf": [branch for branch in schema["allOf"] if not _other_kind(branch, kind)],
+    }
+    return Draft202012Validator(narrowed)
+
+
 def _location(error: ValidationError) -> str:
     return "/".join(str(part) for part in error.absolute_path) or "(event)"
 
@@ -62,7 +95,11 @@ def validate_event(
     if thoughts_coverage is not None:
         event["thoughts_coverage"] = str(thoughts_coverage)
     violations = sorted(
-        {line for error in _validator().iter_errors(event) for line in _describe(error)}
+        {
+            line
+            for error in _validator_for(str(kind)).iter_errors(event)
+            for line in _describe(error)
+        }
     )
     if violations:
         raise EventContractError(violations)

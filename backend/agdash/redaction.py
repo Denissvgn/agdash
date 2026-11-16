@@ -204,20 +204,125 @@ def _redact_user_flag(match: re.Match[str]) -> str:
     return match.group("head") + marker("password")
 
 
+# Every step of :func:`redact_text`, in order, with a guard: a cheap test that any match
+# of the step's pattern needs, run on the text as it stands at that step. A step whose
+# guard fails cannot change the text, so skipping it gives exactly the same result.
+# Most text holds no secret at all, and the guards let it pass without the costlier
+# patterns being tried at every position.
+_KEYWORD = r"(?:pass(?:word|wd|phrase)|secret|token|key|credentials?|authorization|cookie)"
+
+
+# A guard is called with the text and, where it is safe, its lower-case copy.
+# These patterns spell their letters in ASCII, and under case-insensitive matching
+# an ASCII letter also matches exactly four other characters: İ, ı, ſ and the
+# Kelvin sign (Python's re documentation). In text without them, matching a
+# pattern case-insensitively equals matching its plain form against the lower-case
+# text, which is much faster; text with one of them keeps the case-insensitive
+# pattern.
+_FOLDS_TO_ASCII = re.compile("[\u0130\u0131\u017f\u212a]").search
+
+
+def _lowered(text: str) -> str | None:
+    if text.isascii() or not _FOLDS_TO_ASCII(text):
+        return text.lower()
+    return None
+
+
+def _literal(*needles: str):
+    if len(needles) == 1:
+        (needle,) = needles
+        return lambda text, _lower: needle in text
+    first, second = needles
+    return lambda text, _lower: first in text or second in text
+
+
+def _found(pattern: str):
+    search = re.compile(pattern).search
+    return lambda text, _lower: search(text)
+
+
+def _found_any_case(pattern: str):
+    plain = re.compile(pattern).search
+    folded = re.compile(pattern, re.IGNORECASE).search
+    return lambda text, lower: plain(lower) if lower is not None else folded(text)
+
+
+_SHAPE_GUARDS = {
+    "private-key": _literal("-----BEGIN "),
+    "jwt": _literal("eyJ"),
+    "anthropic-key": _literal("sk-ant-"),
+    "api-key": _literal("sk-"),
+    "stripe-key": _literal("_live_", "_test_"),
+    "github-token": _found(r"gh[pousr]_|github_pat_"),
+    "gitlab-token": _literal("glpat-"),
+    "google-api-key": _literal("AIza"),
+    "google-oauth-token": _literal("ya29.", "1//"),
+    "aws-access-key": _literal("AKIA", "ASIA"),
+    "slack-token": _literal("xox"),
+    "huggingface-token": _literal("hf_"),
+    "npm-token": _literal("npm_"),
+    "pypi-token": _literal("pypi-"),
+    "xai-key": _literal("xai-"),
+    "workchord-key": _literal("pmag_"),
+    "telegram-token": _found(r"\d{8}:"),
+}
+_WEBHOOK_GUARDS = (_literal("hooks.slack.com/services/"), _literal("/api/webhooks/"))
+
+
+def _shape_steps():
+    webhooks = iter(_WEBHOOK_GUARDS)
+    for pattern, replacement in _SHAPES:
+        kind = replacement[len(MARKER_PREFIX) + 1 : -1]
+        guard = next(webhooks) if kind == "webhook-url" else _SHAPE_GUARDS[kind]
+        yield guard, lambda text, p=pattern, r=replacement: p.sub(r, text)
+
+
+_STEPS = (
+    (
+        _found_any_case(_KEYWORD + r"""\\?["']?\s*[:=]"""),
+        lambda text: _ASSIGNMENT.sub(_redact_assignment, text),
+    ),
+    (
+        _found_any_case(_KEYWORD + r"\s"),
+        lambda text: _FLAG_THEN_VALUE.sub(_redact_flag_value, text),
+    ),
+    *_shape_steps(),
+    (
+        _found_any_case(r"(?:bearer|basic|token)\s"),
+        lambda text: _AUTH_SCHEME.sub(_redact_scheme, text),
+    ),
+    (
+        lambda text, _lower: "://" in text and "@" in text,
+        lambda text: _URL_PASSWORD.sub(lambda m: m.group("head") + marker("password"), text),
+    ),
+    (_literal("-u"), lambda text: _USER_FLAG.sub(_redact_user_flag, text)),
+    (
+        _found_any_case(r"machine\s"),
+        lambda text: _NETRC.sub(lambda m: m.group("head") + marker("password"), text),
+    ),
+    (
+        _found_any_case(_KEYWORD + r"""[ \t]+[^\s"'\\]{20}"""),
+        lambda text: _NAME_THEN_BLOB.sub(_redact_blob, text),
+    ),
+    (
+        _found_any_case(r"cookie\s*:"),
+        lambda text: _COOKIE_HEADER.sub(lambda m: m.group("head") + marker("cookie"), text),
+    ),
+)
+
+
 def redact_text(text: str) -> str:
     """Return ``text`` with every recognised secret replaced by a marker."""
     if not text:
         return text
-    text = _ASSIGNMENT.sub(_redact_assignment, text)
-    text = _FLAG_THEN_VALUE.sub(_redact_flag_value, text)
-    for pattern, replacement in _SHAPES:
-        text = pattern.sub(replacement, text)
-    text = _AUTH_SCHEME.sub(_redact_scheme, text)
-    text = _URL_PASSWORD.sub(lambda m: m.group("head") + marker("password"), text)
-    text = _USER_FLAG.sub(_redact_user_flag, text)
-    text = _NETRC.sub(lambda m: m.group("head") + marker("password"), text)
-    text = _NAME_THEN_BLOB.sub(_redact_blob, text)
-    return _COOKIE_HEADER.sub(lambda m: m.group("head") + marker("cookie"), text)
+    lower = _lowered(text)
+    for guard, step in _STEPS:
+        if guard(text, lower):
+            changed = step(text)
+            if changed != text:
+                text = changed
+                lower = _lowered(text)
+    return text
 
 
 # -- process arguments ---------------------------------------------------------

@@ -453,7 +453,7 @@ def test_an_unchanged_archive_is_not_decompressed_again(store, home, monkeypatch
     def refuse(*_args, **_kwargs):
         raise AssertionError("decompressed again")
 
-    monkeypatch.setattr(engine, "decompress", refuse)
+    monkeypatch.setattr(engine, "iter_decompressed", refuse)
     second = scan_archives(access, ingestor, home)
     assert second.lines == 0 and len(texts(store)) == 2
 
@@ -491,3 +491,62 @@ def test_several_frames_are_read_as_one_text():
     assert decompress(io.BytesIO(data), 1 << 20) == record(1) + record(2)
     with pytest.raises(UnreadableArchive):
         decompress(io.BytesIO(b"not zstd at all"), 1 << 20)
+
+
+def test_a_large_archive_is_stored_in_bounded_batches(store, home):
+    archive = home / "archived_sessions" / f"{NAME}.zst"
+    whole = b"".join(record(n) for n in range(400))
+    archive.write_bytes(compress(whole))
+    commits = []
+
+    def counting(session, cursor, lines):
+        commits.append(sum(len(line.data) for line in lines))
+        write_lines(session, cursor, lines)
+
+    access, ingestor = make(store, home, counting, batch_bytes=1024, max_line_bytes=4096)
+    (report,) = scan_archives(access, ingestor, home).files
+    assert report.lines == 400 and not report.unreadable
+    assert len(commits) > 5 and max(commits) < 2048, "no batch holds the whole archive"
+    assert texts(store) == [record(n).rstrip(b"\n").decode() for n in range(400)]
+    with store() as session:
+        (cursor,) = session.scalars(select(IngestCursor)).all()
+    assert (cursor.byte_offset, cursor.size) == (len(whole), archive.stat().st_size)
+
+
+def test_an_archive_read_cut_short_resumes_after_the_last_batch(store, home):
+    archive = home / "archived_sessions" / f"{NAME}.zst"
+    archive.write_bytes(compress(b"".join(record(n) for n in range(300))))
+    calls = []
+
+    def failing(session, cursor, lines):
+        calls.append(lines[0].offset)
+        if len(calls) == 4:
+            raise RuntimeError("the machine went to sleep")
+        write_lines(session, cursor, lines)
+
+    access, ingestor = make(store, home, failing, batch_bytes=1024, max_line_bytes=4096)
+    with pytest.raises(RuntimeError):
+        scan_archives(access, ingestor, home)
+    stored = len(texts(store))
+    assert 0 < stored < 300
+    seen = []
+
+    def watching(session, cursor, lines):
+        seen.extend(line.offset for line in lines)
+        write_lines(session, cursor, lines)
+
+    access, ingestor = make(store, home, watching, batch_bytes=1024, max_line_bytes=4096)
+    (report,) = scan_archives(access, ingestor, home).files
+    assert not report.restarted and report.lines == 300 - stored
+    assert min(seen) > 0, "the stored batches are not handed over again"
+    assert texts(store) == [record(n).rstrip(b"\n").decode() for n in range(300)]
+
+
+def test_an_oversized_line_inside_an_archive_is_skipped_and_the_rest_kept(store, home):
+    archive = home / "archived_sessions" / f"{NAME}.zst"
+    huge = b'{"type":"event","n":"' + b"x" * 20_000 + b'"}\n'
+    archive.write_bytes(compress(record(1) + huge + record(2)))
+    access, ingestor = make(store, home, batch_bytes=1024, max_line_bytes=4096)
+    (report,) = scan_archives(access, ingestor, home).files
+    assert report.oversized_lines == 1 and report.lines == 2
+    assert texts(store) == [record(1).rstrip(b"\n").decode(), record(2).rstrip(b"\n").decode()]
