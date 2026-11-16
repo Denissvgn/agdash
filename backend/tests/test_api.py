@@ -162,6 +162,7 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/analytics/tools",
         "/api/analytics/series",
         "/api/analytics/activity",
+        "/api/analytics/started",
         "/api/sessions/{session_id}/overview",
         "/api/sessions/{session_id}/states",
         "/api/live/activity",

@@ -134,6 +134,13 @@ export interface ActivityReport {
   total: { key: string | null; sessions: number[] }
 }
 
+/** Sessions started per local day, every day from the first start to the last. */
+export interface StartedReport {
+  time_zone: string
+  days: { day: string; sessions: number }[]
+  undated: number
+}
+
 export interface UsageReport {
   group: UsageGroup
   rows: UsageRow[]

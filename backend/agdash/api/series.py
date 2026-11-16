@@ -20,7 +20,7 @@ database to distinct session-minutes, then placed in local buckets here.
 """
 
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -99,6 +99,19 @@ class Cell(BaseModel):
 class Lane(BaseModel):
     key: str | None = Field(description="The harness; null when not recorded.")
     sessions: list[int] = Field(description="Sessions active in each bucket.")
+
+
+class StartedDay(BaseModel):
+    day: date = Field(description="A local calendar day.")
+    sessions: int = Field(description="Sessions that started on it.")
+
+
+class StartedReport(BaseModel):
+    time_zone: str
+    days: list[StartedDay] = Field(
+        description="Every day from the first start to the last, in order; zero where none started."
+    )
+    undated: int = Field(description="Sessions with no recorded start, left out of the days.")
 
 
 class ActivityReport(BaseModel):
@@ -384,3 +397,40 @@ def activity_report(
         "parallel": lanes,
         "total": Lane(key=None, sessions=[len(found) for found in overall]),
     }
+
+
+MAX_DAYS = 20_000
+
+
+@router.get("/analytics/started", response_model=StartedReport, summary="Sessions started per day")
+def started_report(
+    db: Db,
+    filters: Filters,
+    time_zone: Annotated[
+        str, Query(max_length=64, description="An IANA zone, such as Europe/Berlin.")
+    ] = "UTC",
+) -> dict[str, Any]:
+    """How many of the selected sessions started on each local day, for picking a date range."""
+    zone = _zone(time_zone)
+    starts = list(db.scalars(filters.apply(select(Session.started_at))))
+    counts: dict[date, int] = defaultdict(int)
+    undated = 0
+    for started in starts:
+        if started is None:
+            undated += 1
+            continue
+        counts[started.astimezone(zone).date()] += 1
+    days: list[dict[str, Any]] = []
+    if counts:
+        first, last = min(counts), max(counts)
+        span = (last - first).days + 1
+        if span > MAX_DAYS:
+            raise HTTPException(status_code=422, detail=f"more than {MAX_DAYS} days of sessions")
+        days = [
+            {
+                "day": first + timedelta(days=offset),
+                "sessions": counts.get(first + timedelta(days=offset), 0),
+            }
+            for offset in range(span)
+        ]
+    return {"time_zone": time_zone, "days": days, "undated": undated}

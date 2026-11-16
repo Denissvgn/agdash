@@ -305,6 +305,10 @@ The one dominant work object of the History pages: rows, never cards.
 - **Loading:** four still placeholder rows of canvas-mist bars, announced as busy. No shimmer or other motion.
 - **More:** a secondary "Show more" button below the list loads the next page; there is no infinite scroll.
 
+### Sessions overview
+
+Above the session list on History · Sessions, a selection window of the sessions started per day, for every current filter but the dates, on the reader's clock, from the first session's day to today. The window shows "Started between": dragging, clicking, shift-clicking or the edge sliders' keys set it, which writes the two dates into the address, so the date fields and the list follow; the date fields stay the authoritative control, and editing them moves the window. Picking every day clears the dates, and Clear filters clears both. A line under the figure names the range ("Selected: Oct 20 to Oct 31"), or "All time: …" when every day is in it, as the empty date fields mean. The plot is 120px tall; on coarse pointers each edge grip has a 44px hit area, and a press outside the window always starts a new range. While the counts load the figure keeps its place; with no session yet it says so. Its table twin lists each day's count and whether it is in the range.
+
 ### Live board
 
 A calm roll call of the sessions running now: groups of session-list rows, never tiles, counters or gauges. Sessions appear, change and end in place as the live stream reports them.
@@ -431,7 +435,7 @@ Charts and diagrams, which WorkChord's design system does not cover. They follow
 - **Table twin:** every figure has a table of the same values, so nothing is only drawn.
 - **Keyboard:** a figure is one tab stop; the arrow keys move between its marks and show the same tooltip as hover, and every mark has an accessible name from the catalogue.
   In lanes and strips, up and down move to the nearest mark on the row above or below; in a heatmap, to the cell above or below; in a tree, up and down move through the nodes in order, left to the parent and right to the first child.
-- **Selection window:** its two edges are sliders, the one place a figure has two tab stops. The arrow keys move an edge by one step, Page Up and Page Down by seven, Home and End to the ends; with Shift the arrow keys move the whole window. The pointer drags an edge or the window, and a press outside the window centres it there.
+- **Selection window:** its two edges are sliders, the one place a figure has two tab stops. The arrow keys move an edge by one step, Page Up and Page Down by seven, Home and End to the ends; with Shift the arrow keys move the whole window. The pointer drags an edge or the window; a press outside the window (or anywhere, when it covers every step and so cannot move) starts a new range, which a drag draws; a click picks one step, and a shift-click extends the range to the step clicked.
 - **Motion:** none. Figures do not animate in, and new data replaces old in place.
 
 ### Checks

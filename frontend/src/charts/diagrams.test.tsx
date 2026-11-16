@@ -216,6 +216,33 @@ describe('selection window', () => {
     expect(unnamedControls(container)).toEqual([])
   })
 
+  test('draws a new range by dragging outside it, picks a day by clicking, and extends with shift-click', () => {
+    const { container } = show(<Controlled />)
+    const track = container.querySelector<HTMLElement>('.touch-none')!
+    const [start, end] = screen.getAllByRole('slider')
+    const x0 = Number.parseFloat(start.style.left)
+    const slot = (Number.parseFloat(end.style.left) - x0) / 4
+    const box = track.getBoundingClientRect()
+    const at = (i: number) => box.left + x0 + slot * (i - 3 + 0.5)
+    // A drag from day 11 back to day 9 draws 9 to 11.
+    fireEvent.pointerDown(track, { clientX: at(11), pointerId: 1 })
+    fireEvent.pointerMove(track, { clientX: at(9), pointerId: 1 })
+    fireEvent.pointerUp(track, { clientX: at(9), pointerId: 1 })
+    expect(inside(container)).toEqual([9, 10, 11])
+    // A click outside picks one day.
+    fireEvent.pointerDown(track, { clientX: at(1), pointerId: 1 })
+    fireEvent.pointerUp(track, { clientX: at(1), pointerId: 1 })
+    expect(inside(container)).toEqual([1])
+    // Shift-click extends it to the day clicked.
+    fireEvent.pointerDown(track, { clientX: at(4), pointerId: 1, shiftKey: true })
+    fireEvent.pointerUp(track, { clientX: at(4), pointerId: 1, shiftKey: true })
+    expect(inside(container)).toEqual([1, 2, 3, 4])
+    // A click inside the window, without a drag, picks that one day.
+    fireEvent.pointerDown(track, { clientX: at(2), pointerId: 1 })
+    fireEvent.pointerUp(track, { clientX: at(2), pointerId: 1 })
+    expect(inside(container)).toEqual([2])
+  })
+
   test('drags the window with the pointer', () => {
     const { container } = show(<Controlled />)
     const track = container.querySelector<HTMLElement>('.touch-none')!

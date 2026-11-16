@@ -306,3 +306,43 @@ def test_totals_across_the_clock_change_equal_the_usage_report_and_the_stats(ber
     assert whole["total"]["input_tokens"] == sum(
         group["input_tokens"] or 0 for group in stats["usage"]
     )
+
+
+def test_sessions_started_per_local_day_for_the_filters(tmp_path):
+    """The History overview counts sessions by the day they started, on the reader's clock."""
+    url = f"sqlite:///{tmp_path / 'agdash.db'}"
+    upgrade(url)
+    engine = create_engine(url)
+    with sessionmaker(engine)() as db:
+        for name, harness, started in [
+            ("a", "codex", "2026-10-24T23:30:00+00:00"),  # 25 October in Berlin
+            ("b", "codex", "2026-10-25T09:00:00+00:00"),
+            ("c", "pi", "2026-10-27T09:00:00+00:00"),
+            ("d", "codex", None),
+        ]:
+            db.add(
+                Session(
+                    harness=harness,
+                    native_id=name,
+                    state=SessionState.ENDED,
+                    started_at=datetime.fromisoformat(started) if started else None,
+                )
+            )
+        db.commit()
+    engine.dispose()
+    with local_client(url) as client:
+        berlin = client.get("/api/analytics/started", params={"time_zone": ZONE}).json()
+        utc = client.get("/api/analytics/started").json()
+        codex = client.get(
+            "/api/analytics/started", params={"harness": "codex", "time_zone": ZONE}
+        ).json()
+        none = client.get("/api/analytics/started", params={"harness": "nobody"}).json()
+    assert berlin["days"] == [
+        {"day": "2026-10-25", "sessions": 2},
+        {"day": "2026-10-26", "sessions": 0},
+        {"day": "2026-10-27", "sessions": 1},
+    ]
+    assert [day["day"] for day in utc["days"]][0] == "2026-10-24"
+    assert berlin["undated"] == 1
+    assert [day["sessions"] for day in codex["days"]] == [2] and codex["undated"] == 1
+    assert none == {"time_zone": "UTC", "days": [], "undated": 0}
