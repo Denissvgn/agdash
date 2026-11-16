@@ -159,6 +159,14 @@ person's own answer and settles a conflict, while the disagreeing evidence
 stays visible. `GET /api/sessions/ID/mapping` shows a session's mapping, and
 `GET /api/mapping/unmapped` lists top-level sessions with no project.
 
+The app does the same under **Settings → WorkChord** (connect a server, add a
+folder rule, see each connection's sync status) and **Projects → Unmapped**
+(each unmapped session with its evidence, and a pin). These are the only
+requests the app sends that change anything, and they change agdash's own
+settings: a few routes under `/api/workchord/` write through a connection that,
+on SQLite, the database lets change only the connection, rule, pin and mapping
+tables. Agent keys, webhook secrets and publish mode stay on the command line.
+
 Rules and pins are local to agdash and never sent to WorkChord:
 
 ```bash

@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from agdash.access import ReadOnlyAccess
 from agdash.adapters import antigravity, claude_code, codex, pi
 from agdash.api.routes import match_expression, router
+from agdash.api.workchord import WRITE_ROUTES
 from agdash.db.migrate import upgrade
 from agdash.db.models import Event, Session
 from agdash.ingest import Ingestor, discover_files
@@ -166,8 +167,22 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/live/activity",
         "/api/sessions/{session_id}/mapping",
         "/api/mapping/unmapped",
+        "/api/workchord/connections",
+        "/api/workchord/pairings",
+        "/api/workchord/pairings/{pairing_id}/finish",
+        "/api/workchord/connections/{connection_id}/projects",
+        "/api/workchord/connections/{connection_id}/rules",
+        "/api/workchord/connections/{connection_id}/pins",
+        "/api/workchord/rules/{rule_id}",
     }
-    assert all(set(operations) == {"get"} for operations in document["paths"].values())
+    # Only the WorkChord settings routes change anything; every other route reads.
+    writes = {
+        (method.upper(), path.removeprefix("/api"))
+        for path, operations in document["paths"].items()
+        for method in operations
+        if method != "get"
+    }
+    assert writes == WRITE_ROUTES
     for schema in (
         "SessionSummary",
         "SessionDetail",

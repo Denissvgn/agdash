@@ -31,7 +31,7 @@ import json
 import secrets as random
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -197,6 +197,7 @@ class PendingPairing:
     verification_code: str
     verification_url: str
     expires_at: datetime
+    read_only: bool = False  # whether a read-only session was asked for
 
 
 @dataclass(frozen=True)
@@ -291,27 +292,34 @@ def finish_pairing(
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> Session:
     """Wait for the person to approve in the browser, then take the session."""
-    with pairing_client(pending.origin, PAIRING_POSTS, transport=transport) as client:
-        while now() < pending.expires_at:
-            response = client.post(
-                EXCHANGE, json={"request_id": pending.request_id, "code_verifier": pending.verifier}
-            )
-            if response.status_code == 200:
-                body = response.json()
-                if body.get("status") == "pending":
-                    sleep(POLL_SECONDS)
-                    continue
-                if body.get("token_type") == "Bearer" and body.get("access_token"):
-                    granted = OBSERVE if body.get("access") == OBSERVE else FULL
-                    return Session(body["access_token"], _when(body.get("expires_at")), granted)
-            if response.status_code in (401, 403):
-                raise PairingError(
-                    "the approval was withdrawn; sign in in the browser and start again"
-                )
-            if response.status_code in (404, 410):
-                raise PairingError("the connection ended before it was approved; start again")
-            raise PairingError(f"WorkChord refused the exchange (HTTP {response.status_code})")
+    while now() < pending.expires_at:
+        session = exchange_once(pending, transport=transport)
+        if session is not None:
+            return session
+        sleep(POLL_SECONDS)
     raise PairingError("the connection was not approved in time; start again")
+
+
+def exchange_once(
+    pending: PendingPairing, *, transport: httpx.BaseTransport | None = None
+) -> Session | None:
+    """One exchange attempt: the session once approved, None while still waiting."""
+    with pairing_client(pending.origin, PAIRING_POSTS, transport=transport) as client:
+        response = client.post(
+            EXCHANGE, json={"request_id": pending.request_id, "code_verifier": pending.verifier}
+        )
+    if response.status_code == 200:
+        body = response.json()
+        if body.get("status") == "pending":
+            return None
+        if body.get("token_type") == "Bearer" and body.get("access_token"):
+            granted = OBSERVE if body.get("access") == OBSERVE else FULL
+            return Session(body["access_token"], _when(body.get("expires_at")), granted)
+    if response.status_code in (401, 403):
+        raise PairingError("the approval was withdrawn; sign in in the browser and start again")
+    if response.status_code in (404, 410):
+        raise PairingError("the connection ended before it was approved; start again")
+    raise PairingError(f"WorkChord refused the exchange (HTTP {response.status_code})")
 
 
 # -- stored connections -------------------------------------------------------------
@@ -454,22 +462,54 @@ def pair(
     sleep: Callable[[float], None] = time.sleep,
 ) -> Connection:
     """Connect agdash to a WorkChord server, pairing through the browser where it must."""
+    connected, pending = begin_pair(db, secrets, address, name=name, transport=transport)
+    if connected is not None:
+        return connected
+    assert pending is not None
+    show(pending)
+    session = finish_pairing(pending, transport=transport, sleep=sleep)
+    return complete_pair(db, secrets, pending, session, name=name, transport=transport)
+
+
+def begin_pair(
+    db: DbSession,
+    secrets: SecretStore,
+    address: str,
+    *,
+    name: str | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> tuple[Connection | None, PendingPairing | None]:
+    """The first half of pairing: a trusted-local server is connected at once; a managed
+    one gives a pairing for the person to approve, read-only where the server offers it."""
     origin = server_origin(address)
     me = server_mode(origin, transport)
     if me["mode"] == "trusted_local":
-        return save_connection(db, secrets, origin, me, None, name=name)
+        return save_connection(db, secrets, origin, me, None, name=name), None
     observe = OBSERVER_SESSIONS in (me.get("features") or [])
     pending = (
         start_pairing(origin, transport, access=OBSERVE, label=READ_LABEL)
         if observe
         else start_pairing(origin, transport)
     )
-    show(pending)
-    session = finish_pairing(pending, transport=transport, sleep=sleep)
-    with WorkChordClient(origin, session_token=session.token, transport=transport) as client:
+    return None, replace(pending, read_only=observe)
+
+
+def complete_pair(
+    db: DbSession,
+    secrets: SecretStore,
+    pending: PendingPairing,
+    session: Session,
+    *,
+    name: str | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> Connection:
+    """The second half: check the approved session and keep it."""
+    with WorkChordClient(
+        pending.origin, session_token=session.token, transport=transport
+    ) as client:
         confirmed = client.me()
     if not confirmed.get("authenticated"):
         raise PairingError("WorkChord did not accept the new session")
-    if observe and session.access != OBSERVE:
+    if pending.read_only and session.access != OBSERVE:
         raise PairingError("WorkChord issued a full session instead of a read-only one; not kept")
-    return save_connection(db, secrets, origin, confirmed, session, name=name)
+    return save_connection(db, secrets, pending.origin, confirmed, session, name=name)
