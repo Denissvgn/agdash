@@ -70,6 +70,42 @@ def test_series_totals_equal_the_usage_report_and_the_stats(fixtures, group, zon
     assert all(len(line["points"]) == len(series["buckets"]) for line in series["series"])
 
 
+def _filter_cases(client) -> list[dict]:
+    """Filters the page can send: a harness, a model, a folder, and a start-date window."""
+    facets = client.get("/api/sessions/facets").json()
+    first = datetime.fromisoformat(facets["first_started_at"])
+    return [
+        {"harness": facets["harnesses"][0]["value"]},
+        {"model": facets["models"][0]["value"]},
+        {"folder": facets["folders"][0]["value"]},
+        {"started_from": (first + timedelta(seconds=1)).isoformat()},
+        {"started_before": (first + timedelta(days=1)).isoformat()},
+    ]
+
+
+@pytest.mark.parametrize("group", ["harness", "model", "folder"])
+def test_with_filters_the_series_and_the_ledger_count_the_same_sessions(fixtures, group):
+    """The usage figure sends the ledger's own filters, so the two always agree."""
+    with local_client(fixtures) as client:
+        for filters in _filter_cases(client):
+            usage = client.get("/api/analytics/usage", params={**filters, "group": group}).json()
+            series = client.get(
+                "/api/analytics/series", params={**filters, "group": group, "bucket": "day"}
+            ).json()
+            whole = series["total"]["total"]
+            for metric in METRICS:
+                expected = usage["total"][metric]
+                assert (
+                    whole[metric] == pytest.approx(expected)
+                    if expected is not None
+                    else whole[metric] is None
+                ), (filters, metric)
+            assert whole["messages"] == usage["total"]["messages"], filters
+            assert {line["key"] for line in series["series"]} <= {
+                row["key"] for row in usage["rows"]
+            }
+
+
 def test_by_model_only_usage_is_attributed(fixtures):
     with local_client(fixtures) as client:
         series = client.get("/api/analytics/series", params={"group": "model"}).json()

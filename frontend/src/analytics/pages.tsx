@@ -8,8 +8,11 @@ import { FilterBar } from '../history/FilterBar'
 import { apiParams, isFiltered } from '../history/filters'
 import { useAddressFilters, useFacets } from '../history/hooks'
 import { PageHeader } from '../history/PageHeader'
+import { ShareBar } from '../charts'
 import { ErrorNotice, LoadingRows, Notice } from '../history/SessionList'
 import { formatCost, formatCount, splitDuration } from './format'
+import { byMeasure, MEASURES, rowValue, type Measure } from './measure'
+import { UsageFigure } from './UsageFigure'
 
 const GROUPS: UsageGroup[] = ['harness', 'model', 'folder']
 const TOKENS = ['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens'] as const
@@ -67,23 +70,35 @@ function Duration({ row }: { row: UsageRow }) {
   )
 }
 
-function GroupSwitch({ group, onChange }: { group: UsageGroup; onChange: (group: UsageGroup) => void }) {
-  const { t } = useTranslation()
+/** One of a few choices, as pills over native radio buttons; the page keeps it in its address. */
+function Choice<T extends string>({
+  legend,
+  value,
+  options,
+  label,
+  onChange,
+}: {
+  legend: string
+  value: T
+  options: readonly T[]
+  label: (option: T) => string
+  onChange: (option: T) => void
+}) {
   const name = useId()
   return (
     <fieldset className="flex flex-wrap items-center gap-sm">
-      <legend className="float-left mr-sm text-label text-secondary-ink">{t('analytics.groupBy')}</legend>
-      {GROUPS.map((value) => (
-        <label key={value} className="toggle-chip relative cursor-pointer has-[:checked]:border-planning-thread has-[:checked]:bg-planning-thread-soft has-[:checked]:text-planning-thread has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-planning-thread">
+      <legend className="float-left mr-sm text-label text-secondary-ink">{legend}</legend>
+      {options.map((option) => (
+        <label key={option} className="toggle-chip relative cursor-pointer has-[:checked]:border-planning-thread has-[:checked]:bg-planning-thread-soft has-[:checked]:text-planning-thread has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-planning-thread">
           <input
-            checked={group === value}
+            checked={value === option}
             className="sr-only"
             name={name}
             type="radio"
-            value={value}
-            onChange={() => onChange(value)}
+            value={option}
+            onChange={() => onChange(option)}
           />
-          {t(`analytics.groups.${value}`)}
+          {label(option)}
         </label>
       ))}
     </fieldset>
@@ -141,15 +156,24 @@ function TableBox({ captionId, children }: { captionId: string; children: ReactN
   )
 }
 
-function UsageTable({ report }: { report: UsageReport }) {
+function UsageTable({ report, measure }: { report: UsageReport; measure: Measure }) {
   const { t } = useTranslation()
   const captionId = useId()
+  // Each row's share of the largest row, by the figure's measure.
+  const largest = Math.max(0, ...report.rows.map((item) => rowValue(item, measure) ?? 0))
   // Time belongs to sessions, not models; the note under the table says so.
   const showTime = report.group !== 'model'
   const row = (item: UsageRow, total = false) => (
     <tr key={total ? 'total' : (item.key ?? 'none')} className={total ? 'font-semibold' : undefined}>
       <th className={rowHead} scope="row">
-        {total ? <span className="font-semibold">{t('analytics.total')}</span> : <GroupKey group={report.group} value={item.key} />}
+        {total ? (
+          <span className="font-semibold">{t('analytics.total')}</span>
+        ) : (
+          <span className="flex min-w-[8rem] flex-col gap-xs">
+            <GroupKey group={report.group} value={item.key} />
+            <ShareBar max={largest} value={rowValue(item, measure)} />
+          </span>
+        )}
       </th>
       <td className={cell}>
         <Sessions row={item} />
@@ -208,7 +232,7 @@ function UsageTable({ report }: { report: UsageReport }) {
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-hairline">{report.rows.map((item) => row(item))}</tbody>
+        <tbody className="divide-y divide-hairline">{byMeasure(report.rows, measure).map((item) => row(item))}</tbody>
         <tfoot className="border-t border-strong-rule">{row(report.total, true)}</tfoot>
       </table>
     </TableBox>
@@ -221,14 +245,18 @@ export function UsagePage() {
   const [, setSearch] = useSearchParams()
   const facets = useFacets()
   const group = (GROUPS as string[]).includes(search.get('group') ?? '') ? (search.get('group') as UsageGroup) : 'harness'
+  const measure = (MEASURES as readonly string[]).includes(search.get('measure') ?? '')
+    ? (search.get('measure') as Measure)
+    : 'tokens'
   const report = useQuery({
     queryKey: ['analytics-usage', group, filters],
     queryFn: ({ signal }) => getJson<UsageReport>('/api/analytics/usage', { ...apiParams(filters), group }, signal),
   })
-  const changeGroup = (next: UsageGroup) => {
+  // A choice at its default leaves the address, so the plain page has a plain address.
+  const choose = (key: 'group' | 'measure', next: string, fallback: string) => {
     const params = new URLSearchParams(search)
-    if (next === 'harness') params.delete('group')
-    else params.set('group', next)
+    if (next === fallback) params.delete(key)
+    else params.set(key, next)
     setSearch(params)
   }
   const base = 'workspaces.analytics.destinations.usage'
@@ -237,7 +265,22 @@ export function UsagePage() {
     <article aria-labelledby="page-title" className="flex flex-col gap-page-gap">
       <PageHeader purposeKey={`${base}.purpose`} titleKey={`${base}.title`} />
       <FilterBar facets={facets.data} filters={filters} onChange={setFilters} />
-      <GroupSwitch group={group} onChange={changeGroup} />
+      <div className="flex flex-wrap items-center gap-x-lg gap-y-sm">
+        <Choice
+          label={(value) => t(`analytics.groups.${value}`)}
+          legend={t('analytics.groupBy')}
+          options={GROUPS}
+          value={group}
+          onChange={(next) => choose('group', next, 'harness')}
+        />
+        <Choice
+          label={(value) => t(`analytics.measures.${value}`)}
+          legend={t('analytics.measure')}
+          options={MEASURES}
+          value={measure}
+          onChange={(next) => choose('measure', next, 'tokens')}
+        />
+      </div>
       {report.isPending ? (
         <LoadingRows label={t('analytics.loading')} />
       ) : report.isError ? (
@@ -250,7 +293,8 @@ export function UsagePage() {
         )
       ) : (
         <>
-          <UsageTable report={data} />
+          <UsageFigure facets={facets.data} filters={filters} group={group} ledger={data.total} measure={measure} />
+          <UsageTable measure={measure} report={data} />
           <ul className="flex max-w-[80ch] flex-col gap-xs text-label text-secondary-ink">
             <li>{t('analytics.usage.noteDash')}</li>
             {data.sessions_without_usage > 0 && (

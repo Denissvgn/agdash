@@ -79,7 +79,7 @@ describe('filters in the address', () => {
   test('read and written back unchanged, with other parameters kept', () => {
     const search = new URLSearchParams('q=parser&harness=codex&harness=pi&model=m&from=2026-11-01&to=bad')
     const filters = readFilters(search)
-    expect(filters).toEqual({ harness: ['codex', 'pi'], model: 'm', folder: '', auth: '', from: '2026-11-01', to: '' })
+    expect(filters).toEqual({ harness: ['codex', 'pi'], model: 'm', folder: '', auth: '', from: '2026-11-01', to: '', range: '' })
     const written = writeFilters(search, filters)
     expect(written.get('q')).toBe('parser')
     expect(written.getAll('harness')).toEqual(['codex', 'pi'])
@@ -139,6 +139,25 @@ describe('the sessions list', () => {
     const sent = calls.find((url) => url.pathname === '/api/sessions')!
     expect(sent.searchParams.getAll('harness')).toEqual(['pi'])
     expect(sent.searchParams.get('folder')).toBe('/work/example/1')
+  })
+
+  test('a date preset narrows the list to the last days, by the address', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 16, 12))
+    try {
+      const calls = serve(() => ({ body: page([session(1)]) }))
+      open('#/history')
+      await screen.findByRole('list', { name: 'Sessions' })
+      expect(screen.getByRole('radio', { name: 'All time' })).toBeChecked()
+      await act(async () => fireEvent.click(screen.getByRole('radio', { name: 'Last 90 days' })))
+      expect(address().get('range')).toBe('90')
+      await waitFor(() => {
+        const sent = calls.filter((url) => url.pathname === '/api/sessions').at(-1)!
+        expect(sent.searchParams.get('started_from')).toBe(new Date(2026, 7, 19).toISOString())
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('clearing the filters empties the address', async () => {

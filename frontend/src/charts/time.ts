@@ -1,4 +1,4 @@
-import type { Reported, TimeData } from './data'
+import { isPartial, type Coverage, type Reported, type TimeData } from './data'
 import { formatCompact, formatTick, formatValue, formatWhen } from './format'
 import { labelWidth } from './geometry'
 import type { Mark } from './Plot'
@@ -34,7 +34,13 @@ export function bucketTotals(data: TimeData): Reported[] {
 }
 
 /** The table twin of a time figure: one row per bucket, one column per series. */
-export function timeTable(data: TimeData, rowHeader: string, format: (value: number) => string = formatValue) {
+export function timeTable(
+  data: TimeData,
+  rowHeader: string,
+  format: (value: number) => string = formatValue,
+  /** Words for a value only some sessions reported, such as "from 3 of 5". */
+  from?: (coverage: Coverage) => string,
+) {
   return {
     rowHeader,
     columns: data.series.map((series) => ({ key: series.id, label: series.name })),
@@ -43,7 +49,9 @@ export function timeTable(data: TimeData, rowHeader: string, format: (value: num
       header: formatWhen(at, data.step),
       cells: data.series.map((series) => {
         const value = series.values[i]
-        return value === null ? null : format(value)
+        const coverage = series.coverage?.[i]
+        if (value === null) return null
+        return from && isPartial(coverage) ? `${format(value)}, ${from(coverage)}` : format(value)
       }),
     })),
   }

@@ -95,6 +95,34 @@ export interface UsageRow {
   reported_by?: Record<string, number>
 }
 
+/** One bucket of a series; a number nobody reported is null, never zero. */
+export interface SeriesPoint {
+  input_tokens: number | null
+  output_tokens: number | null
+  cache_read_tokens: number | null
+  cache_write_tokens: number | null
+  reasoning_tokens: number | null
+  reported_cost: number | null
+  messages: number
+  /** Sessions active in the bucket; null when grouping by model. */
+  sessions: number | null
+  active_minutes: number | null
+  sessions_with_usage: number
+  reported_by: Record<string, number>
+}
+
+export type SeriesBucket = 'hour' | 'day' | 'week'
+
+export interface SeriesReport {
+  bucket: SeriesBucket
+  group: UsageGroup
+  time_zone: string
+  buckets: { start: string; end: string }[]
+  series: { key: string | null; points: SeriesPoint[]; total: SeriesPoint }[]
+  total: { key: string | null; points: SeriesPoint[]; total: SeriesPoint }
+  undated_usage: number
+}
+
 export interface UsageReport {
   group: UsageGroup
   rows: UsageRow[]

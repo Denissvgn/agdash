@@ -2,7 +2,7 @@ import { ChevronDown, X } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Facets } from '../api/types'
-import { isFiltered, NO_FILTERS, type Filters } from './filters'
+import { datesOf, isFiltered, NO_FILTERS, PRESETS, type Filters, type Preset } from './filters'
 
 // DESIGN.md: at 1180px and below the layout narrows; the fields fold into a disclosure there.
 const WIDE = '(min-width: 1181px)'
@@ -59,7 +59,11 @@ export function FilterBar({ filters, facets, onChange, showCounts = true }: Prop
   const folders = withCurrent(facets?.folders, filters.folder)
   const auths = withCurrent(facets?.auth_methods, filters.auth)
   const wide = useWide()
-  const narrowed = [filters.model, filters.folder, filters.auth, filters.from, filters.to].filter(Boolean).length
+  const narrowed = [filters.model, filters.folder, filters.auth, filters.from, filters.to, filters.range].filter(Boolean).length
+  const dates = datesOf(filters)
+  const preset: Preset | 'all' | '' = filters.range || (!filters.from && !filters.to ? 'all' : '')
+  // Editing a date turns a preset into the fixed days it stood for.
+  const setDay = (key: 'from' | 'to', value: string) => set({ ...dates, [key]: value, range: '' })
   const [open, setOpen] = useState(narrowed > 0)
 
   return (
@@ -158,26 +162,44 @@ export function FilterBar({ filters, facets, onChange, showCounts = true }: Prop
             </span>
           )}
         </Field>
-        <fieldset className="grid min-w-0 grid-cols-2 gap-md roomy:col-span-2 wide:col-span-1">
+        <fieldset className="grid min-w-0 grid-cols-2 gap-x-md gap-y-sm roomy:col-span-2 wide:col-span-1">
           <legend className="sr-only">{t('history.filters.started')}</legend>
+          <div aria-label={t('history.filters.presets')} className="col-span-2 flex flex-wrap gap-xs" role="radiogroup">
+            {[...PRESETS, 'all' as const].map((value) => (
+              <label
+                key={value}
+                className="toggle-chip relative cursor-pointer has-[:checked]:border-planning-thread has-[:checked]:bg-planning-thread-soft has-[:checked]:text-planning-thread has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-planning-thread"
+              >
+                <input
+                  checked={preset === value}
+                  className="sr-only"
+                  name={`${id}-preset`}
+                  type="radio"
+                  value={value}
+                  onChange={() => set(value === 'all' ? { range: '', from: '', to: '' } : { range: value, from: '', to: '' })}
+                />
+                {value === 'all' ? t('history.filters.allTime') : t('history.filters.lastDays', { count: Number(value) })}
+              </label>
+            ))}
+          </div>
           <Field id={`${id}-from`} label={t('history.filters.from')}>
             <input
               className="field data"
               id={`${id}-from`}
-              max={filters.to || undefined}
+              max={dates.to || undefined}
               type="date"
-              value={filters.from}
-              onChange={(event) => set({ from: event.target.value })}
+              value={dates.from}
+              onChange={(event) => setDay('from', event.target.value)}
             />
           </Field>
           <Field id={`${id}-to`} label={t('history.filters.to')}>
             <input
               className="field data"
               id={`${id}-to`}
-              min={filters.from || undefined}
+              min={dates.from || undefined}
               type="date"
-              value={filters.to}
-              onChange={(event) => set({ to: event.target.value })}
+              value={dates.to}
+              onChange={(event) => setDay('to', event.target.value)}
             />
           </Field>
         </fieldset>

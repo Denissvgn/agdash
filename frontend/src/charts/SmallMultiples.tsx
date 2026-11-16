@@ -1,10 +1,11 @@
 import { area, line } from 'd3-shape'
+import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
-import { foldSeries, unreportedRuns, type Reported, type TimeData } from './data'
+import { foldSeries, isPartial, unreportedRuns, type Coverage, type Reported, type TimeData } from './data'
 import { Figure, type FigureStatus, type LegendEntry } from './Figure'
 import { formatCompact, formatTick, formatValue as formatWhole, formatWhen } from './format'
-import { AREA_OPACITY, barThickness, crisp, HAIRLINE, labelWidth, LINE, verticalBar } from './geometry'
-import { NotReportedBand } from './Hatch'
+import { AREA_OPACITY, barThickness, crisp, HAIRLINE, labelWidth, LINE, svgId, verticalBar } from './geometry'
+import { HatchPattern, NotReportedBand } from './Hatch'
 import { FILL } from './ink'
 import { Plot, type Mark } from './Plot'
 import { timeTable } from './time'
@@ -16,6 +17,8 @@ export const MAX_PANELS = 6
 const PANEL = 104
 const NAME = 22
 const AXIS = 16
+/** The coverage strip under a panel's baseline, where only some sessions reported. */
+const STRIP = 6
 const GAP_X = 20
 const GAP_Y = 16
 
@@ -34,6 +37,10 @@ export function SmallMultiples({
   rowHeader,
   formatValue = formatWhole,
   variant = 'step',
+  max = MAX_PANELS,
+  formatAxis = formatCompact,
+  emptyTitle,
+  emptyBody,
 }: {
   title: string
   caption?: string
@@ -43,15 +50,25 @@ export function SmallMultiples({
   rowHeader: string
   formatValue?: (value: number) => string
   variant?: 'step' | 'columns'
+  /** Panels shown, Other included. */
+  max?: number
+  /** The shared scale's label, such as $5 for cost. */
+  formatAxis?: (value: number) => string
+  emptyTitle?: string
+  emptyBody?: string
 }) {
   const { t } = useTranslation()
   const [ref, width] = useWidth()
-  const folded = data ? { ...data, series: foldSeries(data.series, MAX_PANELS, t('charts.other')) } : undefined
+  const legendHatch = svgId(useId())
+  const folded = data ? { ...data, series: foldSeries(data.series, max, t('charts.other')) } : undefined
   const ready = !!folded && folded.buckets.length > 0 && folded.series.length > 0
   const shown: FigureStatus = status === 'ready' && !ready ? 'empty' : status
   const columns = width >= 900 ? 3 : width >= 520 ? 2 : 1
   const rows = Math.ceil((folded?.series.length || 2) / columns)
-  const height = rows * PANEL + (rows - 1) * GAP_Y
+  const partial = !!folded?.series.some((series) => series.coverage?.some(isPartial))
+  // Room for the coverage strip between the baseline and the dates.
+  const panel = PANEL + (partial ? STRIP + 4 : 0)
+  const height = rows * panel + (rows - 1) * GAP_Y
 
   let plot = null
   let legend: LegendEntry[] = []
@@ -60,23 +77,50 @@ export function SmallMultiples({
     const all = folded.series.flatMap((series) => series.values)
     const panelWidth = (width - GAP_X * (columns - 1)) / columns
     const top = NAME
-    const bottom = PANEL - AXIS
+    const bottom = panel - AXIS - (partial ? STRIP + 4 : 0)
     const y = valueScale(all, [bottom, top + 4])
     const peak = y.domain()[1]
-    const left = Math.max(labelWidth(formatCompact(peak)), 28)
+    const left = Math.max(labelWidth(formatAxis(peak)), 28)
     const slot = (panelWidth - left) / n
     const thickness = barThickness(slot)
-    const origin = (p: number) => ({ x: (p % columns) * (panelWidth + GAP_X), y: Math.floor(p / columns) * (PANEL + GAP_Y) })
+    const origin = (p: number) => ({ x: (p % columns) * (panelWidth + GAP_X), y: Math.floor(p / columns) * (panel + GAP_Y) })
     const centre = (i: number) => left + i * slot + slot / 2
-    const describe = (value: Reported) => (value === null ? t('charts.notReported') : formatValue(value))
+    const from = (coverage: Coverage) => t('charts.from', { count: coverage.count, total: coverage.total })
+    const describe = (value: Reported, coverage?: Coverage | null) =>
+      value === null
+        ? t('charts.notReported')
+        : isPartial(coverage)
+          ? `${formatValue(value)}, ${from(coverage)}`
+          : formatValue(value)
     const hatched = all.some((value) => value === null)
-    legend = hatched ? [{ key: 'hatch', label: t('charts.notReported'), swatch: 'hatch' }] : []
+    legend = [
+      ...(hatched ? [{ key: 'hatch', label: t('charts.notReported'), swatch: 'hatch' as const }] : []),
+      ...(partial
+        ? [
+            {
+              key: 'partial',
+              label: t('charts.partial'),
+              swatch: {
+                draw: () => (
+                  <>
+                    <defs>
+                      <HatchPattern id={legendHatch} />
+                    </defs>
+                    <rect className="fill-figure-ink-2" height={STRIP} rx={1} width={12} y={3} />
+                    <rect fill={`url(#${legendHatch})`} height={STRIP} rx={1} width={12} y={3} />
+                  </>
+                ),
+              },
+            },
+          ]
+        : []),
+    ]
 
     const marks: Mark[] = folded.series.flatMap((series, p) =>
       series.values.map((value, i) => ({
         x: origin(p).x + centre(i),
         y: origin(p).y + (value === null ? (top + bottom) / 2 : y(value)),
-        value: describe(value),
+        value: describe(value, series.coverage?.[i]),
         name: `${series.name}, ${formatWhen(folded.buckets[i], folded.step)}`,
       })),
     )
@@ -107,7 +151,7 @@ export function SmallMultiples({
           label={title}
           marks={marks}
           pick={(px, py) => {
-            const p = Math.floor(py / (PANEL + GAP_Y)) * columns + Math.floor(px / (panelWidth + GAP_X))
+            const p = Math.floor(py / (panel + GAP_Y)) * columns + Math.floor(px / (panelWidth + GAP_X))
             if (p < 0 || p >= folded.series.length) return null
             const i = Math.floor((px - origin(p).x - left) / slot)
             return i >= 0 && i < n ? p * n + i : null
@@ -126,13 +170,18 @@ export function SmallMultiples({
                   <g aria-hidden="true" data-figure-data="">
                     <line className="stroke-hairline" strokeWidth={HAIRLINE} x1={left} x2={panelWidth} y1={crisp(y(peak))} y2={crisp(y(peak))} />
                     <text className="fill-secondary-ink text-counter tabular-nums" dominantBaseline="middle" textAnchor="end" x={left - 6} y={y(peak)}>
-                      {formatCompact(peak)}
+                      {formatAxis(peak)}
                     </text>
                     <line className="stroke-strong-rule" strokeWidth={HAIRLINE} x1={left} x2={panelWidth} y1={crisp(bottom)} y2={crisp(bottom)} />
-                    <text className="fill-secondary-ink text-counter tabular-nums" x={left} y={bottom + 13}>
+                    <text className="fill-secondary-ink text-counter tabular-nums" x={left} y={bottom + 13 + (partial ? STRIP + 4 : 0)}>
                       {formatTick(folded.buckets[0], folded.step)}
                     </text>
-                    <text className="fill-secondary-ink text-counter tabular-nums" textAnchor="end" x={panelWidth} y={bottom + 13}>
+                    <text
+                      className="fill-secondary-ink text-counter tabular-nums"
+                      textAnchor="end"
+                      x={panelWidth}
+                      y={bottom + 13 + (partial ? STRIP + 4 : 0)}
+                    >
                       {formatTick(folded.buckets[n - 1], folded.step)}
                     </text>
                   </g>
@@ -147,6 +196,15 @@ export function SmallMultiples({
                       y={top}
                     />
                   ))}
+                  {series.coverage?.map((coverage, i) =>
+                    // Only where some, not all, sessions reported; a bucket none reported is hatched instead.
+                    isPartial(coverage) && series.values[i] !== null ? (
+                      <g key={`strip-${i}`} aria-hidden="true" data-coverage={`${coverage.count}/${coverage.total}`}>
+                        <rect className="fill-figure-ink-2" height={STRIP} rx={1} width={Math.max(1, slot - 2)} x={left + i * slot + 1} y={bottom + 3} />
+                        <rect fill={`url(#${hatch})`} height={STRIP} rx={1} width={Math.max(1, slot - 2)} x={left + i * slot + 1} y={bottom + 3} />
+                      </g>
+                    ) : null,
+                  )}
                   {variant === 'step' ? (
                     <>
                       <path className={FILL.mark} d={fill(points(series.values)) ?? ''} fillOpacity={AREA_OPACITY} />
@@ -193,10 +251,16 @@ export function SmallMultiples({
   return (
     <Figure
       caption={caption}
+      emptyBody={emptyBody}
+      emptyTitle={emptyTitle}
       height={height}
       legend={legend}
       status={shown}
-      table={folded ? timeTable(folded, rowHeader, formatValue) : undefined}
+      table={
+        folded
+          ? timeTable(folded, rowHeader, formatValue, (coverage) => t('charts.from', { count: coverage.count, total: coverage.total }))
+          : undefined
+      }
       title={title}
       onRetry={onRetry}
     >
