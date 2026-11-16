@@ -77,20 +77,43 @@ function kindFor(status: number): ApiErrorKind {
   return 'server'
 }
 
+/**
+ * How long a read may take before it counts as lost. A request a network path drops
+ * without an answer would otherwise never settle, and its page would wait for good;
+ * timed out, it fails as unreachable and the query retries or shows its notice.
+ */
+export const REQUEST_TIMEOUT_MS = 30_000
+
 export async function getJson<T>(path: string, params: Params = {}, signal?: AbortSignal): Promise<T> {
   const config = window.__AGDASH__ ?? {}
   const headers: Record<string, string> = { Accept: 'application/json' }
   const token = localToken()
   if (token) headers.Authorization = `Bearer ${token}`
-  let response: Response
+  // One signal for the caller's cancel and the timeout (AbortSignal.any is too new for
+  // every web view agdash runs in).
+  const controller = new AbortController()
+  const cancel = () => controller.abort(signal?.reason)
+  if (signal?.aborted) cancel()
+  signal?.addEventListener('abort', cancel, { once: true })
+  const timer = setTimeout(() => controller.abort(new DOMException('timed out', 'TimeoutError')), REQUEST_TIMEOUT_MS)
   try {
-    response = await fetch(`${config.apiBase ?? ''}${path}${query(params)}`, { headers, signal })
+    let response: Response
+    try {
+      response = await fetch(`${config.apiBase ?? ''}${path}${query(params)}`, { headers, signal: controller.signal })
+    } catch (error) {
+      if (signal?.aborted) throw error
+      throw new ApiError('unreachable', null)
+    }
+    if (!response.ok) throw new ApiError(kindFor(response.status), response.status)
+    return (await response.json()) as T
   } catch (error) {
-    if (signal?.aborted) throw error
-    throw new ApiError('unreachable', null)
+    // A body cut off by the timeout is a lost request too, unless the caller cancelled.
+    if (controller.signal.aborted && !signal?.aborted && !(error instanceof ApiError)) throw new ApiError('unreachable', null)
+    throw error
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', cancel)
   }
-  if (!response.ok) throw new ApiError(kindFor(response.status), response.status)
-  return (await response.json()) as T
 }
 
 async function detailOf(response: Response): Promise<string | null> {

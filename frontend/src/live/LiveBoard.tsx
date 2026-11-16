@@ -4,7 +4,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { getJson } from '../api/client'
-import type { Page, SessionSummary } from '../api/types'
+import type { LiveActivity, Page, SessionSummary } from '../api/types'
+import { heatScale, type HeatScale } from '../charts/heat'
 import { PageHeader } from '../history/PageHeader'
 import { ErrorNotice, LoadingRows, Notice, StateChip } from '../history/SessionList'
 import {
@@ -21,6 +22,7 @@ import {
 } from './board'
 import { formatAgo } from './format'
 import { useLiveStream, type StreamMessage, type StreamStatus } from './stream'
+import { RowStrips, StripsKey, type LiveRow } from './Strips'
 
 const TICK_MS = 30_000
 const REFETCH_DELAY_MS = 300
@@ -132,16 +134,24 @@ function Prompt({ sessionId }: { sessionId: number }) {
 const NESTED =
   'border-t border-hairline before:absolute before:-left-[12px] before:top-0 before:h-[23px] before:w-[26px] before:rounded-bl-compact before:border-b before:border-l before:border-hairline after:absolute after:-left-[12px] after:bottom-0 after:top-0 after:border-l after:border-hairline last:after:hidden'
 
+/** The last 30 minutes of the board's sessions, for the rows' strips. */
+type Strips = { rows: Map<number, LiveRow>; scale: HeatScale; from: number; until: number }
+
 function Row({
   node,
   now,
   showFolder,
+  strips,
+  parent,
   ended = false,
   nested = false,
 }: {
   node: Node
   now: number
   showFolder: boolean
+  strips?: Strips
+  /** The session this one was started by, when it is on the board. */
+  parent?: SessionSummary
   ended?: boolean
   nested?: boolean
 }) {
@@ -152,9 +162,22 @@ function Row({
   const model = session.models.at(-1)
   const basis = session.state_basis ? t(`live.basis.${session.state_basis}`, { defaultValue: '' }) : ''
   const when = ended ? endedAt(session) : lastActive(session)
+  const row = strips?.rows.get(session.id)
+  // An edge from a session of another harness names how the link is known.
+  const across = parent && parent.harness !== session.harness
   return (
     <li className={nested ? `relative ${NESTED}` : 'relative'}>
       <div className="flex flex-col gap-xs px-md py-[12px]">
+        {across ? (
+          <p className="text-[0.75rem] text-secondary-ink" data-edge={session.parent_basis ?? 'unknown'}>
+            {t('live.row.edge', {
+              harness: t(`history.harnesses.${parent.harness}`, { defaultValue: parent.harness }),
+              basis: t(`live.parentBasis.${session.parent_basis ?? 'unknown'}`, {
+                defaultValue: t('live.parentBasis.unknown'),
+              }),
+            })}
+          </p>
+        ) : null}
         {/* Aligned to the title's first line, so a nested row's elbow meets the chip. */}
         <div className="flex flex-wrap items-start gap-x-sm gap-y-xs">
           <StateChip state={session.state} />
@@ -190,6 +213,7 @@ function Row({
             </>
           )}
         </p>
+        {!ended && row && strips ? <RowStrips from={strips.from} row={row} scale={strips.scale} until={strips.until} /> : null}
         <Prompt sessionId={session.id} />
         {showFolder && session.cwd && (
           <p className="text-secondary-ink">
@@ -200,7 +224,15 @@ function Row({
       {node.children.length > 0 && (
         <ul aria-label={t('live.row.startedBy', { title: session.title || t('history.list.untitled') })} className="ml-lg">
           {node.children.map((child) => (
-            <Row key={child.session.id} nested node={child} now={now} showFolder={showFolder} />
+            <Row
+              key={child.session.id}
+              nested
+              node={child}
+              now={now}
+              parent={session}
+              showFolder={showFolder}
+              strips={strips}
+            />
           ))}
         </ul>
       )}
@@ -278,9 +310,20 @@ export function LiveBoardPage() {
   const baseId = useId()
 
   const query = useQuery({ queryKey: ['live', 'sessions'], queryFn: ({ signal }) => liveSessions(signal) })
+  // Replaced in place when the stream says a minute passed or a session wrote; never animated.
+  const activity = useQuery({
+    queryKey: ['live', 'activity'],
+    queryFn: ({ signal }) => getJson<LiveActivity>('/api/live/activity', {}, signal),
+  })
 
-  const pending = useRef<{ sessions: boolean; prompts: Set<number>; timer?: ReturnType<typeof setTimeout> }>({
+  const pending = useRef<{
+    sessions: boolean
+    activity: boolean
+    prompts: Set<number>
+    timer?: ReturnType<typeof setTimeout>
+  }>({
     sessions: false,
+    activity: false,
     prompts: new Set(),
   })
   const onMessage = useCallback(
@@ -295,12 +338,15 @@ export function LiveBoardPage() {
       }
       if (message.event === 'sessions') queue.sessions = true
       else if (message.event === 'events') data.sessions?.forEach(({ id }) => queue.prompts.add(id))
+      else if (message.event === 'activity') queue.activity = true
       else return
       if (queue.timer) return
       queue.timer = setTimeout(() => {
         if (queue.sessions) void client.invalidateQueries({ queryKey: ['live', 'sessions'] })
+        if (queue.activity) void client.invalidateQueries({ queryKey: ['live', 'activity'] })
         queue.prompts.forEach((id) => void client.invalidateQueries({ queryKey: ['live', 'prompt', id] }))
         queue.sessions = false
+        queue.activity = false
         queue.prompts.clear()
         queue.timer = undefined
       }, REFETCH_DELAY_MS)
@@ -312,6 +358,17 @@ export function LiveBoardPage() {
 
   const { live, ended } = useMemo(() => split(query.data ?? [], now), [query.data, now])
   const arranged = useMemo(() => groups(live, by), [live, by])
+  const strips = useMemo((): Strips | undefined => {
+    const data = activity.data
+    if (!data?.minutes.length) return undefined
+    return {
+      rows: new Map(data.sessions.map((row) => [row.id, row])),
+      // One scale for the whole board, so a darker cell means more events in any row.
+      scale: heatScale(data.sessions.flatMap((row) => row.events)),
+      from: Date.parse(data.minutes[0]),
+      until: Date.parse(data.until),
+    }
+  }, [activity.data])
 
   const changeGroup = (next: LiveGroup) => {
     const params = new URLSearchParams(search)
@@ -331,6 +388,7 @@ export function LiveBoardPage() {
         <>
           <Summary live={live} quiet={live.length === 0 && ended.length === 0} status={status} />
           {live.length > 0 && <GroupSwitch group={by} onChange={changeGroup} />}
+          {live.length > 0 && strips ? <StripsKey scale={strips.scale} /> : null}
           {live.length === 0 && ended.length === 0 && (
             <Notice body={t('live.empty.body')} title={t('live.empty.title')} />
           )}
@@ -341,7 +399,7 @@ export function LiveBoardPage() {
                 <GroupHeading by={by} count={group.count} group={group.key} id={id} others={group.others} />
                 <ul className="divide-y divide-hairline overflow-hidden rounded-surface border border-hairline bg-working-paper shadow-resting">
                   {group.nodes.map((node) => (
-                    <Row key={node.session.id} node={node} now={now} showFolder={by === 'harness'} />
+                    <Row key={node.session.id} node={node} now={now} showFolder={by === 'harness'} strips={strips} />
                   ))}
                 </ul>
               </section>

@@ -143,12 +143,22 @@ class StateHistory(BaseModel):
     earlier_omitted: int = Field(description="Older changes left out of the list.")
 
 
+class LiveSpan(BaseModel):
+    state: SessionState
+    start: datetime
+    end: datetime
+
+
 class LiveSession(BaseModel):
     id: int
     harness: str
     state: SessionState
     events: list[int] = Field(description="Events in each minute, in minute order.")
     total: int
+    states: list[LiveSpan] = Field(
+        default_factory=list,
+        description="Its states over the same window, oldest first, from recorded changes.",
+    )
 
 
 class LiveActivity(BaseModel):
@@ -394,6 +404,47 @@ def live_minute(now: datetime) -> datetime:
     return now.astimezone(UTC).replace(second=0, microsecond=0)
 
 
+def _live_spans(db, live, start: datetime, end: datetime) -> dict[int, list[LiveSpan]]:
+    """Each live session's states from ``start`` to ``end``, from its recorded changes.
+
+    The state at the window's start is what the first change in it left behind; a
+    session with no change in the window held its current state throughout; one
+    whose first change has no earlier state began then, so nothing is drawn before.
+    """
+    if not live:
+        return {}
+    changes: dict[int, list[SessionStateChange]] = defaultdict(list)
+    for change in db.scalars(
+        select(SessionStateChange)
+        .where(
+            SessionStateChange.session_id.in_([row.id for row in live]),
+            SessionStateChange.changed_at >= start,
+            SessionStateChange.changed_at < end,
+        )
+        .order_by(
+            SessionStateChange.session_id, SessionStateChange.changed_at, SessionStateChange.id
+        )
+    ):
+        changes[change.session_id].append(change)
+    spans: dict[int, list[LiveSpan]] = {}
+    for row in live:
+        found = changes.get(row.id, [])
+        points: list[tuple[SessionState, datetime]] = []
+        if not found:
+            points.append((row.state, start))
+        else:
+            if found[0].previous is not None:
+                points.append((found[0].previous, start))
+            points.extend((change.state, change.changed_at) for change in found)
+        ends = [since for _, since in points[1:]] + [end]
+        spans[row.id] = [
+            LiveSpan(state=state, start=since, end=until)
+            for (state, since), until in zip(points, ends, strict=True)
+            if until > since
+        ]
+    return spans
+
+
 @router.get("/live/activity", response_model=LiveActivity, summary="Live sessions, per minute")
 def live_activity(
     db: Db,
@@ -428,6 +479,7 @@ def live_activity(
         for session_id, text, count in rows:
             at = datetime.fromisoformat(text).replace(tzinfo=UTC)
             counts[session_id][int((at - minutes[0]) / timedelta(minutes=1))] += count
+    spans = _live_spans(db, live, minutes[0], end)
     return {
         "minutes": minutes,
         "until": end,
@@ -438,6 +490,7 @@ def live_activity(
                 state=row.state,
                 events=counts[row.id],
                 total=sum(counts[row.id]),
+                states=spans.get(row.id, []),
             )
             for row in live
         ],

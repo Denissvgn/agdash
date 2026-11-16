@@ -35,6 +35,9 @@ class SessionSummary(BaseModel):
     models: list[str]
     effort: str | None
     parent_session_id: int | None
+    parent_basis: ParentBasis | None = Field(
+        None, description="How the parent link is known: the harness's record or the process tree."
+    )
     initial_task: str | None = Field(description="The first prompt, cut to 300 characters.")
     goal: dict[str, Any] | None
     event_count: int

@@ -20,7 +20,7 @@ const AXIS = 26
 const UNKNOWN_SPACING = 4
 
 /** The unknown state's texture: planned-slate lines at 45°, closer than the not-reported hatch. */
-function UnknownPattern({ id }: { id: string }) {
+export function UnknownPattern({ id }: { id: string }) {
   return (
     <pattern height={UNKNOWN_SPACING} id={id} patternTransform="rotate(45)" patternUnits="userSpaceOnUse" width={UNKNOWN_SPACING}>
       <line className="stroke-status-planned" strokeWidth={HAIRLINE} x1={0.5} x2={0.5} y1={0} y2={UNKNOWN_SPACING} />

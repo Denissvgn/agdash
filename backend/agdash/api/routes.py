@@ -86,6 +86,7 @@ def _summary(session: Session, events: int, children: int) -> dict[str, Any]:
         "models": session.models or [],
         "effort": session.effort,
         "parent_session_id": session.parent_session_id,
+        "parent_basis": session.parent_basis,
         "initial_task": task[:INITIAL_TASK_PREVIEW] if task else None,
         "goal": session.goal,
         "event_count": events,
