@@ -459,3 +459,39 @@ def test_the_stream_announces_when_live_activity_changes(url, live):
         assert later == {"activity": {"minute": "2026-03-01T12:01:00+00:00", "sessions": []}}
         assert db.scalar(select(func.count()).select_from(SessionStateChange)) == 0
     engine.dispose()
+
+
+def test_live_activity_gives_each_session_its_states_over_the_window(url, live):
+    engine, store = writer(url)
+    with store() as db:
+        for state, previous, when in [
+            (SessionState.ACTIVE, SessionState.IDLE, "11:20:00"),  # before the window
+            (SessionState.WAITING, SessionState.ACTIVE, "11:40:00"),
+            (SessionState.ACTIVE, SessionState.WAITING, "11:52:00"),
+        ]:
+            db.add(
+                SessionStateChange(
+                    session_id=live["working"],
+                    state=state,
+                    previous=previous,
+                    basis=StateBasis.HARNESS_BUSY,
+                    changed_at=at(when),
+                )
+            )
+        db.commit()
+    engine.dispose()
+    report = get(url, "/api/live/activity", until="2026-03-01T12:00:30Z")
+    sessions = {s["id"]: s for s in report["sessions"]}
+    assert [
+        (s["state"], s["start"][11:16], s["end"][11:16])
+        for s in sessions[live["working"]]["states"]
+    ] == [
+        ("active", "11:31", "11:40"),
+        ("waiting", "11:40", "11:52"),
+        ("active", "11:52", "12:01"),
+    ]
+    # No change in the window: its current state throughout.
+    assert [
+        (s["state"], s["start"][11:16], s["end"][11:16])
+        for s in sessions[live["waiting"]]["states"]
+    ] == [("waiting", "11:31", "12:01")]

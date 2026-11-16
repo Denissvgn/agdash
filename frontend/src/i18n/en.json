@@ -370,7 +370,8 @@
       "effort": "{{effort}} effort",
       "parentNotLive": "Started by a session that is not live",
       "startedBy": "Sessions started by {{title}}",
-      "lastActive": "Last active {{when}}"
+      "lastActive": "Last active {{when}}",
+      "edge": "Started from {{harness}}, known from {{basis}}"
     },
     "basis": {
       "process_exited": "Process exited",
@@ -407,6 +408,25 @@
       "serverTitle": "The service could not answer",
       "serverBody": "Something went wrong while reading the live sessions. The board tries again when the live stream reconnects.",
       "retry": "Try again"
+    },
+    "parentBasis": {
+      "harness_record": "the harness's record",
+      "process_tree": "the process tree",
+      "unknown": "a link whose basis was not recorded"
+    },
+    "strips": {
+      "events": "Events",
+      "states": "States",
+      "count_one": "{{count}} in 30 min",
+      "count_other": "{{count}} in 30 min",
+      "quiet": "No events in the last 30 minutes",
+      "summary_one": "Last 30 minutes: {{count}} event; {{states}}.",
+      "summary_other": "Last 30 minutes: {{count}} events; {{states}}.",
+      "span": "{{state}} for {{duration}}",
+      "then": ", then ",
+      "noStates": "no state recorded",
+      "key": "Each live session's strips cover the last 30 minutes, oldest on the left, and change as the session writes.",
+      "eventsKey": "Events per minute, darker for more"
     }
   },
   "workchord": {

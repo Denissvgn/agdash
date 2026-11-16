@@ -36,9 +36,26 @@ export interface SessionSummary {
   models: string[]
   effort: string | null
   parent_session_id: number | null
+  /** How the parent link is known: harness_record or process_tree. */
+  parent_basis?: string | null
   initial_task: string | null
   event_count: number
   child_count: number
+}
+
+/** The last 30 minutes of every live session: events per minute, and its states. */
+export interface LiveActivity {
+  minutes: string[]
+  until: string
+  sessions: {
+    id: number
+    harness: string
+    state: SessionState
+    events: number[]
+    total: number
+    states: { state: SessionState; start: string; end: string }[]
+  }[]
+  omitted: number
 }
 
 export interface SnippetPart {

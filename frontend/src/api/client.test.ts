@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { adoptLinkToken, getJson, localToken } from './client'
+import { adoptLinkToken, ApiError, getJson, localToken, REQUEST_TIMEOUT_MS } from './client'
 
 beforeEach(() => {
   window.sessionStorage.clear()
@@ -34,4 +34,50 @@ test('the desktop app’s token wins over one a link left', () => {
   window.sessionStorage.setItem('agdash.token', 'from-a-link')
   window.__AGDASH__ = { token: 'from-the-app' }
   expect(localToken()).toBe('from-the-app')
+})
+
+/** A fetch whose answer never comes, as when a network path drops the request: it only ends if aborted. */
+function silentFetch() {
+  return vi.fn(
+    (_: string, init?: RequestInit) =>
+      new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      }),
+  )
+}
+
+test('a read that never gets an answer fails as unreachable after the timeout, so it can be retried', async () => {
+  vi.useFakeTimers()
+  try {
+    vi.stubGlobal('fetch', silentFetch())
+    const read = getJson('/api/sessions/1/events')
+    const outcome = read.then(
+      () => 'answered',
+      (error: unknown) => error,
+    )
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS - 1)
+    expect(await Promise.race([outcome, Promise.resolve('still waiting')])).toBe('still waiting')
+    await vi.advanceTimersByTimeAsync(1)
+    const error = await outcome
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).kind).toBe('unreachable')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test("the caller's cancel is still a cancel, not an error, and clears the timeout", async () => {
+  vi.useFakeTimers()
+  try {
+    vi.stubGlobal('fetch', silentFetch())
+    const controller = new AbortController()
+    const read = getJson('/api/sessions/1/events', {}, controller.signal).catch((error: unknown) => error)
+    controller.abort()
+    const error = await read
+    expect(error).not.toBeInstanceOf(ApiError)
+    expect((error as DOMException).name).toBe('AbortError')
+    expect(vi.getTimerCount()).toBe(0)
+  } finally {
+    vi.useRealTimers()
+  }
 })

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../App'
 import { unnamedControls } from '../test/controls'
 import { newQueryClient } from '../api/queryClient'
-import type { Page, SessionSummary } from '../api/types'
+import type { LiveActivity, Page, SessionSummary } from '../api/types'
 import { ENDED_WINDOW_MS, UNKNOWN_WINDOW_MS, forest, groups, split, stateCounts } from './board'
 import { formatAgo } from './format'
 import { SILENCE_MS, parseEvents } from './stream'
@@ -143,7 +143,7 @@ class Stream {
   }
 }
 
-function serve(state: { sessions: SessionSummary[]; prompts: Record<number, string> }) {
+function serve(state: { sessions: SessionSummary[]; prompts: Record<number, string>; activity?: LiveActivity }) {
   const stream = new Stream()
   const calls: URL[] = []
   vi.stubGlobal(
@@ -152,6 +152,7 @@ function serve(state: { sessions: SessionSummary[]; prompts: Record<number, stri
       const url = new URL(input, 'http://127.0.0.1:8765')
       calls.push(url)
       if (url.pathname === '/api/stream') return new Response(stream.open(init?.signal), { status: 200 })
+      if (url.pathname === '/api/live/activity' && state.activity) return new Response(JSON.stringify(state.activity))
       const events = url.pathname.match(/^\/api\/sessions\/(\d+)\/events$/)
       if (events) {
         const text = state.prompts[Number(events[1])]
@@ -286,5 +287,102 @@ describe('the live board', () => {
     open()
     expect(await screen.findByRole('heading', { name: 'Nothing is running' })).toBeInTheDocument()
     expect(screen.queryByRole('radio')).not.toBeInTheDocument()
+  })
+
+  test('an edge between harnesses names its basis; one within a harness needs no label', async () => {
+    serve({
+      sessions: [
+        session(1, { title: 'Lead session' }),
+        session(2, { title: 'Helper session', harness: 'codex', parent_session_id: 1, parent_basis: 'process_tree' }),
+        session(3, { title: 'Sub-agent', parent_session_id: 1, parent_basis: 'harness_record' }),
+      ],
+      prompts: {},
+    })
+    open()
+    const helper = (await screen.findByRole('heading', { level: 3, name: 'Helper session' })).closest('li')!
+    expect(within(helper).getByText('Started from Claude Code, known from the process tree')).toBeInTheDocument()
+    const sub = screen.getByRole('heading', { level: 3, name: 'Sub-agent' }).closest('li')!
+    expect(sub.querySelector('[data-edge]')).toBeNull()
+  })
+})
+
+describe('the rows\' last 30 minutes', () => {
+  const minutes = Array.from({ length: 30 }, (_, i) => new Date(NOW - (30 - i) * 60_000).toISOString())
+  const activity = (busy: number[], states: LiveActivity['sessions'][number]['states']): LiveActivity => ({
+    minutes,
+    until: new Date(NOW).toISOString(),
+    sessions: [
+      { id: 1, harness: 'claude_code', state: 'active', events: busy, total: busy.reduce((a, b) => a + b, 0), states },
+      {
+        id: 2,
+        harness: 'pi',
+        state: 'idle',
+        events: Array(30).fill(0),
+        total: 0,
+        states: [{ state: 'idle', start: minutes[0], end: new Date(NOW).toISOString() }],
+      },
+    ],
+    omitted: 0,
+  })
+  const span = (state: string, from: number, to: number) => ({
+    state: state as 'active',
+    start: minutes[from],
+    end: to >= 30 ? new Date(NOW).toISOString() : minutes[to],
+  })
+
+  test('show events per minute and the states, and change with the stream without a reload or motion', async () => {
+    const busy = Array(30).fill(0)
+    busy[28] = 3
+    busy[29] = 2
+    const state = {
+      sessions: [session(1, { title: 'Busy one' }), session(2, { title: 'Quiet one', harness: 'pi', state: 'idle' as const })],
+      prompts: {},
+      activity: activity(busy, [span('waiting', 0, 20), span('active', 20, 30)]),
+    }
+    const { stream, calls } = serve(state)
+    open()
+    const row = (await screen.findByRole('heading', { level: 3, name: 'Busy one' })).closest('li')!
+    await waitFor(() => expect(row.querySelector('[data-strip="events"]')).not.toBeNull())
+    expect(row.querySelectorAll('[data-strip="events"] rect')).toHaveLength(30)
+    expect(within(row).getByText('5 in 30 min')).toBeInTheDocument()
+    expect([...row.querySelectorAll('[data-strip="states"] [data-state]')].map((r) => r.getAttribute('data-state'))).toEqual([
+      'waiting',
+      'active',
+    ])
+    expect(row).toHaveTextContent('Last 30 minutes: 5 events; Waiting for 20 min, then Active for 10 min.')
+    expect(screen.getByRole('list', { name: 'Legend' })).toHaveTextContent('Events per minute, darker for more')
+
+    // The stream says a minute passed and the session wrote: the strips change in place.
+    const reloads = calls.filter((url) => url.pathname === '/api/sessions').length
+    busy[29] = 6
+    state.activity = activity(busy, [span('waiting', 0, 20), span('active', 20, 25), span('idle', 25, 30)])
+    act(() => stream.send('activity', { minute: new Date(NOW).toISOString(), sessions: [1] }))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400)
+    })
+    await waitFor(() => expect(within(row).getByText('9 in 30 min')).toBeInTheDocument())
+    expect([...row.querySelectorAll('[data-strip="states"] [data-state]')].map((r) => r.getAttribute('data-state'))).toEqual([
+      'waiting',
+      'active',
+      'idle',
+    ])
+    expect(calls.filter((url) => url.pathname === '/api/sessions').length).toBe(reloads)
+    for (const element of row.querySelectorAll('[data-strip] , [data-strip] *')) {
+      expect(element.getAttribute('class') ?? '').not.toMatch(/\b(transition|animate-|duration-)/)
+    }
+    expect(row.querySelectorAll('animate, animateTransform, set')).toHaveLength(0)
+  })
+
+  test('a session that wrote nothing in the window says so instead of drawing empty cells', async () => {
+    serve({
+      sessions: [session(1, { title: 'Busy one' }), session(2, { title: 'Quiet one', harness: 'pi', state: 'idle' })],
+      prompts: {},
+      activity: activity(Array(30).fill(1), [span('active', 0, 30)]),
+    })
+    open()
+    const quiet = (await screen.findByRole('heading', { level: 3, name: 'Quiet one' })).closest('li')!
+    await waitFor(() => expect(within(quiet).getByText('No events in the last 30 minutes')).toBeInTheDocument())
+    expect(quiet.querySelector('[data-strip="events"]')).toBeNull()
+    expect(quiet.querySelector('[data-strip="states"] [data-state="idle"]')).not.toBeNull()
   })
 })
