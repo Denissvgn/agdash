@@ -11,6 +11,7 @@
     "conductorHeight": "52px",
     "sidebarWidth": "220px",
     "pageMaxWidth": "1240px",
+    "workbenchMaxWidth": "1440px",
     "pageGutterX": "32px",
     "pageGutterY": "24px",
     "phoneGutterX": "16px",

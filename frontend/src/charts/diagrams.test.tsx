@@ -4,6 +4,7 @@ import { I18nextProvider } from 'react-i18next'
 import { describe, expect, test } from 'vitest'
 import { catalogue, createI18n, LANGUAGE } from '../i18n'
 import { unnamedControls } from '../test/controls'
+import { openTwin } from '../test/twin'
 import { Heatmap } from './Heatmap'
 import { Lanes } from './Lanes'
 import type { Range } from './range'
@@ -66,6 +67,7 @@ describe.each(FIGURES)('%s', (_, figure) => {
       expect(name.startsWith(OPEN) && name.endsWith(CLOSE), name).toBe(true)
     }
     expect(unnamedControls(container)).toEqual([])
+    openTwin(container)
     expect(container.querySelectorAll('table tbody tr').length).toBeGreaterThan(3)
     expect(container.querySelectorAll('animate, animateTransform, animateMotion, set')).toHaveLength(0)
     for (const element of container.querySelectorAll('figure [class]')) {
@@ -87,6 +89,7 @@ describe('time lanes', () => {
     expect(container.querySelector('line.stroke-planning-thread')).not.toBeNull()
     expect(container.querySelector('text.fill-planning-thread')?.textContent).toBe('Now')
     // The table lists every span and moment, and every break.
+    openTwin(container)
     expect(container.querySelectorAll('table tbody tr')).toHaveLength(items + breaks.length)
     // Spans keep time order along each lane.
     const firstLane = marks.filter((mark) => mark.getAttribute('aria-label')?.startsWith('Main agent'))

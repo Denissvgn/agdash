@@ -13,6 +13,8 @@ export type Gap = { from: number; to: number; x: number }
 
 export type CompressedScale = {
   (at: number): number
+  /** The time at a position; a position inside a break is the end of the gap it stands for. */
+  invert: (x: number) => number
   stretches: Stretch[]
   gaps: Gap[]
 }
@@ -63,6 +65,13 @@ export function compressedScale(intervals: [number, number][], threshold: number
     const share = Math.min(1, (at - inside.from) / (inside.to - inside.from))
     return inside.left + share * (inside.right - inside.left)
   }) as CompressedScale
+  scale.invert = (px: number) => {
+    const inside = stretches.find((stretch) => px <= stretch.right) ?? stretches[stretches.length - 1]
+    if (px < inside.left) return inside.from
+    if (inside.right === inside.left) return inside.from
+    const share = Math.min(1, Math.max(0, (px - inside.left) / (inside.right - inside.left)))
+    return inside.from + share * (inside.to - inside.from)
+  }
   scale.stretches = stretches
   scale.gaps = gaps
   return scale

@@ -96,7 +96,8 @@ export default {
         'phone-x': prose.layout.phoneGutterX,
         touch: prose.layout.coarseTarget,
       },
-      maxWidth: { page: prose.layout.pageMaxWidth },
+      // Data-heavy workbenches, such as a session's overview and timeline, may reach 1440px.
+      maxWidth: { page: prose.layout.pageMaxWidth, workbench: prose.layout.workbenchMaxWidth },
       transitionDuration: { state: prose.derived.stateDuration.value },
       keyframes: {
         // Starts already visible, so a delayed or paused animation never hides the drawer.

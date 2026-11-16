@@ -588,6 +588,44 @@
       "encrypted": "Encrypted, not readable",
       "absent": "Reasoning not kept",
       "unknown": "Coverage not recorded"
+    },
+    "overview": {
+      "title": "Overview",
+      "caption": "The whole session on one time axis; stretches of over 30 minutes with nothing recorded are squeezed into a marked break. The blue window is the part of the timeline below in view: drag it, click a moment, or use the arrow keys on it to move the timeline there.",
+      "partKey": "Reasoning not kept, or calls that failed",
+      "thoughts": "Thoughts",
+      "thoughtsValue_one": "{{count}}, {{kept}} kept",
+      "thoughtsValue_other": "{{count}}, {{kept}} kept",
+      "toolsValue_one": "{{count}}, {{errors}} failed",
+      "toolsValue_other": "{{count}}, {{errors}} failed",
+      "window": "Part of the timeline in view",
+      "windowValue": "{{from}} to {{to}}",
+      "lanes": {
+        "prompts": "Prompts",
+        "replies": "Replies",
+        "thoughts": "Thoughts",
+        "tools": "Tool calls",
+        "subagents": "Subagents",
+        "models": "Model changes",
+        "compactions": "Compactions",
+        "state": "State",
+        "tokens": "Tokens per turn"
+      },
+      "table": {
+        "when": "From",
+        "prompts": "Prompts",
+        "replies": "Replies",
+        "thoughts": "Thoughts",
+        "notKept": "Reasoning not kept",
+        "tools": "Tool calls",
+        "errors": "Failed calls",
+        "subagents": "Subagents started",
+        "models": "Model changes",
+        "compactions": "Compactions",
+        "tokens": "Tokens in turns started",
+        "state": "State at start"
+      },
+      "upTo": "up to {{value}}"
     }
   },
   "board": {

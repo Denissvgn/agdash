@@ -1,4 +1,8 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
+/** Tables up to this many rows are built with their figure; longer ones when first opened. */
+const EAGER_ROWS = 50
 
 export type TableTwinColumn = { key: string; label: string }
 export type TableTwinRow = { key: string; header: string; cells: (string | null)[] }
@@ -11,8 +15,12 @@ export type TableTwinData = { rowHeader: string; columns: TableTwinColumn[]; row
  */
 export function TableTwin({ title, rowHeader, columns, rows }: TableTwinData & { title: string }) {
   const { t } = useTranslation()
+  // A long table is built the first time it is opened, so a figure with hundreds of
+  // buckets draws as fast as one with a few; a short one is there from the start.
+  const [opened, setOpened] = useState(false)
+  const built = opened || rows.length <= EAGER_ROWS
   return (
-    <details className="group text-label">
+    <details className="group text-label" onToggle={(event) => event.currentTarget.open && setOpened(true)}>
       <summary className="w-fit cursor-pointer rounded-compact text-metadata font-medium text-secondary-ink hover:text-primary-ink">
         {t('charts.table.show')}
       </summary>
@@ -37,7 +45,7 @@ export function TableTwin({ title, rowHeader, columns, rows }: TableTwinData & {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
+            {(built ? rows : []).map((row) => (
               <tr key={row.key} className="border-b border-hairline last:border-b-0">
                 <th className="whitespace-nowrap px-sm py-xs font-normal text-primary-ink" scope="row">
                   <span data-figure-data="">{row.header}</span>
