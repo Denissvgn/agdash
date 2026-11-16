@@ -456,5 +456,42 @@
     "noServerAction": "Open WorkChord settings",
     "emptyTitle": "Every session is mapped",
     "emptyBody": "Each top-level session has a project, from its own evidence, a rule or a pin."
+  },
+  "session": {
+    "back": "← All sessions",
+    "loadingTitle": "Loading the session",
+    "missingTitle": "Session not found",
+    "missingBody": "There is no session at this address. It may have been removed by retention.",
+    "started": "Started {{when}}",
+    "family": "Related sessions",
+    "parent": "Parent session",
+    "subagent": "Subagent {{number}}",
+    "timeline": "Timeline",
+    "timelineLabel": "Session timeline",
+    "loading": "Loading the timeline",
+    "loaded": "{{loaded}} of {{total}} events loaded",
+    "all_one": "{{count}} event",
+    "all_other": "{{count}} events",
+    "emptyTitle": "Nothing recorded yet",
+    "emptyBody": "This session has no events in agdash's store.",
+    "noTime": "No time",
+    "toolCall": "Tool call · {{name}}",
+    "toolResult": "Tool result · {{name}}",
+    "error": "Error",
+    "subagentStarted": "Subagent started",
+    "subagentFinished": "Subagent finished",
+    "modelChanged": "Model: {{model}}",
+    "modelChangedFrom": "Model: {{previous}} → {{model}}",
+    "usage": "Input {{input}} · output {{output}} tokens",
+    "notReported": "not reported",
+    "showAll": "Show all {{count}} characters",
+    "showLess": "Show less",
+    "coverage": {
+      "full": "Full reasoning",
+      "summary": "Summary of reasoning",
+      "encrypted": "Encrypted, not readable",
+      "absent": "Reasoning not kept",
+      "unknown": "Coverage not recorded"
+    }
   }
 }

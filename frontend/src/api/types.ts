@@ -197,3 +197,25 @@ export interface UnmappedQueue {
   items: UnmappedItem[]
   total: number
 }
+
+// -- one session --------------------------------------------------------------------
+
+export type ThoughtsCoverage = 'full' | 'summary' | 'encrypted' | 'absent'
+
+export interface EventOut {
+  id: number
+  session_id: number
+  sequence: number
+  occurred_at: string | null
+  kind: EventKind
+  payload: Record<string, unknown>
+  thoughts_coverage: ThoughtsCoverage | null
+}
+
+export interface SessionDetail extends SessionSummary {
+  initial_task: string | null
+  permission_mode: string | null
+  parent_basis: string | null
+  children: number[]
+  events_by_kind: Record<string, number>
+}

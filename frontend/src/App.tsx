@@ -8,6 +8,7 @@ import { i18n as defaultI18n } from './i18n'
 import { DestinationPage } from './pages/DestinationPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { PAGES } from './pages/registry'
+import { SessionPage } from './session/SessionPage'
 import { AppShell } from './shell/AppShell'
 import { HOME_PATH, WORKSPACES } from './shell/navigation'
 
@@ -28,6 +29,7 @@ export function AppRoutes() {
             )
           }),
         )}
+        <Route path="/history/sessions/:sessionId" element={<SessionPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
