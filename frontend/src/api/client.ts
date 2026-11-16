@@ -11,6 +11,36 @@ declare global {
   }
 }
 
+const LINK_PREFIX = '#agdash-token='
+const STORED = 'agdash.token'
+
+/**
+ * Take the token from a link `agdash open` printed (`/#agdash-token=…`): keep it for
+ * this tab only and take it out of the address, so it is not bookmarked or shared.
+ * A browser never sends the part after `#` to a server.
+ */
+export function adoptLinkToken(): void {
+  if (!window.location.hash.startsWith(LINK_PREFIX)) return
+  const token = decodeURIComponent(window.location.hash.slice(LINK_PREFIX.length))
+  try {
+    if (token) window.sessionStorage.setItem(STORED, token)
+  } catch {
+    // Storage refused: the page then asks the service without a token and says so.
+  }
+  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/live`)
+}
+
+/** The token the desktop app handed over, or the one a link gave this tab. */
+export function localToken(): string | undefined {
+  const handed = window.__AGDASH__?.token
+  if (handed) return handed
+  try {
+    return window.sessionStorage.getItem(STORED) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
 export type ApiErrorKind = 'unreachable' | 'refused' | 'missing' | 'invalid' | 'server'
 
 export class ApiError extends Error {
@@ -50,7 +80,8 @@ function kindFor(status: number): ApiErrorKind {
 export async function getJson<T>(path: string, params: Params = {}, signal?: AbortSignal): Promise<T> {
   const config = window.__AGDASH__ ?? {}
   const headers: Record<string, string> = { Accept: 'application/json' }
-  if (config.token) headers.Authorization = `Bearer ${config.token}`
+  const token = localToken()
+  if (token) headers.Authorization = `Bearer ${token}`
   let response: Response
   try {
     response = await fetch(`${config.apiBase ?? ''}${path}${query(params)}`, { headers, signal })
@@ -78,7 +109,8 @@ async function detailOf(response: Response): Promise<string | null> {
 export async function sendJson<T>(method: 'POST' | 'DELETE', path: string, body?: unknown): Promise<T | null> {
   const config = window.__AGDASH__ ?? {}
   const headers: Record<string, string> = { Accept: 'application/json' }
-  if (config.token) headers.Authorization = `Bearer ${config.token}`
+  const token = localToken()
+  if (token) headers.Authorization = `Bearer ${token}`
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   let response: Response
   try {

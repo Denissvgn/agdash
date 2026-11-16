@@ -10,10 +10,12 @@
     agdash export ...   export a session to a file you name
     agdash retention    see or apply the retention setting
     agdash token        the local API token, for the desktop app, through a pipe only
+    agdash open         a link that opens the UI in a browser, for a host with no app
 
 Nothing here starts, stops or changes an agent. No output holds a secret except
 ``agdash token``, which the desktop app reads through a pipe and which refuses to
-print to a terminal.
+print to a terminal, and ``agdash open``, whose link carries the token so a browser
+can use the UI; it says so when it prints it.
 """
 
 import argparse
@@ -69,6 +71,48 @@ def _health(timeout: float = 2.0) -> dict | None:
             return json.loads(response.read())
     except (urllib.error.URLError, OSError, ValueError):
         return None
+
+
+def _serves_ui(timeout: float = 2.0) -> bool:
+    settings = get_settings()
+    try:
+        with urllib.request.urlopen(  # noqa: S310 - our own loopback service
+            f"http://{settings.host}:{settings.port}/", timeout=timeout
+        ) as response:
+            return response.status == 200 and "text/html" in response.headers.get(
+                "content-type", ""
+            )
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def open_ui(host: Host, out=print, err=None) -> int:
+    """Print the link that opens the UI with the local token."""
+    err = err or (lambda text: print(text, file=sys.stderr))
+    settings = get_settings()
+    if _health() is None:
+        err(
+            f"The service is not answering on http://{settings.host}:{settings.port}."
+            " Start it with `agdash serve`, or `agdash install` to start it at login."
+        )
+        return 1
+    if not _serves_ui():
+        err(
+            "The service answers but serves no UI: this build has none. Use the desktop app,"
+            " or set AGDASH_UI_DIR to a built UI and restart the service."
+        )
+        return 1
+    from agdash.api.security import load_or_create_token
+    from agdash.api.ui import open_link
+
+    link = open_link(settings.port, load_or_create_token(host.secret_store()))
+    out(link)
+    out("")
+    out("This link holds the service's local token: anyone who opens it can read your sessions.")
+    out("The token stays in the part after #, which the browser keeps to itself.")
+    out("On a host with no display, open it on your own computer through an SSH tunnel:")
+    out(f"    ssh -N -L {settings.port}:127.0.0.1:{settings.port} <this host>")
+    return 0
 
 
 def _counts(url: str) -> dict[str, int] | None:
@@ -344,6 +388,7 @@ def main(argv: Sequence[str] | None = None, *, host: Host | None = None, manager
         ("install", "start the service at login"),
         ("uninstall", "stop starting the service at login; data stays"),
         ("token", "the local API token, for the desktop app (pipe only)"),
+        ("open", "a link that opens the UI in a browser"),
     ):
         commands.add_parser(name, help=text)
     for name in ("connect", "export", "retention"):
@@ -368,6 +413,8 @@ def main(argv: Sequence[str] | None = None, *, host: Host | None = None, manager
         sys.stdout.write(load_or_create_token(host.secret_store()))
         sys.stdout.flush()
         return 0
+    if args.command == "open":
+        return open_ui(host)
     if args.command == "backfill":
         from agdash.runtime import collector_for, prepare
 

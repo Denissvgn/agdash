@@ -59,11 +59,15 @@ fn main() {
             show(app)
         }))
         .setup(move |app| {
-            let bin = service::find_bin(
-                std::env::var("AGDASH_BIN").ok(),
-                std::env::current_exe().ok(),
-            );
             let home = app.path().home_dir().unwrap_or_default();
+            let bin = service::settle_bin(
+                &service::find_bin(
+                    std::env::var("AGDASH_BIN").ok(),
+                    std::env::current_exe().ok(),
+                ),
+                std::env::var_os("APPIMAGE").is_some(),
+                &service::data_home(std::env::var("XDG_DATA_HOME").ok(), &home),
+            );
             let manager = service::manager_command(cfg!(target_os = "macos"), &home, current_uid());
             // A service that cannot be reached is shown by the UI's own notices.
             let _ = service::ensure_running(port, &bin, manager);

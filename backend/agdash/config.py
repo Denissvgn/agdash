@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     keep_raw: bool = True
     # A port for the WorkChord webhook receiver, on the same loopback address; unset is off.
     webhook_port: int | None = None
+    # The built UI to serve, for a host with no desktop app; unset uses the copy frozen into
+    # the binary, if any.
+    ui_dir: str | None = None
     # Where a published WorkChord link points; {session_id} is replaced. Loopback only.
     publish_link: str = "http://127.0.0.1:8765/#/history/sessions/{session_id}"
 

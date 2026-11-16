@@ -1,0 +1,18 @@
+{
+  "productName": "agdash-desktop",
+  "bundle": {
+    "active": true,
+    "targets": ["deb"],
+    "category": "DeveloperTool",
+    "shortDescription": "The agdash window and tray, around the agdash service",
+    "longDescription": "A window on the agdash UI and a tray item with the number of live sessions. It uses the agdash service from the agdash package, starting it when it is not running. Quitting the window leaves the service running.",
+    "copyright": "MIT License",
+    "linux": {
+      "deb": {
+        "depends": ["agdash"],
+        "section": "devel",
+        "desktopTemplate": "linux/agdash.desktop"
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=agdash
+Comment=A read-only dashboard of the agentic coding sessions on this computer
+Exec={{exec}}
+Icon={{icon}}
+Terminal=false
+Categories=Development;Monitor;
+StartupWMClass=agdash-app

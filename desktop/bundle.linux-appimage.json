@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "active": true,
+    "targets": ["appimage"],
+    "category": "DeveloperTool",
+    "shortDescription": "agdash: the window, tray and service in one file",
+    "copyright": "MIT License",
+    "externalBin": ["binaries/agdash"],
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
+  }
+}
