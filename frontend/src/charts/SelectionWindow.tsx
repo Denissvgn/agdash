@@ -17,7 +17,9 @@ const PAGE = 7
 /**
  * An overview of a time series with a window over part of it, in the planning
  * thread. Its two edges are sliders: the arrow keys move an edge, Shift with an
- * arrow key moves the whole window, and the pointer drags an edge or the window.
+ * arrow key moves the whole window. The pointer drags an edge or the window, draws
+ * a new range from a press outside it, picks one bucket with a click, and extends
+ * the range to the bucket a shift-click lands on.
  */
 export function SelectionWindow({
   title,
@@ -30,6 +32,9 @@ export function SelectionWindow({
   rowHeader,
   formatValue = formatWhole,
   height = 96,
+  emptyTitle,
+  emptyBody,
+  whole,
 }: {
   title: string
   caption?: string
@@ -42,11 +47,17 @@ export function SelectionWindow({
   rowHeader: string
   formatValue?: (value: number) => string
   height?: number
+  emptyTitle?: string
+  emptyBody?: string
+  /** Words for the line under the figure when the range covers every step, such as "All time: …". */
+  whole?: (from: string, to: string) => string
 }) {
   const { t } = useTranslation()
   const [ref, width] = useWidth()
   const hint = useId()
-  const drag = useRef<{ part: 'start' | 'end' | 'window'; offset: number } | null>(null)
+  // What a press is doing: resizing an edge, moving the window, or drawing a new range
+  // from an anchor; ``moved`` tells a click from a drag.
+  const drag = useRef<{ part: 'start' | 'end' | 'window' | 'draw'; at: number; moved: boolean } | null>(null)
   const series = data?.series[0]
   const ready = !!data && !!series && data.buckets.length > 0
   const shown: FigureStatus = status === 'ready' && !ready ? 'empty' : status
@@ -90,26 +101,43 @@ export function SelectionWindow({
       const px = local(event)
       const at = bucketAt(px)
       const near = (x: number) => Math.abs(px - x) <= HANDLE
-      const part = near(edge(start)) ? 'start' : near(edge(end + 1)) ? 'end' : at >= start && at <= end ? 'window' : null
-      if (part) {
-        drag.current = { part, offset: at - start }
-      } else {
-        // Outside the window: centre the window there and carry on dragging it.
-        const half = Math.floor((end - start) / 2)
-        set(shiftRange([start, end], at - half - start, last))
-        drag.current = { part: 'window', offset: half }
+      if (event.shiftKey) {
+        // Shift-click extends the range to the day pressed, from whichever end is nearer.
+        const part = at < start ? 'start' : 'end'
+        set(part === 'start' ? [at, end] : [start, Math.max(at, start)])
+        drag.current = { part, at, moved: true }
+      } else if (near(edge(start))) drag.current = { part: 'start', at, moved: true }
+      else if (near(edge(end + 1))) drag.current = { part: 'end', at, moved: true }
+      // A window over every bucket cannot move, so a press inside it draws a new range.
+      else if (at >= start && at <= end && (start > 0 || end < last)) drag.current = { part: 'window', at, moved: false }
+      else {
+        // Outside the window: a new range starts here, a single day until the pointer moves.
+        set([at, at])
+        drag.current = { part: 'draw', at, moved: false }
       }
       event.currentTarget.setPointerCapture?.(event.pointerId)
     }
     const move = (event: PointerEvent<HTMLDivElement>) => {
-      if (!drag.current) return
+      const press = drag.current
+      if (!press) return
       const at = bucketAt(local(event))
-      if (drag.current.part === 'start') set([Math.min(at, end), end])
-      else if (drag.current.part === 'end') set([start, Math.max(at, start)])
-      else set(shiftRange([start, end], at - drag.current.offset - start, last))
+      if (at !== press.at) press.moved = true
+      if (press.part === 'start') set([Math.min(at, end), end])
+      else if (press.part === 'end') set([start, Math.max(at, start)])
+      else if (press.part === 'draw') set([Math.min(press.at, at), Math.max(press.at, at)])
+      else if (press.moved) {
+        set(shiftRange([start, end], at - press.at, last))
+        press.at = at
+      }
     }
-    const up = () => {
+    const up = (event: PointerEvent<HTMLDivElement>) => {
+      const press = drag.current
       drag.current = null
+      // A click inside the window, with no drag, picks that one day.
+      if (press?.part === 'window' && !press.moved) {
+        const at = bucketAt(local(event))
+        set([at, at])
+      }
     }
     const thumb = (part: 'start' | 'end') => {
       const at = part === 'start' ? start : end
@@ -121,7 +149,7 @@ export function SelectionWindow({
           aria-valuemin={0}
           aria-valuenow={at}
           aria-valuetext={when(at)}
-          className="absolute top-0 flex h-full w-[16px] -translate-x-1/2 cursor-ew-resize items-center justify-center rounded-compact outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-planning-thread"
+          className="absolute top-0 flex h-full w-[16px] -translate-x-1/2 pointer-coarse:w-touch cursor-ew-resize items-center justify-center rounded-compact outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-planning-thread"
           role="slider"
           style={{ left: part === 'start' ? edge(start) : edge(end + 1) }}
           tabIndex={0}
@@ -134,7 +162,7 @@ export function SelectionWindow({
 
     plot = (
       <div ref={ref} className="min-w-0">
-        <div className="relative touch-none select-none" style={{ height }} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+        <div className="relative touch-none select-none" style={{ height }} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => (drag.current = null)}>
           <svg aria-hidden="true" className="block" height={height} width={width}>
             <rect className="fill-planning-thread-soft" height={bottom - TOP} width={edge(end + 1) - edge(start)} x={edge(start)} y={TOP} />
             <line className="stroke-strong-rule" strokeWidth={HAIRLINE} x1={left} x2={right} y1={crisp(bottom)} y2={crisp(bottom)} />
@@ -176,7 +204,7 @@ export function SelectionWindow({
           {t('charts.selection.keys')}
         </span>
         <p aria-live="polite" className="mt-xs text-metadata text-secondary-ink" data-figure-data="">
-          {t('charts.selection.value', { from: when(start), to: when(end) })}
+          {whole && start === 0 && end === last ? whole(when(start), when(end)) : t('charts.selection.value', { from: when(start), to: when(end) })}
         </p>
       </div>
     )
@@ -186,6 +214,8 @@ export function SelectionWindow({
   return (
     <Figure
       caption={caption}
+      emptyBody={emptyBody}
+      emptyTitle={emptyTitle}
       height={height + 24}
       status={shown}
       table={

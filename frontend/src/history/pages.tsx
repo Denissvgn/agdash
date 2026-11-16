@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router-dom'
 import { getJson } from '../api/client'
 import type { Page, SessionHit, SessionSummary } from '../api/types'
 import { FilterBar } from './FilterBar'
+import { Overview } from './Overview'
 import { apiParams, isFiltered } from './filters'
 import { useAddressFilters, useFacets } from './hooks'
 import { PageHeader } from './PageHeader'
@@ -37,6 +38,7 @@ export function SessionsPage() {
     <article aria-labelledby="page-title" className="flex flex-col gap-page-gap">
       <PageHeader purposeKey={`${base}.purpose`} titleKey={`${base}.title`} />
       <FilterBar facets={facets.data} filters={filters} onChange={setFilters} />
+      <Overview filters={filters} onChange={setFilters} />
       {sessions.isPending ? (
         <LoadingRows label={t('history.list.loading')} />
       ) : sessions.isError ? (

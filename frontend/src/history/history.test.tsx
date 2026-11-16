@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../App'
 import { unnamedControls } from '../test/controls'
 import { newQueryClient } from '../api/queryClient'
@@ -45,6 +45,13 @@ const FACETS: Facets = {
   last_started_at: '2026-11-10T09:00:00Z',
 }
 
+// Sessions started per day, 1 to 10 November 2026: synthetic counts.
+const STARTED = {
+  time_zone: 'UTC',
+  days: [3, 0, 1, 4, 2, 0, 0, 5, 1, 2].map((sessions, i) => ({ day: `2026-11-${String(i + 1).padStart(2, '0')}`, sessions })),
+  undated: 0,
+}
+
 type Handler = (url: URL) => { status?: number; body?: unknown } | 'offline'
 
 function serve(handler: Handler) {
@@ -54,7 +61,12 @@ function serve(handler: Handler) {
     vi.fn(async (input: string) => {
       const url = new URL(input, 'http://127.0.0.1:8765')
       calls.push(url)
-      const answer = url.pathname === '/api/sessions/facets' ? { body: FACETS } : handler(url)
+      const answer =
+        url.pathname === '/api/sessions/facets'
+          ? { body: FACETS }
+          : url.pathname === '/api/analytics/started'
+            ? { body: STARTED }
+            : handler(url)
       if (answer === 'offline') throw new TypeError('network down')
       return new Response(JSON.stringify(answer.body ?? {}), { status: answer.status ?? 200 })
     }),
@@ -270,4 +282,83 @@ test('a session with no recorded activity says so', async () => {
   serve(() => ({ body: page([session(9, { last_activity_at: null, started_at: null })]) }))
   open('#/history')
   expect(await screen.findByText('No activity recorded')).toBeInTheDocument()
+})
+
+describe('the overview of sessions started per day', () => {
+  // Ten days of synthetic starts, 1 to 10 November; "today" is the last of them.
+  const setup = async (hash = '#/history') => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 10, 12))
+    const calls = serve(() => ({ body: page([session(1)]) }))
+    open(hash)
+    const title = await screen.findByRole('heading', { name: 'Sessions started per day' })
+    const figure = title.closest('figure') as HTMLElement
+    await waitFor(() => expect(within(figure).getAllByRole('slider')).toHaveLength(2))
+    const [start, end] = within(figure).getAllByRole('slider')
+    const track = figure.querySelector<HTMLElement>('.touch-none')!
+    const box = track.getBoundingClientRect()
+    // The edges sit at the start of the first picked day and the end of the last.
+    const [first, last] = [Number(start.getAttribute('aria-valuenow')), Number(end.getAttribute('aria-valuenow'))]
+    const slot = (Number.parseFloat(end.style.left) - Number.parseFloat(start.style.left)) / (last + 1 - first)
+    const left = Number.parseFloat(start.style.left) - first * slot
+    // The middle of the day ``d`` of November, in the page's coordinates.
+    const day = (d: number) => box.left + left + slot * (d - 1 + 0.5)
+    const sent = () => calls.filter((url) => url.pathname === '/api/sessions').at(-1)!
+    return { figure, track, day, sent, start, end }
+  }
+  afterEach(() => vi.useRealTimers())
+
+  test('a dragged range sets Started between in the address, the dates and the list', async () => {
+    const { track, day, sent } = await setup()
+    await act(async () => {
+      fireEvent.pointerDown(track, { clientX: day(3), pointerId: 1 })
+      fireEvent.pointerMove(track, { clientX: day(5), pointerId: 1 })
+      fireEvent.pointerUp(track, { clientX: day(5), pointerId: 1 })
+    })
+    expect([address().get('from'), address().get('to')]).toEqual(['2026-11-03', '2026-11-05'])
+    expect(screen.getByLabelText('Started on or after')).toHaveValue('2026-11-03')
+    expect(screen.getByLabelText('Started on or before')).toHaveValue('2026-11-05')
+    await waitFor(() => {
+      expect(sent().searchParams.get('started_from')).toBe(new Date(2026, 10, 3).toISOString())
+      expect(sent().searchParams.get('started_before')).toBe(new Date(2026, 10, 6).toISOString())
+    })
+  })
+
+  test('a click picks one day, and shift-click extends it', async () => {
+    const { track, day } = await setup('#/history?from=2026-11-02&to=2026-11-03')
+    await act(async () => {
+      fireEvent.pointerDown(track, { clientX: day(7), pointerId: 1 })
+      fireEvent.pointerUp(track, { clientX: day(7), pointerId: 1 })
+    })
+    expect([address().get('from'), address().get('to')]).toEqual(['2026-11-07', '2026-11-07'])
+    await act(async () => {
+      fireEvent.pointerDown(track, { clientX: day(9), pointerId: 1, shiftKey: true })
+      fireEvent.pointerUp(track, { clientX: day(9), pointerId: 1, shiftKey: true })
+    })
+    expect([address().get('from'), address().get('to')]).toEqual(['2026-11-07', '2026-11-09'])
+  })
+
+  test('the keyboard moves an edge, or the whole range with Shift, and the list follows', async () => {
+    const { start, end, sent } = await setup('#/history?from=2026-11-02&to=2026-11-04')
+    expect(start).toHaveAttribute('aria-valuetext', 'Nov 2')
+    await act(async () => fireEvent.keyDown(end, { key: 'ArrowRight' }))
+    expect(address().get('to')).toBe('2026-11-05')
+    await act(async () => fireEvent.keyDown(start, { key: 'ArrowRight', shiftKey: true }))
+    expect([address().get('from'), address().get('to')]).toEqual(['2026-11-03', '2026-11-06'])
+    await waitFor(() => expect(sent().searchParams.get('started_from')).toBe(new Date(2026, 10, 3).toISOString()))
+    // Every day picked is no date filter at all.
+    await act(async () => fireEvent.keyDown(start, { key: 'Home' }))
+    await act(async () => fireEvent.keyDown(end, { key: 'End' }))
+    expect(address().has('from') || address().has('to')).toBe(false)
+  })
+
+  test('Clear filters clears the picked range and the dates together', async () => {
+    const { start, end } = await setup('#/history?from=2026-11-03&to=2026-11-05')
+    expect([start.getAttribute('aria-valuenow'), end.getAttribute('aria-valuenow')]).toEqual(['2', '4'])
+    await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Clear filters' })[0]))
+    expect(address().toString()).toBe('')
+    expect(screen.getByLabelText('Started on or after')).toHaveValue('')
+    const [cleared, through] = screen.getAllByRole('slider')
+    expect([cleared.getAttribute('aria-valuenow'), through.getAttribute('aria-valuenow')]).toEqual(['0', '9'])
+  })
 })

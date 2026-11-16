@@ -209,6 +209,15 @@
       "hits_one": "{{count}} match",
       "hits_other": "{{count}} matches",
       "failed": "The search could not be completed."
+    },
+    "overview": {
+      "title": "Sessions started per day",
+      "caption": "Drag, click or shift-click days to pick a range; the dates above and the list follow.",
+      "series": "Sessions started",
+      "day": "Day",
+      "emptyTitle": "No sessions started yet",
+      "emptyBody": "Once a harness records a session, its day appears here.",
+      "whole": "All time: {{from}} to {{to}}"
     }
   },
   "analytics": {
