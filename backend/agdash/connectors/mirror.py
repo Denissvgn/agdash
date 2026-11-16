@@ -23,7 +23,8 @@ claims and assignments, which name them.
 
 Only GET requests leave this module (the client refuses anything else). A
 server that cannot be reached is retried with exponential backoff. After each
-pass, sessions are linked to runs and tasks (``agdash.connectors.links``).
+pass, sessions are linked to runs and tasks (``agdash.connectors.links``),
+then mapped to actors and projects (``agdash.connectors.resolver``).
 """
 
 import logging
@@ -41,6 +42,7 @@ from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import sessionmaker
 
 from agdash.connectors.links import Linker
+from agdash.connectors.resolver import Resolver
 from agdash.connectors.workchord import KIND, Session, WorkChordClient, open_client
 from agdash.db.models import (
     Connection,
@@ -64,6 +66,7 @@ TICK_SECONDS = 5.0
 RUNS_PER_PASS = 50
 RUN_LIST_LIMIT = 200
 PERSON_RUN_READS = "person-run-reads-v1"
+TOPOLOGY_READ = "team-topology-read-v1"
 ASSIGNMENT_LIMIT = 500
 USAGE_FIELDS = (
     "source",
@@ -169,6 +172,18 @@ class _Harness(_In):
     session_id: str
 
 
+class _MemberIn(_In):
+    actor_id: int | None = None
+    actor_name: str
+    display_name: str | None = None
+    role: str | None = None
+    runtime_ref: str
+
+
+class TopologyIn(_In):
+    members: list[_MemberIn] = []
+
+
 class RunRowIn(_In):
     """A row of the run list people may read: no metadata, but the declared harness."""
 
@@ -225,6 +240,7 @@ ASSIGNMENTS = TypeAdapter(list[AssignmentIn])
 ACTORS = TypeAdapter(list[ActorIn])
 RUN = TypeAdapter(RunIn)
 RUN_ROWS = TypeAdapter(list[RunRowIn])
+TOPOLOGY = TypeAdapter(TopologyIn)
 
 
 def _flatten(tasks: Iterable[TaskIn]) -> Iterable[TaskIn]:
@@ -424,6 +440,42 @@ class _Syncer:
         return Outcome(MirrorState.OK, detail, rows=len(rows))
 
     def actors(self) -> Outcome:
+        outcome = self._actors()
+        if TOPOLOGY_READ not in self.seen.features:
+            return outcome
+        try:
+            note = self._runtime_refs()
+        except Unparseable as error:
+            note = f"no runtime references: {error}"
+        except httpx.HTTPError:
+            note = "no runtime references: the team could not be read"
+        outcome.detail = "; ".join(part for part in (outcome.detail, note) if part)
+        return outcome
+
+    def _runtime_refs(self) -> str:
+        """Each team member's runtime reference, from the team topology."""
+        topology = _parse(TOPOLOGY, self.client.team_topology(), "team topology")
+        found = 0
+        for member in topology.members:
+            if member.actor_id is None:
+                continue
+            row = _upsert(
+                self.db,
+                WcActor,
+                self.cid,
+                member.actor_id,
+                runtime_ref=redact_text(member.runtime_ref)[:1024],
+            )
+            if row.name is None:
+                row.name = member.actor_name[:100]
+                row.display_name = member.display_name
+                row.fetched_at = self.seen.now
+            if member.role and not row.role:
+                row.role = member.role[:30]
+            found += 1
+        return f"{found} runtime references"
+
+    def _actors(self) -> Outcome:
         roster_problem = None
         if self.client.can_read_runs:
             try:
@@ -705,6 +757,7 @@ class MirrorSync:
         self._next: dict[int, float] = {}
         self._failures: dict[int, int] = {}
         self._linker = Linker()
+        self._resolver = Resolver()
 
     def delay(self, connection_id: int) -> float:
         failures = self._failures.get(connection_id, 0)
@@ -749,10 +802,13 @@ class MirrorSync:
         return reports
 
     def link(self, db: DbSession, ids: list[int]) -> None:
-        """Link sessions to runs and tasks from local evidence and the fresh copy."""
+        """Link sessions to runs and tasks, then to actors and projects, from local evidence,
+        rules, pins and the fresh copy."""
         try:
             connections = [db.get(Connection, connection_id) for connection_id in ids]
-            self._linker.run(db, [c for c in connections if c is not None])
+            connections = [c for c in connections if c is not None]
+            self._linker.run(db, connections)
+            self._resolver.run(db, connections)
             db.commit()
         except Exception:
             db.rollback()

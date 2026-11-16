@@ -150,6 +150,10 @@ class WorkChordClient:
         or local reader see the assignments of the tasks they can see."""
         return self._get("/agent/assignments", runs=self.can_read_runs, **filters)
 
+    def team_topology(self) -> Any:
+        """The agent team, with each member's runtime reference, on servers that offer it."""
+        return self._get("/agent/team-setup/topology")
+
     def run_list(self, **filters: Any) -> Any:
         """Runs, newest first, on servers that let a person read them without an agent key."""
         return self._get("/agent/runs", **filters)

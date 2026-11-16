@@ -164,6 +164,8 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/sessions/{session_id}/overview",
         "/api/sessions/{session_id}/states",
         "/api/live/activity",
+        "/api/sessions/{session_id}/mapping",
+        "/api/mapping/unmapped",
     }
     assert all(set(operations) == {"get"} for operations in document["paths"].values())
     for schema in (

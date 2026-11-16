@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
@@ -172,12 +173,27 @@ def _prompt(text: str, facts: SessionFacts, when: datetime | None, extra: dict |
     return ParsedEvent(EventKind.USER_PROMPT, payload, when)
 
 
+def repository_address(url: str) -> str | None:
+    """A remote's address with any user name or password left out, then redacted."""
+    url = url.strip()
+    parts = urlsplit(url)
+    if parts.scheme and parts.netloc:
+        host = parts.netloc.rpartition("@")[2]
+        url = urlunsplit((parts.scheme, host, parts.path, "", ""))
+    return redact_text(url)[:1000] or None
+
+
 def _session_meta(payload: dict, session_id: str | None, parsed: ParsedRecord) -> None:
     if session_id is not None and payload.get("id") != session_id:
         return  # a copy of the parent's header inside a subagent rollout
     facts = parsed.facts
     if isinstance(payload.get("cwd"), str):
         facts.cwd = payload["cwd"]
+    git = payload.get("git") if isinstance(payload.get("git"), dict) else {}
+    if isinstance(git.get("branch"), str) and git["branch"]:
+        facts.branch = redact_text(git["branch"])[:255]
+    if isinstance(git.get("repository_url"), str) and git["repository_url"]:
+        facts.repo = repository_address(git["repository_url"])
     facts.surface = _surface(payload)
     provider = payload.get("model_provider")
     if isinstance(provider, str) and provider and provider.lower() != OPENAI_PROVIDER:

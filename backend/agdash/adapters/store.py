@@ -38,6 +38,7 @@ class SessionFacts:
 
     cwd: str | None = None
     branch: str | None = None
+    repo: str | None = None  # the repository's remote address, without credentials
     surface: Surface | None = None
     permission_mode: str | None = None
     effort: str | None = None
@@ -85,6 +86,8 @@ def apply_facts(session: Session, facts: SessionFacts, title_ranks: dict[int, in
         session.cwd = facts.cwd
     if facts.branch:
         session.branch = facts.branch
+    if facts.repo:
+        session.repo = facts.repo
     if facts.surface:
         session.surface = facts.surface
     if facts.permission_mode:
