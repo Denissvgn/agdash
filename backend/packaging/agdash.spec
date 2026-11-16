@@ -49,4 +49,9 @@ exe = EXE(
     console=True,
     strip=False,
     upx=False,
+    # On macOS, with a Developer ID identity, PyInstaller signs every library it packs
+    # inside the binary, so the ones it unpacks at run time pass library validation
+    # under the hardened runtime. Without one the binary is signed ad hoc.
+    codesign_identity=os.environ.get("AGDASH_CODESIGN_IDENTITY") or None,
+    entitlements_file=os.environ.get("AGDASH_SERVICE_ENTITLEMENTS") or None,
 )

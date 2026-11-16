@@ -120,6 +120,39 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
 
+  macos-package:
+    name: macOS package (unsigned)
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Create the environments
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e "backend[freeze]"
+          (cd frontend && npm ci)
+      # Ad hoc signed: this checks the bundle builds and holds the service, not that it
+      # passes Gatekeeper, which needs the Developer ID identity and notarisation.
+      - name: Build the app and disk image
+        run: desktop/scripts/package-macos.sh
+      - name: Check the bundle
+        run: |
+          APP=desktop/target/package/release/bundle/macos/agdash.app
+          test -x "$APP/Contents/MacOS/agdash" && test -x "$APP/Contents/MacOS/agdash-app"
+          test "$(plutil -extract LSMinimumSystemVersion raw "$APP/Contents/Info.plist")" = 14.0
+          codesign --verify --deep --strict "$APP"
+          ls desktop/target/package/release/bundle/dmg/agdash-*.dmg
+
   freeze:
     name: Service binary (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
