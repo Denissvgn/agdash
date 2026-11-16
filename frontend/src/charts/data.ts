@@ -6,7 +6,15 @@
 export type Reported = number | null
 
 /** One named quantity, such as a harness's sessions or a tool's calls. */
-export type Category = { id: string; name: string; value: Reported }
+export type Category = {
+  id: string
+  name: string
+  value: Reported
+  /** A part of the value drawn apart at the bar's end, such as a tool's failed calls; null when not known. */
+  part?: Reported
+  /** Words for the tooltip and the mark after the value, such as "3 errors of 10 matched". */
+  detail?: string
+}
 
 /** How many of the sessions in a bucket reported its value, out of how many there were. */
 export type Coverage = { count: number; total: number }
@@ -48,7 +56,9 @@ export function rankCategories(categories: Category[], max: number, otherName: s
   const ranked = [...categories].sort((a, b) => (b.value ?? -1) - (a.value ?? -1))
   if (ranked.length <= max) return ranked
   const kept = ranked.slice(0, max - 1)
-  return [...kept, { id: OTHER, name: otherName, value: sum(ranked.slice(max - 1).map((item) => item.value)) }]
+  const rest = ranked.slice(max - 1)
+  const parts = rest.some((item) => item.part !== undefined) ? { part: sum(rest.map((item) => item.part ?? null)) } : {}
+  return [...kept, { id: OTHER, name: otherName, value: sum(rest.map((item) => item.value)), ...parts }]
 }
 
 /** At most ``max`` series; past it the rest fold into one Other series, bucket for bucket. */

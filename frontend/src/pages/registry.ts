@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react'
+import { ActivityPage } from '../analytics/ActivityPage'
 import { ToolsPage, UsagePage } from '../analytics/pages'
 import { SearchPage, SessionsPage } from '../history/pages'
 import { LiveBoardPage } from '../live/LiveBoard'
@@ -16,6 +17,7 @@ export const PAGES: Record<string, ComponentType> = {
   'history:search': SearchPage,
   'analytics:usage': UsagePage,
   'analytics:tools': ToolsPage,
+  'analytics:activity': ActivityPage,
   'projects:board': ProjectBoardPage,
   'projects:unmapped': UnmappedPage,
   'settings:workchord': WorkChordPage,

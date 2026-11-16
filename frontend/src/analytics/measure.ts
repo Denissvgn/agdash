@@ -1,6 +1,7 @@
 import type { Coverage, Reported, TimeData } from '../charts'
 import type { Facets, SeriesBucket, SeriesPoint, SeriesReport, UsageRow } from '../api/types'
-import { datesOf, dayOf, type Filters } from '../history/filters'
+import type { Filters } from '../history/filters'
+import { padToRange, rangeDays } from './buckets'
 import { formatCost, formatCount } from './format'
 
 /** What the usage figure and the ledger's share bars measure; the choice lives in the address. */
@@ -42,25 +43,12 @@ export const STEPS: Record<SeriesBucket, number> = { hour: 3_600_000, day: DAY, 
 
 /**
  * Hours for a range of two days or less, days up to about three months, weeks
- * beyond. A range with no start runs from the first session on record, so it
- * waits for the facets that say when that was (null until they arrive).
+ * beyond; null until the facets say when the first session was, if it matters.
  */
 export function bucketFor(filters: Filters, facets: Facets | undefined, today = new Date()): SeriesBucket | null {
-  const dates = datesOf(filters, today)
-  if (!dates.from && !facets) return null
-  const firstOnRecord = facets?.first_started_at ? dayOf(new Date(facets.first_started_at)) : null
-  const first = dates.from || firstOnRecord
-  if (!first) return 'day'
-  const last = dates.to || dayOf(today)
-  const days = Math.round((Date.parse(last) - Date.parse(first)) / DAY) + 1
+  const days = rangeDays(filters, facets, today)
+  if (days === null) return null
   return days <= 2 ? 'hour' : days <= 92 ? 'day' : 'week'
-}
-
-/** The bucket before or after ``at``, by the local calendar. */
-function step(at: Date, bucket: SeriesBucket, by: 1 | -1): Date {
-  if (bucket === 'hour') return new Date(at.getTime() + by * 3_600_000)
-  const days = bucket === 'week' ? 7 : 1
-  return new Date(at.getFullYear(), at.getMonth(), at.getDate() + by * days, at.getHours(), at.getMinutes())
 }
 
 /**
@@ -82,22 +70,7 @@ export function figureData(
     return (measureOf(b.total, measure) ?? -1) - (measureOf(a.total, measure) ?? -1)
   })
   const reported = report.buckets.map((bucket) => new Date(bucket.start))
-  const before: Date[] = []
-  const after: Date[] = []
-  if (range && reported.length) {
-    const [fy, fm, fd] = (range.from || dayOf(reported[0])).split('-').map(Number)
-    const [ty, tm, td] = (range.to || dayOf(now)).split('-').map(Number)
-    // The range's first bucket: its first day, or for weeks the Monday on or before it.
-    const monday = report.bucket === 'week' ? (new Date(fy, fm - 1, fd).getDay() + 6) % 7 : 0
-    const first = new Date(fy, fm - 1, fd - monday)
-    const end = new Date(Math.min(new Date(ty, tm - 1, td + 1).getTime(), Math.max(now.getTime(), reported[reported.length - 1].getTime() + 1)))
-    for (let at = step(reported[0], report.bucket, -1); at >= first; at = step(at, report.bucket, -1)) {
-      before.unshift(at)
-    }
-    for (let at = step(reported[reported.length - 1], report.bucket, 1); at < end; at = step(at, report.bucket, 1)) {
-      after.push(at)
-    }
-  }
+  const { before, after } = range ? padToRange(reported, report.bucket, range, now) : { before: [], after: [] }
   const pad = <T,>(values: T[], fill: T): T[] => [...before.map(() => fill), ...values, ...after.map(() => fill)]
   return {
     buckets: [...before, ...reported, ...after],

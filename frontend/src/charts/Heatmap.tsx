@@ -4,7 +4,7 @@ import type { Reported } from './data'
 import { Figure, type FigureStatus } from './Figure'
 import { formatCompact, formatValue as formatWhole } from './format'
 import { GAP, HAIRLINE, labelWidth, svgId } from './geometry'
-import { HEAT_STEPS, heatBounds, heatStep, niceTop } from './heat'
+import { heatScale, heatStep } from './heat'
 import { NotReportedBand } from './Hatch'
 import { FILL, type Ink } from './ink'
 import { Plot, type Mark } from './Plot'
@@ -34,6 +34,8 @@ export function Heatmap({
   onRetry,
   rowHeader,
   formatValue = formatWhole,
+  emptyTitle,
+  emptyBody,
 }: {
   title: string
   caption?: string
@@ -42,6 +44,8 @@ export function Heatmap({
   onRetry?: () => void
   rowHeader: string
   formatValue?: (value: number) => string
+  emptyTitle?: string
+  emptyBody?: string
 }) {
   const { t } = useTranslation()
   const [ref, width] = useWidth()
@@ -51,8 +55,7 @@ export function Heatmap({
   const left = ready ? Math.min(Math.max(...data.rows.map((row) => labelWidth(row.name)), 40), Math.max(40, Math.floor(width * 0.3))) : 40
   const cell = ready ? Math.max(MIN_CELL, Math.min(MAX_CELL, (width - left) / data.columns.length)) : MAX_CELL
   const height = TOP + (ready ? data.rows.length : 7) * cell
-  // The top of the scale, rounded up so each of the six bins has a readable bound.
-  const max = ready ? niceTop(Math.max(0, ...data.values.flat().map((value) => value ?? 0))) : 0
+  const scaleOf = ready ? heatScale(data.values.flat().filter((value): value is number => value !== null)) : null
 
   let plot = null
   let scale = null
@@ -118,7 +121,7 @@ export function Heatmap({
                       {value === null ? (
                         <NotReportedBand height={cell - GAP} labelled={false} pattern={hatch} width={cell - GAP} x={x} y={y} />
                       ) : (
-                        <rect className={FILL[heatStep(value, max)]} height={cell - GAP} rx={2} width={cell - GAP} x={x} y={y} />
+                        <rect className={FILL[heatStep(value, scaleOf!)]} height={cell - GAP} rx={2} width={cell - GAP} x={x} y={y} />
                       )}
                       {active === i ? (
                         <rect
@@ -141,11 +144,11 @@ export function Heatmap({
         </Plot>
       </div>
     )
-    const bounds = heatBounds(max)
+    const bounds = scaleOf!.bounds
     const unreported = data.values.flat().some((value) => value === null)
     scale = (
       <ul aria-label={t('charts.heatmap.scale')} className="flex flex-wrap items-end gap-x-[2px] gap-y-xs text-counter text-secondary-ink">
-        {HEAT_STEPS.map((step, i) => (
+        {scaleOf!.steps.map((step, i) => (
           <li key={step} className="flex w-[40px] flex-col gap-[2px]">
             <span aria-hidden="true" className={`block h-[10px] rounded-[2px] ${BG[step]}`} />
             <span className="tabular-nums" data-figure-data="">
@@ -173,6 +176,8 @@ export function Heatmap({
   return (
     <Figure
       caption={caption}
+      emptyBody={emptyBody}
+      emptyTitle={emptyTitle}
       height={height}
       status={shown}
       table={

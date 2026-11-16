@@ -79,6 +79,11 @@
           "label": "Tools",
           "title": "Tool use",
           "purpose": "Which tools agents call, how often, and how often a call failed."
+        },
+        "activity": {
+          "label": "Activity",
+          "title": "Activity",
+          "purpose": "When sessions are active: by hour of the week, and how many run at once."
         }
       }
     },
@@ -253,7 +258,14 @@
       "noteErrors": "Errors count only results agdash could match to their call; a dash means none could be matched.",
       "noneTitle": "No tool calls recorded",
       "noneBody": "No session in this selection called a tool, or none has been recorded yet.",
-      "noteTruncated": "Only the {{count}} most used tools are listed; the totals count every call."
+      "noteTruncated": "Only the {{count}} most used tools are listed; the totals count every call.",
+      "figureTitle": "Calls by tool",
+      "figureCaption": "The most used tools first; the hatched end of a bar is the calls that failed. The table below lists the same calls.",
+      "errorLabel_one": "{{count}} error",
+      "errorLabel_other": "{{count}} errors",
+      "errorDetail_one": "{{count}} error of {{matched}} matched",
+      "errorDetail_other": "{{count}} errors of {{matched}} matched",
+      "errorUnknown": "errors not known, no result matched"
     },
     "measure": "Measure",
     "measures": {
@@ -286,6 +298,27 @@
       "undated_other": "{{count}} usage reports have no time, so the table counts them and the figure cannot place them.",
       "unsplitTitle": "Sessions are not split by model",
       "unsplitBody": "A session can use several models, so sessions are counted by harness or folder. Choose Tokens or Cost to follow models over time."
+    },
+    "activity": {
+      "weekTitle": "Activity by hour of the week",
+      "weekCaption": "Each cell counts the hours in which a session recorded at least one event, on your clock ({{zone}}). It counts what the harnesses wrote down, not whether anyone was busy.",
+      "weekday": "Weekday",
+      "parallelTitle": "Sessions at once, per {{step}}",
+      "parallelCaption": "How many sessions recorded at least one event in each {{step}}, in all and by harness, on your clock ({{zone}}).",
+      "steps": {
+        "quarter-hour": "quarter hour",
+        "hour": "hour",
+        "day": "day"
+      },
+      "per": {
+        "quarter-hour": "Quarter hour",
+        "hour": "Hour",
+        "day": "Day"
+      },
+      "total": "All sessions",
+      "emptyTitle": "No activity recorded",
+      "emptyBody": "No session in this selection recorded an event with a time.",
+      "dailyTitle": "Sessions active each day"
     }
   },
   "live": {

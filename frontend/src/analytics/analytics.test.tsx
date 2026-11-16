@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../App'
 import { unnamedControls } from '../test/controls'
 import { newQueryClient } from '../api/queryClient'
-import type { Facets, SeriesPoint, SeriesReport, ToolReport, UsageReport, UsageRow } from '../api/types'
+import type { ActivityReport, Facets, SeriesPoint, SeriesReport, ToolReport, UsageReport, UsageRow } from '../api/types'
 
 // Synthetic figures only.
 const FACETS: Facets = {
@@ -118,7 +118,28 @@ const SERIES: SeriesReport = {
   undated_usage: 0,
 }
 
-function serve(usage: (url: URL) => UsageReport = () => REPORT, series: (url: URL) => SeriesReport = () => SERIES) {
+// Two days of synthetic activity: Pi on Monday morning, Codex on Tuesday afternoon.
+const ACTIVITY: ActivityReport = {
+  time_zone: 'UTC',
+  bucket: 'hour',
+  hour_of_week: Array.from({ length: 7 * 24 }, (_, i) => ({
+    weekday: Math.floor(i / 24),
+    hour: i % 24,
+    session_hours: i === 9 ? 2 : i === 10 ? 1 : i === 24 + 15 ? 3 : 0,
+  })),
+  buckets: [0, 1, 2].map((h) => ({ start: new Date(2026, 10, 2, 9 + h).toISOString(), end: new Date(2026, 10, 2, 10 + h).toISOString() })),
+  parallel: [
+    { key: 'pi', sessions: [2, 1, 0] },
+    { key: 'codex', sessions: [0, 0, 1] },
+  ],
+  total: { key: null, sessions: [2, 1, 1] },
+}
+
+function serve(
+  usage: (url: URL) => UsageReport = () => REPORT,
+  series: (url: URL) => SeriesReport = () => SERIES,
+  activity: ActivityReport = ACTIVITY,
+) {
   const calls: URL[] = []
   vi.stubGlobal(
     'fetch',
@@ -132,7 +153,9 @@ function serve(usage: (url: URL) => UsageReport = () => REPORT, series: (url: UR
             ? TOOLS
             : url.pathname === '/api/analytics/series'
               ? series(url)
-              : usage(url)
+              : url.pathname === '/api/analytics/activity'
+                ? activity
+                : usage(url)
       return new Response(JSON.stringify(body), { status: 200 })
     }),
   )
@@ -364,5 +387,71 @@ describe('usage over time', () => {
     serve()
     open('#/analytics?group=model&measure=sessions')
     expect(await screen.findByText('Sessions are not split by model')).toBeInTheDocument()
+  })
+})
+
+describe('tool use as a figure', () => {
+  test('ranks tools by calls, hatches the failed part with its count, and matches the table', async () => {
+    serve()
+    open('#/analytics/tools')
+    const title = await screen.findByRole('heading', { name: 'Calls by tool' })
+    const figure = title.closest('figure') as HTMLElement
+    const marks = [...figure.querySelectorAll('[role="img"]')]
+    expect(marks.map((mark) => mark.getAttribute('aria-label'))).toEqual([
+      'bash: 40, 3 errors of 10 matched',
+      'read_file: 7, errors not known, no result matched',
+    ])
+    expect(marks[0].getAttribute('data-part')).toBe('3')
+    expect(figure).toHaveTextContent('40 · 3 errors')
+    expect(within(figure).getByRole('list', { name: 'Legend' })).toHaveTextContent('CallsErrors')
+    // The table on the page is the figure's twin: same tools, same calls.
+    expect(figure.querySelector('details')).toBeNull()
+    const table = screen.getByRole('table', { name: 'Tool calls by tool' })
+    const rows = within(table).getAllByRole('row').slice(1, -1)
+    expect(rows.map((row) => [within(row).getByRole('rowheader').textContent, within(row).getAllByRole('cell')[0].textContent])).toEqual([
+      ['bash', '40'],
+      ['read_file', '7'],
+    ])
+  })
+})
+
+describe('activity', () => {
+  test('is a destination of its own, with its own title', async () => {
+    serve()
+    open('#/analytics/activity')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Activity' })).toBeInTheDocument()
+    expect(document.title).toBe('Activity · agdash')
+    const nav = screen.getByRole('navigation', { name: 'Analytics sections' })
+    expect(within(nav).getByRole('link', { name: 'Activity' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  test('shows the hour-of-week grid and sessions at once for the filters, in the reader\'s time zone', async () => {
+    const calls = serve()
+    open('#/analytics/activity?harness=pi&from=2026-11-02&to=2026-11-02')
+    const grid = (await screen.findByRole('heading', { name: 'Activity by hour of the week' })).closest('figure') as HTMLElement
+    await waitFor(() => expect(grid.querySelector('[role="group"]')).not.toBeNull())
+    const sent = calls.find((url) => url.pathname === '/api/analytics/activity')!
+    expect(sent.searchParams.get('time_zone')).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    expect(sent.searchParams.getAll('harness')).toEqual(['pi'])
+    expect(sent.searchParams.get('bucket')).toBe('quarter-hour')
+    expect(grid).toHaveTextContent(`on your clock (${Intl.DateTimeFormat().resolvedOptions().timeZone})`)
+    // The grid's twin: Monday 09:00 is 2, Tuesday 15:00 is 3.
+    const twin = within(grid).getByRole('table')
+    expect(within(within(twin).getByRole('row', { name: /^Mon/ })).getAllByRole('cell')[9]).toHaveTextContent('2')
+    expect(within(within(twin).getByRole('row', { name: /^Tue/ })).getAllByRole('cell')[15]).toHaveTextContent('3')
+
+    const parallel = screen.getByRole('heading', { name: 'Sessions at once, per quarter hour' }).closest('figure') as HTMLElement
+    const panels = [...parallel.querySelectorAll('text.text-label')].map((text) => text.textContent)
+    expect(panels).toEqual(['All sessions', 'Pi', 'Codex'])
+    const columns = within(within(parallel).getByRole('table')).getAllByRole('columnheader').map((cell) => cell.textContent)
+    expect(columns.slice(1)).toEqual(['All sessions', 'Pi', 'Codex'])
+  })
+
+  test('by the day it says sessions active each day, and one harness is not drawn twice', async () => {
+    serve(undefined, undefined, { ...ACTIVITY, bucket: 'day', parallel: [{ key: 'pi', sessions: [2, 1, 1] }] })
+    open('#/analytics/activity?harness=pi&range=30')
+    const figure = (await screen.findByRole('heading', { name: 'Sessions active each day' })).closest('figure') as HTMLElement
+    await waitFor(() => expect(figure.querySelector('[role="group"]')).not.toBeNull())
+    expect([...figure.querySelectorAll('text.text-label')].map((text) => text.textContent)).toEqual(['All sessions'])
   })
 })

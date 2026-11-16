@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { BREAK, compressedScale } from './compressed'
-import { heatBounds, heatStep, niceTop } from './heat'
+import { heatScale, heatStep, niceTop } from './heat'
 import { clampRange, shiftRange } from './range'
 import { CAP, stateBlock, STATE_FORMS, STRIP_STATES } from './states'
 import { TIER_DASH } from './tiers'
@@ -78,15 +78,19 @@ describe('the state strips', () => {
 })
 
 describe('the heatmap scale', () => {
-  test('gives a reported zero the lightest step and bins the rest in six', () => {
-    expect(heatStep(0, 120)).toBe('ink-1')
-    expect(heatStep(1, 120)).toBe('ink-2')
-    expect(heatStep(20, 120)).toBe('ink-2')
-    expect(heatStep(21, 120)).toBe('ink-3')
-    expect(heatStep(120, 120)).toBe('ink-7')
-    expect(heatBounds(120)).toEqual([0, 20, 40, 60, 80, 100, 120])
-    // The scale's top is rounded up so every bin bound is a whole, readable number.
+  test('gives a reported zero the lightest step and bins the rest in six, up to a rounded top', () => {
+    const scale = heatScale([0, 1, 20, 21, 113])
+    expect(scale.bounds).toEqual([0, 20, 40, 60, 80, 100, 120])
+    expect([0, 1, 20, 21, 113].map((value) => heatStep(value, scale))).toEqual(['ink-1', 'ink-2', 'ink-2', 'ink-3', 'ink-7'])
     expect([niceTop(113), niceTop(7), niceTop(0)]).toEqual([120, 12, 0])
+  })
+
+  test('gives small whole counts a step each, the largest the darkest', () => {
+    const one = heatScale([0, 1, 1])
+    expect(one.bounds).toEqual([0, 1])
+    expect(heatStep(1, one)).toBe('ink-7')
+    const three = heatScale([0, 1, 2, 3])
+    expect([0, 1, 2, 3].map((value) => heatStep(value, three))).toEqual(['ink-1', 'ink-5', 'ink-6', 'ink-7'])
   })
 })
 

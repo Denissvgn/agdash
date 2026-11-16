@@ -48,6 +48,7 @@ export const WORKSPACES: Workspace[] = [
     destinations: [
       { id: 'usage', path: '/analytics' },
       { id: 'tools', path: '/analytics/tools' },
+      { id: 'activity', path: '/analytics/activity' },
     ],
   },
   {

@@ -8,7 +8,7 @@ import { FilterBar } from '../history/FilterBar'
 import { apiParams, isFiltered } from '../history/filters'
 import { useAddressFilters, useFacets } from '../history/hooks'
 import { PageHeader } from '../history/PageHeader'
-import { ShareBar } from '../charts'
+import { BarChart, ShareBar } from '../charts'
 import { ErrorNotice, LoadingRows, Notice } from '../history/SessionList'
 import { formatCost, formatCount, splitDuration } from './format'
 import { byMeasure, MEASURES, rowValue, type Measure } from './measure'
@@ -331,6 +331,28 @@ export function ToolsPage() {
         <Notice body={t('analytics.tools.noneBody')} title={t('analytics.tools.noneTitle')} />
       ) : (
         <>
+          <BarChart
+            caption={t('analytics.tools.figureCaption')}
+            categories={data.rows.map((tool) => ({
+              id: tool.name,
+              name: tool.name,
+              value: tool.calls,
+              // Errors are known only for the calls whose results agdash could match.
+              part: tool.outcomes_known ? tool.errors : null,
+              detail: tool.outcomes_known
+                ? t('analytics.tools.errorDetail', { count: tool.errors, matched: tool.outcomes_known })
+                : t('analytics.tools.errorUnknown'),
+            }))}
+            part={{
+              valueName: t('analytics.tools.calls'),
+              name: t('analytics.tools.errors'),
+              label: (count) => t('analytics.tools.errorLabel', { count }),
+            }}
+            rowHeader={t('analytics.tools.tool')}
+            title={t('analytics.tools.figureTitle')}
+            twin={false}
+            valueHeader={t('analytics.tools.calls')}
+          />
           <TableBox captionId={captionId}>
             <table className="data w-full border-collapse text-body">
               <caption className="sr-only" id={captionId}>
