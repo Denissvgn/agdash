@@ -18,15 +18,24 @@ credential (`http_authority.py:22`, `routers/identity.py:138`).
   private verifier for a bearer session of that person. A connection lasts ten
   minutes, can be used once, and approval needs a signed-in human session
   (`native_session_service.py:25-28, 57, 107-131`). The session lasts as long as
-  any WorkChord session (eight hours by default) and is not renewed; when it
-  ends, pair again.
-- **trusted_local**: a request with no credential is let in as a local reader
-  that sees everything unfiltered (`http_authority.py:109-111`). There is no
-  signed-in person to approve a pairing, so agdash connects with no credential.
+  any WorkChord session (eight hours by default). agdash does not renew it; when
+  it ends, pair again. (On servers before `2d2dac00a` a bearer session could
+  renew itself without limit through `POST /api/auth/native-token`,
+  `routers/identity.py:326-333`.) From `2d2dac00a`, agdash can pair as a
+  read-only observer (`"access": "observe"`): that session lasts one day and
+  renews, rotating its token, until 30 days after pairing.
+- **trusted_local**: a request with no credential is let in as a local
+  collaborator that reads everything unfiltered and may also write what an
+  operator does not own (`http_authority.py:109-111`, `authority.py:54-55`);
+  agdash still sends only GET. Servers before `2d2dac00a` refuse to start a
+  pairing (`native_session_service.py:42-43`), so agdash connects with no
+  credential. From `2d2dac00a`, the server's own browser can approve a
+  read-only observer pairing, which names agdash and can be revoked.
 
-The paired session carries the person's full rights; WorkChord has no
-read-only token. agdash's client therefore refuses, in code, every method but
-GET and HEAD. Pairing alone may POST, and only to the start and exchange
+On servers before `2d2dac00a` the paired session carries the person's full
+rights, because WorkChord had no read-only token; from `2d2dac00a` an observer
+session is kept read-only by the server. Either way, agdash's client refuses,
+in code, every method but GET and HEAD. Pairing alone may POST, and only to the start and exchange
 endpoints.
 
 ## Two credentials, never in one request
@@ -64,14 +73,18 @@ trusted-local server; "agent" is an agent key with `planning:read`.
   agent key. Each row carries `task_id`, `actor_id`,
   `team_member_id`, `purpose`, `state` and the model binding; the project comes
   from the task (`schemas/agent.py:643-669`).
-- **Team topology** has no read endpoint of its own. It shows through
-  team-setup status and report, which only an operator or the topology's PM
-  agent may read (`services/agent_team_setup_service.py:2546-2591`), and
-  through the actor roster and model bindings above.
-- **Runtime references** (`runtime_ref`) are part of the team-setup input
-  (`schemas/agent_team_setup.py:191-209`) and no read endpoint returns them.
-  agdash learns which harness runs an actor from what it observes on this host
-  instead.
+- **Team topology**: from `814f3032d`, `GET /agent/team-setup/topology`
+  returns each member's actor, role, model binding keys and runtime reference
+  to people with a workspace role, local readers and observers of such a
+  person, and on the status rule to agent keys. Older servers show topology
+  only through team-setup status and report, which only an operator or the
+  topology's PM agent may read (`services/agent_team_setup_service.py:2546-2591`),
+  and through the actor roster and model bindings above.
+- **Runtime references** (`runtime_ref`) come from that topology read on
+  current servers. On older servers no reader-facing endpoint returns them
+  (status and report omit them; only the operator- or PM-only starting points
+  carry the applied manifest), so agdash learns which harness runs an actor
+  from what it observes on this host instead.
 - In managed mode, an agent key's rows are further limited to the projects an
   operator granted that agent (`routers/identity.py:252-285`).
 
@@ -103,3 +116,9 @@ synced on its own, and `agdash connect status ID` shows how its last sync went:
 - **error**: the server failed or could not be reached; the next sync retries.
 
 `agdash connect sync ID` runs one sync now.
+
+## What changed in WorkChord
+
+[WorkChord changes that agdash relies on](workchord-changes.md) records the
+eight changes made in WorkChord for agdash, with the code behind each gap and
+the first WorkChord version that has each change.
