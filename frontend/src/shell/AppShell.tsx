@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Outlet, useLocation } from 'react-router-dom'
+import { matchPath, Outlet, useLocation } from 'react-router-dom'
 import { ConductorBar } from './ConductorBar'
 import { Destinations } from './Destinations'
 import { NavDrawer } from './NavDrawer'
@@ -10,6 +10,8 @@ import { workspaceFor } from './navigation'
 export function AppShell() {
   const { t } = useTranslation()
   const location = useLocation()
+  // A session's page is a data-heavy workbench (its overview over its timeline): it may take 1440px.
+  const workbench = matchPath('/history/sessions/:sessionId', location.pathname) !== null
   const workspace = workspaceFor(location.pathname)
   const menuButton = useRef<HTMLButtonElement>(null)
   // The drawer belongs to the address it was opened at; navigating closes it.
@@ -38,7 +40,7 @@ export function AppShell() {
           </aside>
         ) : null}
         <main id="content" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">
-          <div className="mx-auto max-w-page py-lg pl-[max(theme(spacing.phone-x),env(safe-area-inset-left))] pr-[max(theme(spacing.phone-x),env(safe-area-inset-right))] roomy:pl-[max(theme(spacing.page-x),env(safe-area-inset-left))] roomy:pr-[max(theme(spacing.page-x),env(safe-area-inset-right))]">
+          <div className={`mx-auto ${workbench ? 'max-w-workbench' : 'max-w-page'} py-lg pl-[max(theme(spacing.phone-x),env(safe-area-inset-left))] pr-[max(theme(spacing.phone-x),env(safe-area-inset-right))] roomy:pl-[max(theme(spacing.page-x),env(safe-area-inset-left))] roomy:pr-[max(theme(spacing.page-x),env(safe-area-inset-right))]`}>
             <Outlet />
           </div>
         </main>

@@ -43,6 +43,66 @@ export interface SessionSummary {
   child_count: number
 }
 
+/** One session over time: activity per bucket, markers, subagents, and usage per turn. */
+export interface SessionOverview {
+  session_id: number
+  time_zone: string
+  bucket: string
+  buckets: { start: string; end: string }[]
+  activity: {
+    prompts: number
+    replies: number
+    thoughts: { full: number; summary: number; encrypted: number; absent: number; not_recorded: number }
+    tool_calls: number
+    tool_errors: number
+  }[]
+  undated_events: number
+  markers: {
+    kind: 'model_change' | 'compaction'
+    sequence: number
+    at: string | null
+    model: string | null
+    previous_model: string | null
+    effort: string | null
+    trigger: string | null
+    tokens_before: number | null
+    tokens_after: number | null
+  }[]
+  markers_omitted: number
+  subagents: {
+    session_id: number
+    harness: string
+    parent_basis: string | null
+    title: string | null
+    state: SessionState
+    start: string | null
+    end: string | null
+    ended: boolean
+  }[]
+  subagents_omitted: number
+  turns: {
+    index: number
+    prompt_sequence: number | null
+    started_at: string | null
+    messages: number
+    input_tokens: number | null
+    output_tokens: number | null
+    cache_read_tokens: number | null
+    cache_write_tokens: number | null
+    reasoning_tokens: number | null
+    reported_cost: number | null
+    reported_by: Record<string, number>
+  }[]
+}
+
+/** A session's changes of state, oldest first. */
+export interface StateHistory {
+  session_id: number
+  state: SessionState
+  changes: { state: SessionState; basis: string; previous: SessionState | null; changed_at: string }[]
+  earlier_omitted: number
+}
+
 /** The last 30 minutes of every live session: events per minute, and its states. */
 export interface LiveActivity {
   minutes: string[]

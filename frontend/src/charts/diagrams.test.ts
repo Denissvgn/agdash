@@ -31,6 +31,21 @@ describe('the compressed time axis', () => {
     expect(x(day(1, 12))).toBeCloseTo(618)
   })
 
+  test("turns a position back into a time, and a position in a break into the gap's end", () => {
+    const x = compressedScale(
+      [
+        [day(0, 9), day(0, 12)],
+        [day(1, 9), day(1, 12)],
+      ],
+      30 * 60_000,
+      [0, 618],
+    )
+    expect(x.invert(0)).toBe(day(0, 9))
+    expect(x.invert(150)).toBeCloseTo(Date.UTC(2026, 9, 5, 10, 30), -3)
+    expect(x.invert(x.gaps[0].x)).toBe(day(1, 9))
+    expect(x.invert(x(day(1, 11)))).toBeCloseTo(day(1, 11), -3)
+  })
+
   test('leaves gaps under the threshold in place, and orders every time', () => {
     const times: [number, number][] = [0, 1, 2, 3, 5, 8].map((h) => [day(0, 9 + h), day(0, 9 + h + 0.5)])
     const x = compressedScale(times, 4 * HOUR, [0, 400])

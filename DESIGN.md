@@ -233,7 +233,7 @@ Tabular numerals are applied to measured data and identifiers so they align in c
 
 ## Layout
 
-The shell is a column: a sticky 52px conductor bar (plus the top safe-area inset), then a row of a 220px sidebar and a fluid main column. The page column is centred and capped at 1240px, with 24px vertical padding and 32px horizontal gutters, reducing to 16px at 520px and below. Horizontal gutters never fall inside the safe-area insets. The conductor bar pads 24px horizontally on wide windows and 16px otherwise.
+The shell is a column: a sticky 52px conductor bar (plus the top safe-area inset), then a row of a 220px sidebar and a fluid main column. The page column is centred and capped at 1240px (a session's page, a data-heavy workbench, may reach the 1440px upstream allows), with 24px vertical padding and 32px horizontal gutters, reducing to 16px at 520px and below. Horizontal gutters never fall inside the safe-area insets. The conductor bar pads 24px horizontally on wide windows and 16px otherwise.
 
 Inside a page, sections stack on the 20px page gap; a title and its purpose line sit 4px apart. The sidebar pads 8px across and 24px down, and its destination list stays pinned below the bar as the page scrolls. Rows in the sidebar and drawer are separated by 2px.
 
@@ -308,6 +308,17 @@ The one dominant work object of the History pages: rows, never cards.
 ### Sessions overview
 
 Above the session list on History · Sessions, a selection window of the sessions started per day, for every current filter but the dates, on the reader's clock, from the first session's day to today. The window shows "Started between": dragging, clicking, shift-clicking or the edge sliders' keys set it, which writes the two dates into the address, so the date fields and the list follow; the date fields stay the authoritative control, and editing them moves the window. Picking every day clears the dates, and Clear filters clears both. A line under the figure names the range ("Selected: Oct 20 to Oct 31"), or "All time: …" when every day is in it, as the empty date fields mean. The plot is 120px tall; on coarse pointers each edge grip has a 44px hit area, and a press outside the window always starts a new range. While the counts load the figure keeps its place; with no session yet it says so. Its table twin lists each day's count and whether it is in the range.
+
+### Session page overview
+
+Above a session's timeline, one figure, "Overview", shows the whole session on one time axis, its lanes named at the left in Counter size (a 112px column, 84px below 520px): Prompts, Replies, Thoughts, Tool calls, Subagents, Model changes, Compactions, State and Tokens per turn.
+
+- **Counts:** prompts, replies, thoughts and tool calls are columns per bucket (the service's own, at most 120 for the session), each lane on its own scale, in the mark ink. A thought whose reasoning the harness did not keep, and a tool call that failed, are the column's top part in the mark-ink 135° texture over ink step 2, the same texture as the Tools figure's errors.
+- **Spans and moments:** subagents are 6px blocks over their lifetime, alternating between two rows so neighbours stay apart; a model change is a dot and a compaction a square, each in its own lane; the state lane is a state strip.
+- **Tokens per turn:** a column for each turn from its prompt to the next (stopping where a compressed gap begins), on its own scale, named under the lane's name ("up to 42K"); a turn that reported no usage is hatched, never a zero.
+- **Gaps:** stretches with nothing recorded longer than 30 minutes, or three buckets, are squeezed into an 18px break, marked as the time lanes' breaks are.
+- **The window:** the part of the timeline in view is planning-thread soft behind the marks, outlined in a 2px planning-thread rule. It follows the list as it scrolls. It is a slider, the figure's second tab stop: the arrow keys move it a bucket at a time (Page Up and Page Down ten, Home and End to the ends), dragging moves it, and a press on the drawing moves it to that moment; each scrolls the list to the first event at or after that time, loading further pages until one is there.
+- **Twin and keys:** the bucket marks give their counts in the tooltip and on the keyboard; the table twin has a row per bucket with every lane's count, the tokens of the turns started in it ("not reported" where none reported), and the state at its start.
 
 ### Live board
 
@@ -436,7 +447,7 @@ Charts and diagrams, which WorkChord's design system does not cover. They follow
 - **Table twin:** every figure has a table of the same values, so nothing is only drawn. A strip set inside a list row (the live board's last 30 minutes) is not a figure of its own: the row says the same in words, so it takes no tab stop and needs no twin.
 - **Keyboard:** a figure is one tab stop; the arrow keys move between its marks and show the same tooltip as hover, and every mark has an accessible name from the catalogue.
   In lanes and strips, up and down move to the nearest mark on the row above or below; in a heatmap, to the cell above or below; in a tree, up and down move through the nodes in order, left to the parent and right to the first child.
-- **Selection window:** its two edges are sliders, the one place a figure has two tab stops. The arrow keys move an edge by one step, Page Up and Page Down by seven, Home and End to the ends; with Shift the arrow keys move the whole window. The pointer drags an edge or the window; a press outside the window (or anywhere, when it covers every step and so cannot move) starts a new range, which a drag draws; a click picks one step, and a shift-click extends the range to the step clicked.
+- **Selection window:** its two edges are sliders, so it has two tab stops (the session overview's window is the other figure with a second one). The arrow keys move an edge by one step, Page Up and Page Down by seven, Home and End to the ends; with Shift the arrow keys move the whole window. The pointer drags an edge or the window; a press outside the window (or anywhere, when it covers every step and so cannot move) starts a new range, which a drag draws; a click picks one step, and a shift-click extends the range to the step clicked.
 - **Motion:** none. Figures do not animate in, and new data replaces old in place.
 
 ### Checks

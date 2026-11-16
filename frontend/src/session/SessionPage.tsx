@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { getJson } from '../api/client'
@@ -7,7 +7,8 @@ import type { EventOut, Page, SessionDetail, ThoughtsCoverage } from '../api/typ
 import { formatWhen } from '../history/format'
 import { ErrorNotice, LoadingRows, Notice, StateChip } from '../history/SessionList'
 import { useDocumentTitle } from '../shell/useDocumentTitle'
-import { VirtualList } from './VirtualList'
+import { SessionOverview } from './Overview'
+import { VirtualList, type VirtualListHandle } from './VirtualList'
 
 const PAGE = 500
 const PREVIEW = 1200
@@ -201,11 +202,53 @@ function Timeline({ session }: { session: SessionDetail }) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.next_cursor ?? undefined,
   })
-  const items = events.data?.pages.flatMap((page) => page.items) ?? []
+  const items = useMemo(() => events.data?.pages.flatMap((page) => page.items) ?? [], [events.data])
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = events
   const more = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+  // The overview's window follows the rows in view; moving it scrolls the list there,
+  // loading further pages until an event at that time is loaded.
+  const list = useRef<VirtualListHandle>(null)
+  const [range, setRange] = useState<[number, number] | null>(null)
+  // A time to scroll to once an event at it is loaded.
+  const pending = useRef<number | null>(null)
+  const onRange = useCallback((first: number, last: number) => setRange([first, last]), [])
+  const timeOf = useCallback(
+    (index: number) => {
+      // An undated event takes the time of the nearest dated one before it, or after it.
+      for (let i = index; i >= 0; i -= 1) if (items[i]?.occurred_at) return Date.parse(items[i].occurred_at!)
+      for (let i = index + 1; i < items.length; i += 1) if (items[i]?.occurred_at) return Date.parse(items[i].occurred_at!)
+      return null
+    },
+    [items],
+  )
+  const view = useMemo((): [number, number] | null => {
+    if (!range) return null
+    const from = timeOf(range[0])
+    const to = timeOf(range[1])
+    return from === null || to === null ? null : [from, Math.max(from, to)]
+  }, [range, timeOf])
+  const seek = useCallback(
+    (at: number) => {
+      const index = items.findIndex((_, i) => (timeOf(i) ?? -Infinity) >= at)
+      if (index >= 0) {
+        pending.current = null
+        list.current?.scrollToIndex(index)
+      } else if (hasNextPage) {
+        pending.current = at
+        if (!isFetchingNextPage) void fetchNextPage()
+      } else {
+        pending.current = null
+        list.current?.scrollToIndex(items.length - 1)
+      }
+    },
+    [items, timeOf, hasNextPage, isFetchingNextPage, fetchNextPage],
+  )
+  // Each page that arrives is searched again for the time the reader moved to.
+  useEffect(() => {
+    if (pending.current !== null && !isFetchingNextPage) seek(pending.current)
+  }, [items, isFetchingNextPage, seek])
   const toggle = (id: number) =>
     setExpanded((current) => {
       const next = new Set(current)
@@ -229,8 +272,10 @@ function Timeline({ session }: { session: SessionDetail }) {
             : t('session.all', { count: items.length })}
         </p>
       </div>
+      <SessionOverview session={session} view={view} onSeek={seek} />
       <VirtualList
         busy={isFetchingNextPage}
+        handle={list}
         className="h-[70vh] min-h-[24rem] rounded-surface border border-hairline bg-working-paper shadow-resting"
         count={items.length}
         estimate={ROW_ESTIMATE}
@@ -244,6 +289,7 @@ function Timeline({ session }: { session: SessionDetail }) {
         )}
         total={Math.max(session.event_count, items.length)}
         onNearEnd={more}
+        onRange={onRange}
       />
     </section>
   )

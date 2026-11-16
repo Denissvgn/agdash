@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
+
+/** What a list's owner can ask of it. */
+export type VirtualListHandle = { scrollToIndex: (index: number) => void }
 
 const OVERSCAN_PX = 800
 const NEAR_END = 30
@@ -17,6 +20,8 @@ export function VirtualList({
   busy,
   renderRow,
   onNearEnd,
+  onRange,
+  handle,
   className = '',
 }: {
   count: number
@@ -27,6 +32,9 @@ export function VirtualList({
   busy: boolean
   renderRow: (index: number) => ReactNode
   onNearEnd: () => void
+  /** The first and last rows at least partly in view, whenever they change. */
+  onRange?: (first: number, last: number) => void
+  handle?: Ref<VirtualListHandle>
   className?: string
 }) {
   const scroller = useRef<HTMLDivElement>(null)
@@ -69,6 +77,22 @@ export function VirtualList({
   useLayoutEffect(() => {
     firstShown.current = first
   }, [first])
+
+  const last = Math.max(first, Math.min(count - 1, rowAt(view.top + height - 1)))
+  useEffect(() => {
+    if (count > 0) onRange?.(first, last)
+  }, [count, first, last, onRange])
+
+  useImperativeHandle(
+    handle,
+    () => ({
+      scrollToIndex: (index: number) => {
+        const element = scroller.current
+        if (element) element.scrollTop = offsets[Math.max(0, Math.min(count, index))]
+      },
+    }),
+    [count, offsets],
+  )
 
   useEffect(() => {
     if (count > 0 && end >= count - NEAR_END) onNearEnd()
