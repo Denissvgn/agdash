@@ -81,6 +81,27 @@ class SyncState(StrEnum):
     ERROR = "error"
 
 
+class AuthMethod(StrEnum):
+    """How a harness signs in to its model provider."""
+
+    SUBSCRIPTION = "subscription"  # the vendor's own account: Claude, ChatGPT, Google
+    API_KEY = "api_key"
+    CUSTOM_ENDPOINT = "custom_endpoint"  # another base URL or provider than the vendor's
+    CLOUD_PROVIDER = "cloud_provider"  # Amazon Bedrock or Google Vertex AI
+
+
+class AuthBasis(StrEnum):
+    """What a session's auth method rests on.
+
+    ``transcript``: the session's own records name its provider. ``config``: the
+    harness's settings said so while the session was active; a key set only in
+    the agent's environment is not visible there.
+    """
+
+    TRANSCRIPT = "transcript"
+    CONFIG = "config"
+
+
 class MirrorObject(StrEnum):
     """The kinds of WorkChord object agdash keeps a local copy of."""
 

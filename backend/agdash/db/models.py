@@ -36,6 +36,7 @@ from agdash.db.base import (
     vocabulary,
 )
 from agdash.vocab import (
+    AuthBasis,
     EventKind,
     IdentityLinkBasis,
     MirrorObject,
@@ -100,6 +101,8 @@ class Session(Base):
     )
     # The harness's objective for the session: objective, status, budget, usage.
     goal: Mapped[dict[str, Any] | None] = mapped_column(json_document(), nullable=True)
+    # What auth_method rests on; NULL while it is unknown.
+    auth_basis: Mapped[AuthBasis | None] = mapped_column(vocabulary(AuthBasis), nullable=True)
 
 
 class SessionProcess(Base):

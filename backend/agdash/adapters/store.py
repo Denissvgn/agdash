@@ -17,7 +17,7 @@ from agdash.db.base import utcnow
 from agdash.db.models import Event, Session, SourceHealth
 from agdash.events import EventContractError, validate_event
 from agdash.redaction import redact_text, redact_value
-from agdash.vocab import EventKind, ParentBasis, Surface, ThoughtsCoverage
+from agdash.vocab import AuthBasis, AuthMethod, EventKind, ParentBasis, Surface, ThoughtsCoverage
 
 EVENTS_PER_LINE = 32
 MAX_TEXT = 64 * 1024
@@ -46,6 +46,8 @@ class SessionFacts:
     title_rank: int = 0  # a user-chosen title outranks a generated one
     initial_task: str | None = None
     timestamp: datetime | None = None
+    # Only what the session's own records prove; settings are read elsewhere.
+    auth_method: AuthMethod | None = None
 
 
 @dataclass
@@ -96,6 +98,10 @@ def apply_facts(session: Session, facts: SessionFacts, title_ranks: dict[int, in
         title_ranks[session.id] = facts.title_rank
     if facts.initial_task and not session.initial_task:
         session.initial_task = redact_text(facts.initial_task)[:INITIAL_TASK_LIMIT]
+    if facts.auth_method:  # the session's own records outrank the settings
+        session.auth_method = facts.auth_method.value
+        session.account_label = None
+        session.auth_basis = AuthBasis.TRANSCRIPT
     if facts.timestamp:
         if session.started_at is None or facts.timestamp < session.started_at:
             session.started_at = facts.timestamp

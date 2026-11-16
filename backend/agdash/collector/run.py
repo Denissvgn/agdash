@@ -30,6 +30,7 @@ from sqlalchemy.orm import sessionmaker
 from agdash.access import ReadOnlyAccess
 from agdash.adapters import antigravity, claude_code, codex, pi
 from agdash.archive import Archiving
+from agdash.collector.auth import AuthDetector
 from agdash.collector.processes import (
     ObservedProcess,
     ProcessTracker,
@@ -61,6 +62,7 @@ log = logging.getLogger("agdash.collector")
 
 PROBE_SECONDS = 2.0
 SUMMARY_SECONDS = 10.0
+AUTH_SECONDS = 60.0
 # Sessions looked at by the probe besides those with a live process: recently
 # active ones, so they can move to idle or ended.
 RECENT = timedelta(minutes=30)
@@ -147,6 +149,14 @@ class Collector:
         self._harness_status: dict[str, tuple[HarnessStatus, datetime, bool]] = {}
         self._summaries_at = 0.0
         self._lock = threading.Lock()
+        # Its own access: unlike ingest, it may open the harnesses' single settings files,
+        # and reads only the allowlisted fields of them.
+        self._auth = AuthDetector(
+            ReadOnlyAccess(host.all_harness_roots(), snapshot_dir=snapshot_dir),
+            host.harness_roots(),
+            clock=clock,
+        )
+        self._auth_at = 0.0
 
     # -- ingest -----------------------------------------------------------------------
 
@@ -177,7 +187,17 @@ class Collector:
     def backfill(self) -> Totals:
         """Read everything there is now, once."""
         self._summaries_at = 0.0
-        return self.scan(self.discover())
+        totals = self.scan(self.discover())
+        self.refresh_auth()
+        return totals
+
+    def refresh_auth(self) -> int:
+        """Auth method and account label for active sessions that have none yet."""
+        self._auth_at = time.monotonic()
+        with self._sessions() as db:
+            changed = self._auth.refresh(db)
+            db.commit()
+        return changed
 
     def refresh_summaries(self) -> int:
         """Antigravity's own view of its conversations: titles, parents and status."""
@@ -388,6 +408,8 @@ class Collector:
                     changed = self.probe()
                     if changed:
                         log.info("%d session states changed", changed)
+                    if time.monotonic() - self._auth_at >= AUTH_SECONDS:
+                        self.refresh_auth()
                 except Exception:
                     log.exception("a probe pass failed; the next one retries")
                 stop.wait(PROBE_SECONDS)

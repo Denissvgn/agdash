@@ -339,6 +339,7 @@ def get_session(db: Db, session_id: int) -> dict[str, Any]:
         permission_mode=session.permission_mode,
         auth_method=session.auth_method,
         account_label=session.account_label,
+        auth_basis=session.auth_basis,
         parent_basis=session.parent_basis,
         state_evidence=session.state_evidence or {},
         state_observed_at=session.state_observed_at,

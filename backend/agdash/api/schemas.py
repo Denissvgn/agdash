@@ -5,7 +5,7 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
-from agdash.vocab import EventKind, ParentBasis, SessionState, Surface, ThoughtsCoverage
+from agdash.vocab import AuthBasis, EventKind, ParentBasis, SessionState, Surface, ThoughtsCoverage
 
 T = TypeVar("T")
 
@@ -64,6 +64,10 @@ class SessionDetail(SessionSummary):
     permission_mode: str | None
     auth_method: str | None
     account_label: str | None
+    auth_basis: AuthBasis | None = Field(
+        description="transcript: the session's records name its provider; config: the harness's"
+        " settings while it was active."
+    )
     parent_basis: ParentBasis | None
     state_evidence: dict[str, Any]
     state_observed_at: datetime | None

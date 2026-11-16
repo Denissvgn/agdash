@@ -52,9 +52,11 @@ from agdash.db.models import Event, Session
 from agdash.ingest.engine import Cursor, Line
 from agdash.normalise import UsageFormat, normalise_usage, parse_timestamp
 from agdash.redaction import redact_text
-from agdash.vocab import EventKind, Harness, Surface, ThoughtsCoverage
+from agdash.vocab import AuthMethod, EventKind, Harness, Surface, ThoughtsCoverage
 
 HARNESS = Harness.CODEX.value
+# The provider a rollout header names when Codex talks to OpenAI itself.
+OPENAI_PROVIDER = "openai"
 TITLE_INDEX = "session_index.jsonl"
 GOALS = "goals_1.sqlite"
 PATTERNS = [
@@ -177,6 +179,9 @@ def _session_meta(payload: dict, session_id: str | None, parsed: ParsedRecord) -
     if isinstance(payload.get("cwd"), str):
         facts.cwd = payload["cwd"]
     facts.surface = _surface(payload)
+    provider = payload.get("model_provider")
+    if isinstance(provider, str) and provider and provider.lower() != OPENAI_PROVIDER:
+        facts.auth_method = AuthMethod.CUSTOM_ENDPOINT
     start = payload.get("subagent_history_start_ordinal")
     parent = payload.get("parent_thread_id")
     extra: dict[str, Any] = {}
