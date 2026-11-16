@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../App'
+import { unnamedControls } from '../test/controls'
 import { newQueryClient } from '../api/queryClient'
 import type { EventOut, SessionDetail, ThoughtsCoverage } from '../api/types'
 
@@ -146,6 +147,7 @@ describe('what each event shows', () => {
     expect(within(region).getByText('Error')).toBeInTheDocument()
     expect(within(region).getByText('Subagent started')).toBeInTheDocument()
     expect(screen.getByText('9 events')).toBeInTheDocument()
+    expect(unnamedControls(document.body)).toEqual([])
 
     const more = within(region).getByRole('button', { name: 'Show all 3000 characters' })
     fireEvent.click(more)

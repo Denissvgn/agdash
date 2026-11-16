@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../App'
+import { unnamedControls } from '../test/controls'
 import { newQueryClient } from '../api/queryClient'
 import type { Page, SessionSummary } from '../api/types'
 import { ENDED_WINDOW_MS, UNKNOWN_WINDOW_MS, forest, groups, split, stateCounts } from './board'
@@ -254,6 +255,7 @@ describe('the live board', () => {
     const nested = await screen.findByRole('list', { name: 'Sessions started by Lead session' })
     expect(within(nested).getByRole('heading', { level: 3, name: 'Helper session' })).toBeInTheDocument()
     expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(2)
+    expect(unnamedControls(document.body)).toEqual([])
   })
 
   test('unknown is shown as unknown, not as ended', async () => {
