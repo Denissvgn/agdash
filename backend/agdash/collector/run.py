@@ -11,8 +11,8 @@ Two loops run side by side:
   state with its evidence.
 
 A state is written only when it changes, so the live stream reports changes
-rather than every pass. Everything here only reads harness data; writes go to
-agdash's own store.
+rather than every pass, and each change of state is kept as a row of its own.
+Everything here only reads harness data; writes go to agdash's own store.
 """
 
 import logging
@@ -49,7 +49,7 @@ from agdash.collector.state import (
     session_state_fields,
     turn_phase,
 )
-from agdash.db.models import Event, Session, SessionProcess
+from agdash.db.models import Event, Session, SessionProcess, SessionStateChange
 from agdash.ingest import Ingestor, discover_files
 from agdash.ingest.engine import ScanReport
 from agdash.ingest.ledger import SqlLedger
@@ -301,6 +301,16 @@ class Collector:
                         setattr(session, name, value)
                     if record.state is SessionState.ENDED and session.ended_at is None:
                         session.ended_at = now
+                    if previous is None or record.state is not previous.state:
+                        db.add(
+                            SessionStateChange(
+                                session_id=session.id,
+                                state=record.state,
+                                basis=record.basis,
+                                previous=record.previous,
+                                changed_at=record.since,
+                            )
+                        )
                     changed += 1
             db.commit()
         return changed

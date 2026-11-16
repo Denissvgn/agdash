@@ -26,6 +26,7 @@ from enum import StrEnum
 from typing import Any
 
 from agdash.vocab import EventKind, SessionState
+from agdash.vocab import StateBasis as Basis
 
 
 class ProcessLiveness(StrEnum):
@@ -48,25 +49,6 @@ class TurnPhase(StrEnum):
 
     AGENT = "agent"  # a prompt or tool result is waiting for the agent
     PERSON = "person"  # the agent ended its turn
-
-
-class Basis(StrEnum):
-    """Why a state was chosen. Stored with every state."""
-
-    PROCESS_EXITED = "process_exited"
-    HARNESS_CLOSED = "harness_closed"
-    END_RECORD = "end_record"
-    ARCHIVED = "archived"
-    HARNESS_BUSY = "harness_busy"
-    HARNESS_WAITING = "harness_waiting"
-    HARNESS_IDLE = "harness_idle"
-    MID_TURN = "mid_turn"
-    TURN_ENDED = "turn_ended"
-    QUIET = "quiet"
-    PROCESS_RUNNING = "process_running"
-    RECENT_WRITES = "recent_writes"
-    PROCESS_HIDDEN = "process_hidden"
-    NO_EVIDENCE = "no_evidence"
 
 
 @dataclass(frozen=True)

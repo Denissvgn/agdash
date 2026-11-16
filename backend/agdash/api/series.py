@@ -38,6 +38,8 @@ Bucket = Literal["hour", "day", "week"]
 ParallelBucket = Literal["quarter-hour", "hour", "day"]
 Group = Literal["harness", "model", "folder"]
 MAX_BUCKETS = 1000
+# Buckets shorter than an hour, by their length in minutes.
+MINUTES = {"minute": 1, "5-minute": 5, "quarter-hour": 15}
 COUNTS = (
     "input_tokens",
     "output_tokens",
@@ -121,8 +123,9 @@ def _zone(name: str) -> ZoneInfo:
 def _floor(moment: datetime, bucket: str, zone: ZoneInfo) -> datetime:
     """The UTC start of the local bucket that ``moment`` falls in."""
     local = moment.astimezone(zone)
-    if bucket == "quarter-hour":
-        start = local.replace(minute=local.minute - local.minute % 15, second=0, microsecond=0)
+    if bucket in MINUTES:
+        width = MINUTES[bucket]
+        start = local.replace(minute=local.minute - local.minute % width, second=0, microsecond=0)
     elif bucket == "hour":
         start = local.replace(minute=0, second=0, microsecond=0)
     else:
@@ -135,8 +138,8 @@ def _floor(moment: datetime, bucket: str, zone: ZoneInfo) -> datetime:
 
 
 def _next(start: datetime, bucket: str, zone: ZoneInfo) -> datetime:
-    if bucket == "quarter-hour":
-        return start + timedelta(minutes=15)
+    if bucket in MINUTES:
+        return start + timedelta(minutes=MINUTES[bucket])
     if bucket == "hour":
         return start + timedelta(hours=1)
     local = start.astimezone(zone).replace(tzinfo=None)

@@ -47,6 +47,7 @@ from agdash.vocab import (
     RuleTargetKind,
     RunLinkBasis,
     SessionState,
+    StateBasis,
     Surface,
     SyncState,
     ThoughtsCoverage,
@@ -105,6 +106,26 @@ class Session(Base):
     auth_basis: Mapped[AuthBasis | None] = mapped_column(vocabulary(AuthBasis), nullable=True)
     # The harness version its records state, such as a CLI version or a format number.
     harness_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class SessionStateChange(Base):
+    """A session entering a state, so its states can be drawn over time.
+
+    Written only when the state changes, not on every probe, with what the new
+    state rests on. Removed with its session.
+    """
+
+    __tablename__ = "session_state_changes"
+    __table_args__ = (Index(None, "session_id", "changed_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    state: Mapped[SessionState] = mapped_column(vocabulary(SessionState), nullable=False)
+    basis: Mapped[StateBasis] = mapped_column(vocabulary(StateBasis), nullable=False)
+    previous: Mapped[SessionState | None] = mapped_column(vocabulary(SessionState), nullable=True)
+    changed_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
 class SessionProcess(Base):

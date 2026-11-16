@@ -9,9 +9,9 @@ is removed only when all of these hold:
 * the same holds for every session in its family (its parent chain and all
   subagents), so a family is kept or removed as a whole.
 
-Removing a session removes its events, processes, usage, links and archived raw
-lines that no remaining session uses. Ingest cursors stay, so a removed session
-is not read back in from files that still exist.
+Removing a session removes its events, processes, state changes, usage, links
+and archived raw lines that no remaining session uses. Ingest cursors stay, so a
+removed session is not read back in from files that still exist.
 
     python -m agdash.retention [--days N]            what would be removed
     python -m agdash.retention [--days N] --apply    remove it
@@ -39,6 +39,7 @@ from agdash.db.models import (
     RunLink,
     Session,
     SessionProcess,
+    SessionStateChange,
     UsageSnapshot,
 )
 from agdash.vocab import SessionState
@@ -114,6 +115,7 @@ def apply_retention(
             continue
         for table in (
             SessionProcess,
+            SessionStateChange,
             UsageSnapshot,
             RunLink,
             IdentityLink,

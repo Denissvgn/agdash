@@ -23,9 +23,10 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from agdash import cli
+from agdash.access.guard import assert_untouched
 from agdash.collector.run import Collector
 from agdash.db.migrate import upgrade
-from agdash.db.models import RawChunk, Session, SessionProcess
+from agdash.db.models import RawChunk, Session, SessionProcess, SessionStateChange
 from agdash.platform import Host, OperatingSystem
 from agdash.platform.probes import ProcessGone, ProcessIdentity, ProcessRow
 from agdash.platform.service import LAUNCHD_LABEL, SYSTEMD_UNIT, ServiceState
@@ -177,6 +178,44 @@ def test_a_state_is_written_only_when_it_changes(setup):
         assert collector.probe() == 0
     with sessions() as db:
         assert session(db, "codex", CODEX_SESSION).updated_at == first
+
+
+def test_each_change_of_state_is_kept_as_one_row_with_its_basis(setup):
+    collector, sessions, probe, home, clock = setup
+    collector.backfill()
+    rollout = next(home.glob(f".codex/sessions/*/*/*/rollout-*-{CODEX_SESSION}.jsonl"))
+
+    def history(db):
+        live = session(db, "codex", CODEX_SESSION)
+        return db.scalars(
+            select(SessionStateChange)
+            .where(SessionStateChange.session_id == live.id)
+            .order_by(SessionStateChange.id)
+        ).all()
+
+    with assert_untouched([home]):
+        probe.rows = [process(4242, "codex", ("codex", "exec"))]
+        probe.files = {4242: [str(rollout)]}
+        collector.probe()
+        with sessions() as db:
+            (first,) = history(db)
+            live = session(db, "codex", CODEX_SESSION)
+            assert (first.state, first.previous, first.changed_at) == (live.state, None, NOW)
+            assert first.basis.value == live.state_evidence["basis"]
+            rows = db.scalar(select(func.count()).select_from(SessionStateChange))
+        for step in range(1, 4):
+            clock["now"] = NOW + timedelta(seconds=2 * step)
+            collector.probe()
+        with sessions() as db:
+            assert db.scalar(select(func.count()).select_from(SessionStateChange)) == rows
+        probe.rows, probe.files = [], {}
+        clock["now"] = NOW + timedelta(seconds=10)
+        collector.probe()
+        with sessions() as db:
+            first, ended = history(db)
+            assert ended.state is SessionState.ENDED and ended.basis.value == "process_exited"
+            assert ended.previous is first.state
+            assert ended.changed_at == NOW + timedelta(seconds=10)
 
 
 def test_states_carry_on_after_a_restart(setup, tmp_path):
