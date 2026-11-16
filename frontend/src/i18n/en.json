@@ -124,7 +124,11 @@
       "more": "More filters",
       "moreActive_one": "More filters ({{count}} set)",
       "moreActive_other": "More filters ({{count}} set)",
-      "started": "Started between"
+      "started": "Started between",
+      "presets": "Date range",
+      "lastDays_one": "Last {{count}} day",
+      "lastDays_other": "Last {{count}} days",
+      "allTime": "All time"
     },
     "list": {
       "label": "Sessions",
@@ -250,6 +254,38 @@
       "noneTitle": "No tool calls recorded",
       "noneBody": "No session in this selection called a tool, or none has been recorded yet.",
       "noteTruncated": "Only the {{count}} most used tools are listed; the totals count every call."
+    },
+    "measure": "Measure",
+    "measures": {
+      "tokens": "Tokens",
+      "cost": "Cost",
+      "sessions": "Sessions"
+    },
+    "figure": {
+      "title": "{{measure}} per {{bucket}}, {{group}}",
+      "buckets": {
+        "hour": "hour",
+        "day": "day",
+        "week": "week"
+      },
+      "by": {
+        "harness": "by harness",
+        "model": "by model",
+        "folder": "by folder"
+      },
+      "per": {
+        "hour": "Hour",
+        "day": "Day",
+        "week": "Week starting"
+      },
+      "total": "{{value}} in all, the same total as the table below.",
+      "noneReported": "No session in this selection reported this number.",
+      "coverage_one": "Reported by {{count}} of {{total}} sessions.",
+      "coverage_other": "Reported by {{count}} of {{total}} sessions.",
+      "undated_one": "{{count}} usage report has no time, so the table counts it and the figure cannot place it.",
+      "undated_other": "{{count}} usage reports have no time, so the table counts them and the figure cannot place them.",
+      "unsplitTitle": "Sessions are not split by model",
+      "unsplitBody": "A session can use several models, so sessions are counted by harness or folder. Choose Tokens or Cost to follow models over time."
     }
   },
   "live": {
@@ -629,6 +665,9 @@
       "inside": "In the selected range",
       "yes": "Yes",
       "no": "No"
-    }
+    },
+    "from_one": "from {{count}} of {{total}}",
+    "from_other": "from {{count}} of {{total}}",
+    "partial": "Reported by only some sessions"
   }
 }

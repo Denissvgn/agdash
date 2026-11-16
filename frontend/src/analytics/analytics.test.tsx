@@ -1,9 +1,9 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, expect, test, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../App'
 import { unnamedControls } from '../test/controls'
 import { newQueryClient } from '../api/queryClient'
-import type { Facets, ToolReport, UsageReport, UsageRow } from '../api/types'
+import type { Facets, SeriesPoint, SeriesReport, ToolReport, UsageReport, UsageRow } from '../api/types'
 
 // Synthetic figures only.
 const FACETS: Facets = {
@@ -13,8 +13,8 @@ const FACETS: Facets = {
   models: [{ value: 'model-a', count: 1 }],
   folders: [],
   auth_methods: [],
-  first_started_at: null,
-  last_started_at: null,
+  first_started_at: '2026-11-02T09:00:00Z',
+  last_started_at: '2026-11-04T09:00:00Z',
 }
 
 const row = (patch: Partial<UsageRow>): UsageRow => ({
@@ -67,7 +67,58 @@ const TOOLS: ToolReport = {
   errors: 3,
 }
 
-function serve(usage: (url: URL) => UsageReport = () => REPORT) {
+const point = (patch: Partial<SeriesPoint>): SeriesPoint => ({
+  input_tokens: null,
+  output_tokens: null,
+  cache_read_tokens: null,
+  cache_write_tokens: null,
+  reasoning_tokens: null,
+  reported_cost: null,
+  messages: 0,
+  sessions: 0,
+  active_minutes: 0,
+  sessions_with_usage: 0,
+  reported_by: {},
+  ...patch,
+})
+
+// Three days, adding up to the ledger's total above: Pi reports on the first day in
+// full, on the second from one of its two sessions; Codex is active on the third
+// day and reports nothing.
+const SERIES: SeriesReport = {
+  bucket: 'day',
+  group: 'harness',
+  time_zone: 'UTC',
+  // Local days, as the service makes them for the reader's time zone.
+  buckets: [0, 1, 2].map((d) => ({
+    start: new Date(2026, 10, 2 + d).toISOString(),
+    end: new Date(2026, 10, 3 + d).toISOString(),
+  })),
+  series: [
+    {
+      key: 'pi',
+      points: [
+        point({ input_tokens: 1000, output_tokens: 200, cache_read_tokens: 5000, messages: 2, sessions: 1, sessions_with_usage: 1, reported_cost: 0.2, reported_by: { reported_cost: 1 } }),
+        point({ input_tokens: 200, output_tokens: 100, messages: 1, sessions: 2, sessions_with_usage: 1, reported_cost: 0.05, reported_by: { reported_cost: 1 } }),
+        point({}),
+      ],
+      total: point({ input_tokens: 1200, output_tokens: 300, cache_read_tokens: 5000, messages: 3, sessions: 2, sessions_with_usage: 1, reported_cost: 0.25 }),
+    },
+    {
+      key: 'codex',
+      points: [point({}), point({}), point({ sessions: 1 })],
+      total: point({ sessions: 1 }),
+    },
+  ],
+  total: {
+    key: null,
+    points: [],
+    total: point({ input_tokens: 1200, output_tokens: 300, cache_read_tokens: 5000, messages: 3, sessions: 3, sessions_with_usage: 1, reported_cost: 0.25, reported_by: { reported_cost: 1 } }),
+  },
+  undated_usage: 0,
+}
+
+function serve(usage: (url: URL) => UsageReport = () => REPORT, series: (url: URL) => SeriesReport = () => SERIES) {
   const calls: URL[] = []
   vi.stubGlobal(
     'fetch',
@@ -75,7 +126,13 @@ function serve(usage: (url: URL) => UsageReport = () => REPORT) {
       const url = new URL(input, 'http://127.0.0.1:8765')
       calls.push(url)
       const body =
-        url.pathname === '/api/sessions/facets' ? FACETS : url.pathname === '/api/analytics/tools' ? TOOLS : usage(url)
+        url.pathname === '/api/sessions/facets'
+          ? FACETS
+          : url.pathname === '/api/analytics/tools'
+            ? TOOLS
+            : url.pathname === '/api/analytics/series'
+              ? series(url)
+              : usage(url)
       return new Response(JSON.stringify(body), { status: 200 })
     }),
   )
@@ -164,4 +221,148 @@ test('a sum built from only some sessions says how many it covers', async () => 
   expect(cells[4]).not.toHaveTextContent('from') // cache write is null here: a dash, no coverage line
   expect(cells[1]).not.toHaveTextContent('from') // input covers every session with usage
   expect(cells[7]).toHaveTextContent('from 1 of 20') // elapsed: one session with a known span
+})
+
+describe('usage over time', () => {
+  // The figure once it has drawn: its caption ties it to the ledger.
+  const figure = async (title = 'Tokens per day, by harness') => {
+    await screen.findByText(/in all, the same total/)
+    return screen.getByRole('heading', { name: title }).closest('figure') as HTMLElement
+  }
+
+  test('asks for the same sessions as the ledger, and its total is the ledger total', async () => {
+    const calls = serve()
+    open('#/analytics?harness=pi&from=2026-11-01&to=2026-11-03')
+    const drawn = await figure()
+    const usage = calls.find((url) => url.pathname === '/api/analytics/usage')!
+    const series = calls.find((url) => url.pathname === '/api/analytics/series')!
+    for (const key of ['harness', 'started_from', 'started_before', 'group']) {
+      expect(series.searchParams.getAll(key)).toEqual(usage.searchParams.getAll(key))
+    }
+    expect(series.searchParams.get('bucket')).toBe('day')
+    // 1,200 + 300 + 5,000 tokens, as the ledger's total row adds them up.
+    expect(drawn).toHaveTextContent('6,500 in all, the same total as the table below.')
+    const total = screen.getByRole('row', { name: /All sessions/ })
+    const cells = within(total)
+      .getAllByRole('cell')
+      .slice(1, 6)
+      .map((cell) => Number((cell.textContent ?? '').match(/^[\d,]+/)?.[0].replace(/,/g, '') ?? 0))
+    expect(cells.reduce((a, b) => a + b, 0)).toBe(6500)
+  })
+
+  test('hatches what was not reported, and says "from n of m" where only some sessions reported', async () => {
+    serve()
+    open('#/analytics')
+    const drawn = await figure()
+    // Codex was active on the third day and reported nothing: hatched, never a zero column.
+    const marks = [...drawn.querySelectorAll('[role="img"]')].map((mark) => mark.getAttribute('aria-label'))
+    expect(marks).toContain('Codex, Nov 4: Not reported')
+    expect(marks).toContain('Pi, Nov 3: 300, from 1 of 2')
+    expect(drawn.querySelector('[data-coverage="1/2"]')).not.toBeNull()
+    // Codex's third day: nothing reported, so it is hatched, with no coverage strip.
+    expect(drawn.querySelector('[data-coverage="0/1"]')).toBeNull()
+    const twin = within(drawn).getByRole('table')
+    expect(within(twin).getByRole('row', { name: /Nov 3/ })).toHaveTextContent('300, from 1 of 2')
+    expect(within(twin).getByRole('row', { name: /Nov 4/ })).toHaveTextContent('not reported')
+    expect(drawn).toHaveTextContent('Reported by 1 of 3 sessions.')
+    // The ledger's rows carry share bars by the same measure.
+    expect(document.querySelectorAll('tbody [data-share]')).toHaveLength(2)
+  })
+
+  test('the measure and the date preset live in the address, through reload and back', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 16, 12))
+    try {
+      const calls = serve()
+      open('#/analytics')
+      await figure()
+      await act(async () => fireEvent.click(screen.getByRole('radio', { name: 'Cost' })))
+      await act(async () => fireEvent.click(screen.getByRole('radio', { name: 'Last 7 days' })))
+      const params = () => new URLSearchParams(window.location.hash.split('?')[1])
+      expect(params().get('measure')).toBe('cost')
+      expect(params().get('range')).toBe('7')
+      expect(params().has('from')).toBe(false)
+      await waitFor(() => {
+        const last = calls.filter((url) => url.pathname === '/api/analytics/usage').at(-1)!
+        expect(last.searchParams.get('started_from')).toBe(new Date(2026, 10, 10).toISOString())
+        expect(last.searchParams.get('started_before')).toBe(new Date(2026, 10, 17).toISOString())
+      })
+      expect(screen.getByLabelText('Started on or after')).toHaveValue('2026-11-10')
+
+      // Reload: the same address draws the same choices.
+      cleanup()
+      open(window.location.hash)
+      expect(await screen.findByRole('heading', { name: 'Cost per day, by harness' })).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: 'Cost' })).toBeChecked()
+      expect(screen.getByRole('radio', { name: 'Last 7 days' })).toBeChecked()
+
+      // Back undoes the preset, then the measure.
+      await act(async () => window.history.back())
+      await waitFor(() => expect(screen.getByRole('radio', { name: 'All time' })).toBeChecked())
+      expect(screen.getByRole('radio', { name: 'Cost' })).toBeChecked()
+      await act(async () => window.history.back())
+      await waitFor(() => expect(screen.getByRole('radio', { name: 'Tokens' })).toBeChecked())
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('an edited date replaces the preset with the days it stood for', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 16, 12))
+    try {
+      serve()
+      // The dates fieldset is shared; History has the same one.
+      open('#/analytics?range=30')
+      const from = await screen.findByLabelText('Started on or after')
+      expect(from).toHaveValue('2026-10-18')
+      await act(async () => fireEvent.change(from, { target: { value: '2026-10-20' } }))
+      const params = new URLSearchParams(window.location.hash.split('?')[1])
+      expect([params.get('range'), params.get('from'), params.get('to')]).toEqual([null, '2026-10-20', '2026-11-16'])
+      expect(screen.getByRole('radio', { name: 'Last 30 days' })).not.toBeChecked()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('runs over the whole date range, with true zeros where nothing was active', async () => {
+    serve()
+    open('#/analytics?from=2026-11-01&to=2026-11-05')
+    const drawn = await figure()
+    // The service's three days, and one more at each end of the range.
+    const rows = within(within(drawn).getByRole('table')).getAllByRole('row').slice(1)
+    expect(rows).toHaveLength(5)
+    expect(rows[0]).toHaveTextContent(/^\S+ \d+00$/)
+    expect(rows[4]).toHaveTextContent(/00$/)
+  })
+
+  test('says how many sessions reported cost, as the ledger counts them, even by model', async () => {
+    serve(
+      () => ({ ...REPORT, group: 'model' }),
+      () => ({ ...SERIES, group: 'model', series: SERIES.series.map((line) => ({ ...line, points: line.points.map((p) => ({ ...p, sessions: null })) })) }),
+    )
+    open('#/analytics?group=model&measure=cost')
+    await screen.findByText(/in all, the same total/)
+    expect(screen.getByRole('heading', { name: 'Cost per day, by model' }).closest('figure')).toHaveTextContent(
+      '$0.25 in all, the same total as the table below. Reported by 1 of 3 sessions.',
+    )
+  })
+
+  test('the ledger lists its rows by the chosen measure', async () => {
+    const report: UsageReport = {
+      ...REPORT,
+      rows: [row({ key: 'pi', sessions: 1, input_tokens: 10 }), row({ key: 'codex', sessions: 5, input_tokens: 1 })],
+    }
+    serve(() => report)
+    open('#/analytics?measure=sessions')
+    const table = await screen.findByRole('table', { name: 'Usage by Harness' })
+    const names = within(table).getAllByRole('rowheader').map((cell) => cell.textContent)
+    expect(names.slice(0, 2)).toEqual(['Codex', 'Pi'])
+  })
+
+  test('sessions by model say why they are not drawn', async () => {
+    serve()
+    open('#/analytics?group=model&measure=sessions')
+    expect(await screen.findByText('Sessions are not split by model')).toBeInTheDocument()
+  })
 })
