@@ -219,3 +219,74 @@ export interface SessionDetail extends SessionSummary {
   children: number[]
   events_by_kind: Record<string, number>
 }
+
+// -- the board by project -----------------------------------------------------------
+
+export type FlagCode = 'run_without_session' | 'claim_expired' | 'model_mismatch' | 'no_task'
+
+export interface AttentionFlag {
+  code: FlagCode
+  session_id: number | null
+  run_id: number | null
+  task_id: number | null
+  task_key: string | null
+  actor: string | null
+  observed: string | null
+  bound: string | null
+  since: string | null
+}
+
+export interface BoardCard {
+  id: number
+  harness: string
+  title: string | null
+  state: SessionState
+  cwd: string | null
+  last_activity_at: string | null
+  parent_session_id: number | null
+  project_basis: MappingBasis | null
+  actor: { id: number; name: string; role: string | null; basis: MappingBasis | null } | null
+  task: {
+    id: number
+    key: string | null
+    title: string
+    status: string | null
+    iteration: string | null
+    claim_expires_at: string | null
+  } | null
+  run: {
+    id: number
+    status: string | null
+    bound_model: string | null
+    declared_usage: { quantities?: Record<string, number> } | null
+    heartbeat_at: string | null
+  } | null
+  work: 'execution' | 'review' | null
+  observed_models: string[]
+  observed_usage: { messages: number; input_tokens: number | null; output_tokens: number | null }
+  flags: FlagCode[]
+  subagents: BoardCard[]
+}
+
+export interface BoardAgent {
+  id: number
+  name: string
+  role: string | null
+  live_sessions: number
+  assigned: boolean
+}
+
+export interface ProjectGroup {
+  project: { id: number; name: string; status: string | null; health: string | null } | null
+  reason: 'mapped' | 'unmapped'
+  agents: BoardAgent[]
+  sessions: BoardCard[]
+}
+
+export interface ProjectBoard {
+  connection: { id: number; name: string | null; server: string } | null
+  connections: { id: number; name: string | null; server: string }[]
+  groups: ProjectGroup[]
+  flags: AttentionFlag[]
+  generated_at: string
+}

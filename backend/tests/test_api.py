@@ -174,6 +174,7 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/workchord/connections/{connection_id}/rules",
         "/api/workchord/connections/{connection_id}/pins",
         "/api/workchord/rules/{rule_id}",
+        "/api/projects/board",
     }
     # Only the WorkChord settings routes change anything; every other route reads.
     writes = {

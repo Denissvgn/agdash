@@ -58,9 +58,7 @@
         "board": {
           "label": "By project",
           "title": "Sessions by project",
-          "purpose": "Sessions grouped by the WorkChord project they work under.",
-          "what": "Each WorkChord project with the agents working under it, their tasks, and the evidence for every mapping.",
-          "waitsOn": "A connected WorkChord server."
+          "purpose": "Live sessions grouped by the WorkChord project they work under, with their tasks, runs and anything that needs a look."
         },
         "unmapped": {
           "label": "Unmapped",
@@ -493,5 +491,63 @@
       "absent": "Reasoning not kept",
       "unknown": "Coverage not recorded"
     }
+  },
+  "board": {
+    "loading": "Loading the board",
+    "server": "WorkChord server",
+    "attention_one": "{{count}} thing needs a look",
+    "attention_other": "{{count}} things need a look",
+    "attentionPurpose": "Read-only signals from comparing WorkChord's plan with what this machine observes. agdash changes nothing.",
+    "flagLine": "{{flag}}: {{text}}",
+    "flags": {
+      "run_without_session": {
+        "short": "No live session",
+        "long": "WorkChord marks run {{run}} on {{task}} by {{actor}} as running, and no live session here is linked to it."
+      },
+      "claim_expired": {
+        "short": "Claim expired",
+        "long": "The claim on {{task}} expired {{when}}, and this session is still live."
+      },
+      "model_mismatch": {
+        "short": "Different model",
+        "long": "Observed {{observed}}, but WorkChord bound {{bound}}."
+      },
+      "no_task": {
+        "short": "No task",
+        "long": "This session works in a mapped project but is linked to no task."
+      }
+    },
+    "unknownTask": "an unknown task",
+    "unknownAgent": "an unknown agent",
+    "unmapped": "Unmapped",
+    "unmappedHelp": "Live sessions with no project, or with evidence that disagrees.",
+    "unmappedLink": "Map them in the Unmapped queue",
+    "sessions_one": "{{count}} live session",
+    "sessions_other": "{{count}} live sessions",
+    "sessionsLabel": "Live sessions in {{project}}",
+    "agentsLabel": "Agents in {{project}}",
+    "agentAssigned_one": "{{name}} · assigned · {{count}} live",
+    "agentAssigned_other": "{{name}} · assigned · {{count}} live",
+    "agentLive_one": "{{name}} · {{count}} live",
+    "agentLive_other": "{{name}} · {{count}} live",
+    "subagents": "Subagents of {{title}}",
+    "agent": "Agent {{name}} ({{basis}})",
+    "mappedBy": "Project from {{basis}}",
+    "taskWithKey": "{{key}} {{title}}",
+    "status": "Status {{status}}",
+    "work": {
+      "execution": "Execution",
+      "review": "Review"
+    },
+    "claimUntil": "Claim until {{when}}",
+    "run": "Run {{id}}: {{status}}",
+    "models": "Model bound {{bound}}, observed {{observed}}",
+    "notBound": "none",
+    "notReported": "not reported",
+    "declared": "Declared",
+    "observed": "Observed",
+    "tokens": "{{input}} in · {{output}} out tokens",
+    "emptyTitle": "Nothing is running",
+    "emptyBody": "No session on this machine is active, waiting or idle right now."
   }
 }
