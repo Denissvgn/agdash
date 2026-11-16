@@ -262,12 +262,14 @@ class Writer:
                 r"\d+\.\d+\.\d+", record["version"]
             ):
                 version = record["version"]
+                session.harness_version = version
             parsed = parse_record(record)
             if parsed.unknown_type:
                 unknown += 1
             apply_facts(session, parsed.facts, self._title_ranks)
             store_events(db, session, line.offset, parsed.events, cursor.path)
-        record_health(db, HARNESS, version, unknown, errors)
+        # A read that starts after the header still counts under the session's version.
+        record_health(db, HARNESS, version or session.harness_version, unknown, errors)
 
 
 # -- the live registry --------------------------------------------------------------

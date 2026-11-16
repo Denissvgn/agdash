@@ -358,7 +358,8 @@ class Writer:
             meta = record.get("payload") if record.get("type") == "session_meta" else None
             if isinstance(meta, dict) and meta.get("id") == native_id:
                 if isinstance(meta.get("cli_version"), str):
-                    version = meta["cli_version"]
+                    version = meta["cli_version"][:64]
+                    session.harness_version = version
             if self._inherited(db, session, record):
                 continue
             parsed = parse_record(record, native_id)
@@ -368,7 +369,8 @@ class Writer:
             self._note_model_change(db, session, parsed)
             apply_facts(session, parsed.facts, self._title_ranks)
             store_events(db, session, line.offset, parsed.events, cursor.path)
-        record_health(db, HARNESS, version, unknown, errors)
+        # A read that starts after the header still counts under the session's version.
+        record_health(db, HARNESS, version or session.harness_version, unknown, errors)
 
     # A subagent's own history and its parent.
 

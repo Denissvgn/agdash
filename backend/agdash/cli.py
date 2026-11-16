@@ -21,6 +21,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import create_engine, func, select
 
@@ -122,6 +123,79 @@ class Check:
     detail: str
 
 
+# Unknown records or unreadable lines read this recently point at a format change;
+# older ones are history and are only mentioned.
+RECENT_FORMATS = timedelta(days=14)
+
+
+def _day(moment: datetime) -> str:
+    return moment.strftime("%Y-%m-%d")
+
+
+def format_checks(url: str, now: datetime | None = None) -> list[Check]:
+    """Per harness: the format version last seen, and whether its records are still understood."""
+    now = now or datetime.now(UTC)
+    try:
+        engine = create_engine(sync_database_url(url))
+        with engine.connect() as connection:
+            rows = connection.execute(
+                select(
+                    SourceHealth.adapter,
+                    SourceHealth.format_version,
+                    SourceHealth.unknown_record_count,
+                    SourceHealth.parse_error_count,
+                    SourceHealth.first_seen_at,
+                    SourceHealth.last_seen_at,
+                ).order_by(SourceHealth.adapter, SourceHealth.last_seen_at)
+            ).all()
+        engine.dispose()
+    except Exception:
+        return []
+    checks = []
+    for adapter in sorted({row.adapter for row in rows}):
+        mine = [row for row in rows if row.adapter == adapter]
+        known = [row for row in mine if row.format_version != "unknown"]
+        latest = max(known, key=lambda row: _aware(row.last_seen_at)) if known else None
+        seen = (
+            f"version {latest.format_version}, last seen {_day(_aware(latest.last_seen_at))}"
+            if latest
+            else "version not recorded"
+        )
+        troubled = [row for row in mine if row.unknown_record_count or row.parse_error_count]
+        recent = [row for row in troubled if now - _aware(row.last_seen_at) <= RECENT_FORMATS]
+        if recent:
+            found = "; ".join(
+                f"{row.unknown_record_count} unknown records and {row.parse_error_count}"
+                f" unreadable lines in "
+                + (
+                    f"version {row.format_version}"
+                    if row.format_version != "unknown"
+                    else "records with no version"
+                )
+                + f" since {_day(_aware(row.first_seen_at))}"
+                for row in recent
+            )
+            checks.append(
+                Check(
+                    f"{adapter} formats",
+                    "warn",
+                    f"{found}; {adapter} may have changed its format, so some of its records"
+                    " are not shown",
+                )
+            )
+            continue
+        older = sum(row.unknown_record_count + row.parse_error_count for row in troubled)
+        detail = f"{seen}; everything read recently was recognised"
+        if older:
+            detail += f" ({older} records from older versions were not)"
+        checks.append(Check(f"{adapter} formats", "ok", detail))
+    return checks
+
+
+def _aware(moment: datetime) -> datetime:
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
 def doctor_checks(host: Host, manager: ServiceManager) -> list[Check]:
     from agdash.runtime import private, sqlite_file
 
@@ -151,15 +225,7 @@ def doctor_checks(host: Host, manager: ServiceManager) -> list[Check]:
         checks.append(
             Check("Store", "ok", f"{counts['sessions']} sessions, {counts['events']} events")
         )
-        if counts["unknown"] or counts["errors"]:
-            checks.append(
-                Check(
-                    "Harness formats",
-                    "warn",
-                    f"{counts['unknown']} unknown records and {counts['errors']} unreadable lines;"
-                    " a harness may have changed its format",
-                )
-            )
+        checks.extend(format_checks(url))
     data_dir = host.data_dir()
     if data_dir.exists():
         checks.append(
