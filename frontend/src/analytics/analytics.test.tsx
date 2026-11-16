@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, expect, test, vi } from 'vitest'
 import App from '../App'
+import { unnamedControls } from '../test/controls'
 import { newQueryClient } from '../api/queryClient'
 import type { Facets, ToolReport, UsageReport, UsageRow } from '../api/types'
 
@@ -108,7 +109,9 @@ test('unreported numbers are a dash that says so, never a zero', async () => {
   expect(pi).toHaveTextContent('$0.25')
   expect(screen.getByText(/A dash means the harness did not report/)).toBeInTheDocument()
   expect(screen.getByText('2 sessions reported no usage at all and are left out of the token figures.')).toBeInTheDocument()
+  expect(unnamedControls(document.body)).toEqual([])
 })
+
 
 test('the totals row shows the report total', async () => {
   serve()
@@ -143,6 +146,7 @@ test('the tool mix shows calls and errors, with a dash where no outcome was matc
   const read = within(table).getByRole('row', { name: /read_file/ })
   expect(within(read).getAllByRole('cell')[2]).toHaveTextContent('—not reported')
   expect(within(table).getByRole('row', { name: /All sessions/ })).toHaveTextContent('47')
+  expect(unnamedControls(document.body)).toEqual([])
 })
 
 test('a sum built from only some sessions says how many it covers', async () => {

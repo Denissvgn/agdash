@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../App'
+import { unnamedControls } from '../test/controls'
 import { newQueryClient } from '../api/queryClient'
 import type { Facets, Page, SessionHit, SessionSummary } from '../api/types'
 import { apiParams, isFiltered, NO_FILTERS, readFilters, writeFilters } from './filters'
@@ -104,6 +105,7 @@ describe('the sessions list', () => {
     expect(within(list).getByText('Active')).toBeInTheDocument()
     expect(within(list).getByText('2 subagents')).toBeInTheDocument()
     expect(within(list).getAllByText('Codex · CLI')).toHaveLength(2)
+    expect(unnamedControls(document.body)).toEqual([])
   })
 
   test('filters combine, are written to the address and sent to the service', async () => {
@@ -208,7 +210,9 @@ describe('search', () => {
     expect(within(results).getAllByText('3 matches')).toHaveLength(2)
     expect(within(results).getAllByText('Prompt')).toHaveLength(2)
     expect(calls.find((url) => url.pathname === '/api/search/sessions')!.searchParams.get('q')).toBe('parser')
+    expect(unnamedControls(document.body)).toEqual([])
   })
+
 
   test('a query and filters combine in the address and in the request', async () => {
     const calls = serve(() => ({ body: page([hit(1)]) }))

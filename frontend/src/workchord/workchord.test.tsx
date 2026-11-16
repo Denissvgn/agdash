@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../App'
+import { unnamedControls } from '../test/controls'
 import { newQueryClient } from '../api/queryClient'
 import type { MappingRule, Pairing, ProjectOption, UnmappedQueue, WorkChordConnection } from '../api/types'
 
@@ -156,6 +157,7 @@ describe('the WorkChord settings', () => {
       body: { match: 'folder', value: '/work/orchard', project_id: 1 },
     })
     expect(within(server).getByRole('button', { name: 'Remove the rule for Folder /work/orchard' })).toBeInTheDocument()
+    expect(unnamedControls(document.body)).toEqual([])
   })
 
   test('the service’s reason is shown when a rule is refused', async () => {
@@ -221,6 +223,7 @@ describe('the Unmapped queue', () => {
       'Folder or repository rule: Meadow',
     ])
     expect(screen.getByText('2 sessions without a project')).toBeInTheDocument()
+    expect(unnamedControls(document.body)).toEqual([])
   })
 
   test('a session is pinned from the queue', async () => {

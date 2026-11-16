@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, test } from 'vitest'
 import App from '../App'
+import { unnamedControls } from '../test/controls'
 
 function open(path: string) {
   window.location.hash = `#${path}`
@@ -93,6 +94,7 @@ describe('the navigation drawer', () => {
     expect(button).toHaveAttribute('aria-controls', drawer.id)
     expect(within(drawer).getByRole('navigation', { name: 'Workspaces' })).toBeInTheDocument()
     expect(within(drawer).getByRole('navigation', { name: 'Analytics sections' })).toBeInTheDocument()
+    expect(unnamedControls(document.body)).toEqual([])
 
     // A browser turns Escape on a modal dialog into a cancel event.
     await act(async () => fireEvent(drawer, new Event('cancel', { cancelable: true })))

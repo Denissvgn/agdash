@@ -6,6 +6,7 @@ import { describe, expect, test } from 'vitest'
 import App from '../App'
 import { PAGES } from '../pages/registry'
 import { WORKSPACES } from '../shell/navigation'
+import { unnamedControls } from '../test/controls'
 import { catalogue, createI18n, LANGUAGE } from '.'
 
 // A pseudo-locale wraps every catalogue string in markers. Rendered with it, any
@@ -40,6 +41,7 @@ function strayStrings(root: HTMLElement): string[] {
 
 const ROUTES = [
   ...WORKSPACES.flatMap((workspace) => workspace.destinations.map((destination) => destination.path)),
+  '/history/sessions/1',
   '/no-such-page',
 ]
 
@@ -48,6 +50,7 @@ describe('every visible string comes from the catalogue', () => {
     window.location.hash = `#${path}`
     render(<App i18n={pseudo()} />)
     expect(strayStrings(document.body)).toEqual([])
+    expect(unnamedControls(document.body)).toEqual([])
     expect(document.title.startsWith(OPEN) && document.title.endsWith(CLOSE), document.title).toBe(true)
   })
 
@@ -57,6 +60,7 @@ describe('every visible string comes from the catalogue', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: /Menu/ })))
     expect(screen.getByRole('dialog')).toHaveAttribute('open')
     expect(strayStrings(document.body)).toEqual([])
+    expect(unnamedControls(document.body)).toEqual([])
   })
 
   test('every workspace and destination has its strings', () => {
