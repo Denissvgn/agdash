@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, test } from 'vitest'
+import { withSpecimen } from '../charts/specimen/i18n'
 import { catalogue } from '.'
 
 // Every catalogue string is used, and every key the code names exists.
@@ -24,7 +25,8 @@ function leaves(tree: Tree, prefix = ''): string[] {
   )
 }
 
-const LEAVES = leaves(catalogue as Tree)
+// The development-only chart specimen keeps its copy apart; its keys count here too.
+const LEAVES = leaves(withSpecimen(catalogue as Tree))
 const LEAF_SET = new Set(LEAVES)
 // Every path that holds keys, such as "history" and "history.list".
 const SECTIONS = new Set(

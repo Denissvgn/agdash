@@ -549,5 +549,30 @@
     "tokens": "{{input}} in · {{output}} out tokens",
     "emptyTitle": "Nothing is running",
     "emptyBody": "No session on this machine is active, waiting or idle right now."
+  },
+  "charts": {
+    "roledescription": "chart",
+    "keys": "Use the arrow keys to move between values; Escape hides the value.",
+    "mark": "{{name}}: {{value}}",
+    "notReported": "Not reported",
+    "other": "Other",
+    "legend": "Legend",
+    "updating": "Updating",
+    "loading": "Loading figure",
+    "empty": {
+      "title": "Nothing to show",
+      "body": "No session in this selection reported a value for this figure."
+    },
+    "error": {
+      "title": "This figure could not load",
+      "body": "agdash could not get these values from its service. The rest of the page may still be current.",
+      "retry": "Try again"
+    },
+    "table": {
+      "show": "Show as a table",
+      "region": "{{title}}, as a table",
+      "dash": "–",
+      "notReported": "not reported"
+    }
   }
 }

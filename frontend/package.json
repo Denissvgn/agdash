@@ -5,16 +5,21 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/check-build.mjs",
     "lint": "eslint .",
     "test": "npm run test:run",
     "test:run": "vitest run",
     "preview": "vite preview",
-    "test:webkit": "vitest run --config vitest.webkit.config.ts"
+    "test:webkit": "vitest run --config vitest.webkit.config.ts",
+    "test:specimen": "vitest run --config vitest.specimen.config.ts"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
     "@tanstack/react-query": "5.105.0",
+    "d3-array": "3.2.4",
+    "d3-scale": "4.0.2",
+    "d3-shape": "3.2.0",
+    "d3-time": "3.1.0",
     "i18next": "^26.7.2",
     "lucide-react": "^0.561.0",
     "react": "^19.2.0",
@@ -28,6 +33,11 @@
     "@testing-library/dom": "10.4.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
+    "@types/d3-array": "3.2.2",
+    "@types/d3-path": "3.1.1",
+    "@types/d3-scale": "4.0.9",
+    "@types/d3-shape": "3.2.0",
+    "@types/d3-time": "3.0.4",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
@@ -47,5 +57,15 @@
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4",
     "vitest": "4.1.10"
+  },
+  "overrides": {
+    "d3-array": "3.2.4",
+    "d3-color": "3.1.0",
+    "d3-format": "3.1.2",
+    "d3-interpolate": "3.0.1",
+    "d3-path": "3.1.0",
+    "d3-time": "3.1.0",
+    "d3-time-format": "4.1.0",
+    "internmap": "2.0.3"
   }
 }

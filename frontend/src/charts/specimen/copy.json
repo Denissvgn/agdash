@@ -1,0 +1,33 @@
+{
+  "charts": {
+    "specimen": {
+      "title": "Chart kit",
+      "intro": "Every figure component in every state, drawn from synthetic data. This page exists only on the development server.",
+      "bars": "Ranked bars",
+      "columns": "Columns",
+      "lines": "Lines",
+      "steps": "Step areas",
+      "multiples": "Small multiples",
+      "shares": "Share bars in a table",
+      "states": {
+        "ready": "Drawn",
+        "held": "Loading, holding the last drawing",
+        "loading": "Loading, nothing drawn yet",
+        "empty": "Empty",
+        "unreported": "Partly not reported",
+        "error": "Failed to load",
+        "dense": "Dense"
+      },
+      "barsCaption": "Tool calls by tool, largest first.",
+      "columnsCaption": "Sessions per day; series stack with a gap between them.",
+      "linesCaption": "Tokens per day; a break in a line was not reported.",
+      "stepsCaption": "Live sessions held over each bucket.",
+      "multiplesCaption": "Sessions per day for each harness, all on the same scale.",
+      "shareCaption": "Tool calls, with each tool's share of the largest",
+      "tool": "Tool",
+      "calls": "Calls",
+      "share": "Share of the largest",
+      "day": "Day"
+    }
+  }
+}
