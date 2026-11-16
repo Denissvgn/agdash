@@ -52,6 +52,9 @@ starts, answers `/health` and stops cleanly:
 CI builds and smoke-tests it for macOS arm64 and x86_64 and Linux amd64 and arm64,
 each on a runner of that kind.
 
+Backfill speed and memory, and how to measure them, are in
+[docs/performance.md](docs/performance.md).
+
 Contributor and agent rules are in [AGENTS.md](AGENTS.md).
 
 ## License

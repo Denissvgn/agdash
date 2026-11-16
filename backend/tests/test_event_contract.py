@@ -1,6 +1,7 @@
 import pytest
 from jsonschema import Draft202012Validator
 
+from agdash import events
 from agdash.events import EventContractError, event_schema, validate_event
 from agdash.vocab import EventKind, ThoughtsCoverage, UsageScope
 
@@ -150,3 +151,30 @@ def test_errors_never_quote_the_event():
             validate_event(kind, payload, coverage)
         assert marker not in str(raised.value)
         assert marker not in repr(raised.value.violations)
+
+
+def _violations(validator, kind, payload, coverage):
+    event = {"kind": kind, "payload": payload}
+    if coverage is not None:
+        event["thoughts_coverage"] = coverage
+    return sorted(
+        {line for error in validator.iter_errors(event) for line in events._describe(error)}
+    )
+
+
+@pytest.mark.parametrize("kind", list(EXAMPLES))
+def test_the_per_kind_rules_judge_exactly_as_the_whole_schema(kind):
+    payload, coverage = EXAMPLES[kind]
+    broken = [
+        (payload, coverage),
+        (payload, "full"),
+        (payload, "encrypted"),
+        ({**payload, "unexpected": 1}, coverage),
+        ({key: 7 for key in payload}, coverage),
+        ({}, coverage),
+        ("not an object", coverage),
+    ]
+    for case_payload, case_coverage in broken:
+        assert _violations(
+            events._validator_for(kind), kind, case_payload, case_coverage
+        ) == _violations(events._validator(), kind, case_payload, case_coverage)

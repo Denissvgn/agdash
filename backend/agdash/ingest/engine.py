@@ -11,27 +11,33 @@ A file that is replaced or truncated is read again from the start. Writers are
 expected to store lines idempotently (by session and byte offset), so a second
 read adds nothing.
 
-A compressed file is an archive, written once. It is read whole, decompressed,
-and its offsets are those of the decompressed text, so an archived copy of a
-transcript produces the same offsets as the original did. Its cursor records
-the compressed size; the file is read again only if that changes.
+A compressed file is an archive, written once. Its offsets are those of the
+decompressed text, so an archived copy of a transcript produces the same offsets
+as the original did. It is first read through once, keeping nothing, to prove it
+is complete; then its lines are stored in batches like any file's, so memory
+does not grow with its size. While that is under way its cursor's size is 0;
+once done it records the compressed size, and the file is read again only if
+that changes. A read cut short resumes after the last stored batch.
 
 Every read goes through the read-only access layer.
 """
 
 import fnmatch
 import os
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
 from agdash.access import OutsideAllowedRoots, ReadOnlyAccess
-from agdash.ingest.compressed import UnreadableArchive, decompress, is_compressed
+from agdash.ingest.compressed import UnreadableArchive, is_compressed, iter_decompressed
 
 DEFAULT_BATCH_BYTES = 8 * 1024 * 1024
 DEFAULT_MAX_LINE_BYTES = 64 * 1024 * 1024
-DEFAULT_MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024
+# Archives are streamed, so this only stops a hostile file from being read forever.
+DEFAULT_MAX_ARCHIVE_BYTES = 16 * 1024 * 1024 * 1024
+# The cursor size of an archive whose lines are still being stored.
+ARCHIVE_IN_PROGRESS = 0
 NEWLINE = b"\n"
 
 
@@ -119,6 +125,20 @@ def split_lines(data: bytes, start: int) -> tuple[list[Line], int]:
     return lines, start + position
 
 
+def _batches(lines: list[Line], limit: int) -> Iterator[list[Line]]:
+    """``lines`` in runs of about ``limit`` bytes, each run stored on its own."""
+    run: list[Line] = []
+    size = 0
+    for line in lines:
+        if run and size + len(line.data) > limit:
+            yield run
+            run, size = [], 0
+        run.append(line)
+        size += len(line.data) + 1
+    if run:
+        yield run
+
+
 class Ingestor:
     """Reads one harness's files and hands their new lines to a ledger."""
 
@@ -201,23 +221,73 @@ class Ingestor:
         same_file = previous is not None and (previous.device, previous.inode) == (device, inode)
         if same_file and previous.size == found.st_size:
             return report  # read already, and unchanged since
-        report.restarted = previous is not None
+        resuming = same_file and previous.size == ARCHIVE_IN_PROGRESS
+        done = previous.offset if resuming else 0
+        report.restarted = previous is not None and not resuming
         try:
             with self._access.open(path) as source:
-                data = decompress(source, self._max_archive)
+                for _piece in iter_decompressed(source, self._max_archive):
+                    pass
         except UnreadableArchive:
             report.unreadable = True
             report.waiting_bytes = found.st_size
             return report
-        lines, end = split_lines(data, 0)
-        if end < len(data):  # an archive is complete, so its last line is too
-            lines.append(Line(end, len(data), data[end:]))
-            end = len(data)
-        kept = [line for line in lines if len(line.data) < self._max_line]
-        report.oversized_lines = len(lines) - len(kept)
-        cursor = Cursor(self._harness, path_text, device, inode, end, found.st_size)
-        self._ledger.commit(previous, cursor, kept)
-        report.lines = len(kept)
+
+        progress = Cursor(self._harness, path_text, device, inode, done, ARCHIVE_IN_PROGRESS)
+        # Pieces are collected and joined once per batch. Growing one buffer piece by
+        # piece, whether by copying it or by trimming a bytearray, leaves the freed or
+        # outgrown blocks with the process and lets its memory climb with the file.
+        pending: list[bytes] = []
+        size, base, skipping = 0, 0, False
+
+        def store(lines: list[Line], end: int) -> None:
+            nonlocal previous
+            kept = [line for line in lines if line.end > done and len(line.data) < self._max_line]
+            report.oversized_lines += sum(1 for line in lines if len(line.data) >= self._max_line)
+            cursor = Cursor(
+                progress.harness, path_text, device, inode, max(end, done), ARCHIVE_IN_PROGRESS
+            )
+            if kept or cursor != previous:
+                self._ledger.commit(previous, cursor, kept)
+                previous = cursor
+            report.lines += len(kept)
+
+        with self._access.open(path) as source:
+            for piece in iter_decompressed(source, self._max_archive):
+                if skipping:  # inside a line longer than any we keep: drop it to its end
+                    newline = piece.find(NEWLINE)
+                    if newline < 0:
+                        base += len(piece)
+                        continue
+                    base += newline + 1
+                    piece = piece[newline + 1 :]
+                    skipping = False
+                    report.oversized_lines += 1
+                pending.append(bytes(piece))
+                size += len(piece)
+                if size < self._batch:
+                    continue
+                data = b"".join(pending)
+                lines, end = split_lines(data, base)
+                if lines:
+                    for group in _batches(lines, self._batch):
+                        store(group, group[-1].end)
+                    rest = data[end - base :]
+                    pending, size, base = [rest], len(rest), end
+                elif size >= self._max_line:
+                    base += size
+                    pending, size, skipping = [], 0, True
+                else:
+                    pending = [data]
+        rest = b"".join(pending)
+        lines, end = split_lines(rest, base)
+        if end - base < len(rest):  # an archive is complete, so its last line is too
+            lines.append(Line(end, base + len(rest), rest[end - base :]))
+            end = base + len(rest)
+        for group in _batches(lines, self._batch):
+            store(group, group[-1].end)
+        final = Cursor(self._harness, path_text, device, inode, max(end, done), found.st_size)
+        self._ledger.commit(previous, final, [])
         return report
 
     def _was_moved(self, cursor: Cursor, path_text: str) -> bool:
