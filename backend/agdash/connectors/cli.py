@@ -6,6 +6,11 @@
     python -m agdash.connectors.cli sync ID          (refresh the local copy once)
     python -m agdash.connectors.cli run-key ID        (reads the key without echoing it)
     python -m agdash.connectors.cli forget ID
+    python -m agdash.connectors.cli rules ID          (rules and pins)
+    python -m agdash.connectors.cli rule ID --folder PATH --project N
+    python -m agdash.connectors.cli rule ID --launcher 'codex *' --runtime-ref REF
+    python -m agdash.connectors.cli pin ID SESSION --project N | --actor N
+    python -m agdash.connectors.cli unrule ID RULE
 
 Secrets are never taken from the command line, where other processes can see
 them, and never printed.
@@ -23,6 +28,7 @@ from sqlalchemy.orm import sessionmaker
 from agdash.config import get_settings
 from agdash.connectors.links import Linker
 from agdash.connectors.mirror import object_states, sync_connection
+from agdash.connectors.resolver import Resolver
 from agdash.connectors.workchord import (
     KIND,
     PairingError,
@@ -33,9 +39,10 @@ from agdash.connectors.workchord import (
     webhook_ref,
 )
 from agdash.db.migrate import sync_database_url, upgrade
-from agdash.db.models import Connection
+from agdash.db.models import Connection, MappingRule, Session
 from agdash.platform import current_host
 from agdash.platform.secrets import SecretStore
+from agdash.vocab import RuleMatchKind, RuleTargetKind
 
 
 def _show(pending: PendingPairing) -> None:
@@ -59,6 +66,90 @@ def _connection(db: DbSession, connection_id: int) -> Connection:
     return row
 
 
+def _rules(args, db: DbSession, row: Connection) -> int:
+    if args.command == "rules":
+        for rule in db.scalars(
+            select(MappingRule)
+            .where(MappingRule.connection_id == row.id)
+            .order_by(MappingRule.priority.desc(), MappingRule.id)
+        ):
+            what = (
+                f"session {rule.session_id}"
+                if rule.match_kind is RuleMatchKind.SESSION
+                else f"{rule.match_kind.value} {rule.match_value}"
+            )
+            only = f" ({rule.harness} only)" if rule.harness else ""
+            off = "" if rule.enabled else " [off]"
+            print(f"{rule.id}\t{what}{only} -> {rule.target_kind.value} {rule.target_value}{off}")
+        return 0
+    if args.command == "unrule":
+        found = db.get(MappingRule, args.rule)
+        if found is None or found.connection_id != row.id:
+            print(f"No rule {args.rule} on connection {row.id}.", file=sys.stderr)
+            return 1
+        db.delete(found)
+        db.commit()
+        print(f"Rule {args.rule} removed.")
+        return 0
+    if args.command == "pin":
+        if db.get(Session, args.session) is None:
+            print(f"No session {args.session}.", file=sys.stderr)
+            return 1
+        kind = RuleTargetKind.PROJECT if args.project is not None else RuleTargetKind.ACTOR
+        for old in db.scalars(
+            select(MappingRule).where(
+                MappingRule.connection_id == row.id,
+                MappingRule.match_kind == RuleMatchKind.SESSION,
+                MappingRule.session_id == args.session,
+                MappingRule.target_kind == kind,
+            )
+        ):
+            db.delete(old)
+        target = args.project if args.project is not None else args.actor
+        db.add(
+            MappingRule(
+                connection_id=row.id,
+                match_kind=RuleMatchKind.SESSION,
+                session_id=args.session,
+                target_kind=kind,
+                target_value=str(target),
+            )
+        )
+        db.commit()
+        print(f"Session {args.session} pinned to {kind.value} {target}.")
+        return 0
+    if args.folder is not None and not (
+        args.folder.startswith(("/", "\\")) or args.folder[1:3] in (":\\", ":/")
+    ):
+        print("Give the folder as an absolute path.", file=sys.stderr)
+        return 1
+    kind, value = next(
+        (kind, value)
+        for kind, value in (
+            (RuleMatchKind.FOLDER, args.folder),
+            (RuleMatchKind.REPOSITORY, args.repository),
+            (RuleMatchKind.LAUNCHER, args.launcher),
+        )
+        if value is not None
+    )
+    target_kind = RuleTargetKind.PROJECT if args.project is not None else RuleTargetKind.RUNTIME_REF
+    target = str(args.project) if args.project is not None else args.runtime_ref
+    made = MappingRule(
+        connection_id=row.id,
+        harness=args.harness,
+        match_kind=kind,
+        match_value=value,
+        target_kind=target_kind,
+        target_value=target,
+        priority=args.priority,
+        note=args.note,
+    )
+    db.add(made)
+    db.commit()
+    print(f"Rule {made.id}: {kind.value} {value} -> {target_kind.value} {target}.")
+    return 0
+
+
 def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None) -> int:
     parser = argparse.ArgumentParser(prog="agdash-connect", description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -72,8 +163,32 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
         ("run-key", "store or clear an agent key with planning:read"),
         ("webhook-secret", "store or clear the secret WorkChord signs webhooks with"),
         ("forget", "remove a connection and its stored credentials"),
+        ("rules", "the local mapping rules and pins of a connection"),
     ):
         commands.add_parser(command, help=text).add_argument("id", type=int)
+    rule = commands.add_parser("rule", help="map sessions by folder, repository or launcher")
+    rule.add_argument("id", type=int)
+    match = rule.add_mutually_exclusive_group(required=True)
+    match.add_argument("--folder", help="an absolute folder; sessions in it or below match")
+    match.add_argument("--repository", help="a repository's remote address")
+    match.add_argument(
+        "--launcher", help="a pattern for the agent's command line, such as 'codex *'"
+    )
+    target = rule.add_mutually_exclusive_group(required=True)
+    target.add_argument("--project", type=int, help="the WorkChord project id")
+    target.add_argument("--runtime-ref", help="a team member's runtime reference")
+    rule.add_argument("--harness", help="only sessions of this harness")
+    rule.add_argument("--priority", type=int, default=0)
+    rule.add_argument("--note")
+    pin = commands.add_parser("pin", help="pin one session to a project or an actor")
+    pin.add_argument("id", type=int)
+    pin.add_argument("session", type=int)
+    pinned = pin.add_mutually_exclusive_group(required=True)
+    pinned.add_argument("--project", type=int)
+    pinned.add_argument("--actor", type=int)
+    unrule = commands.add_parser("unrule", help="remove a rule or a pin")
+    unrule.add_argument("id", type=int)
+    unrule.add_argument("rule", type=int)
     args = parser.parse_args(argv)
     connector = WorkChordConnector(transport)
 
@@ -118,6 +233,7 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
     if args.command == "sync":
         report = sync_connection(db, secrets, row, transport=transport)
         linked = Linker().run(db, [row])
+        Resolver().run(db, [row])
         db.commit()
         if linked.added:
             added = ", ".join(f"{n} {basis}" for basis, n in sorted(linked.added.items()))
@@ -153,6 +269,8 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
             secrets.delete(webhook_ref(row.id))
             print("Webhook secret cleared; deliveries for this connection are refused.")
         return 0
+    if args.command in ("rules", "rule", "pin", "unrule"):
+        return _rules(args, db, row)
     connector.forget(db, secrets, row)
     db.commit()
     print(f"Connection {args.id} forgotten.")

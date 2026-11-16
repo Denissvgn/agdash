@@ -133,6 +133,35 @@ and keeps the evidence for each link, strongest first:
 
 `agdash connect sync ID` runs one sync now.
 
+Then each session is mapped to a WorkChord actor and project. Each mapping
+keeps the evidence it rests on, strongest first:
+
+- **Actor**: `capabilities`, when the transcript holds a WorkChord call that
+  names the calling actor; `run`, the actor of an exactly linked run;
+  `runtime_ref`, a local rule tying a folder, repository or launcher to a team
+  member's runtime reference, which the team topology names; `manual`, a pin.
+- **Project**: `task`, the project of an exactly linked task; `assignment`, when
+  every current assignment of the session's actor is in one project; `rule`, a
+  local folder or repository rule, which covers sessions that never talk to
+  WorkChord; `manual`, a pin.
+
+A session with no evidence is **unmapped**. Evidence that disagrees is a
+**conflict**: agdash shows every candidate and picks none. A pin is the
+person's own answer and settles a conflict, while the disagreeing evidence
+stays visible. `GET /api/sessions/ID/mapping` shows a session's mapping, and
+`GET /api/mapping/unmapped` lists top-level sessions with no project.
+
+Rules and pins are local to agdash and never sent to WorkChord:
+
+```bash
+agdash connect rule ID --folder /work/orchard --project 1
+agdash connect rule ID --repository git@github.example:acme/orchard --project 1
+agdash connect rule ID --launcher 'codex *' --runtime-ref runtime://backend-worker
+agdash connect pin ID SESSION --project 2
+agdash connect rules ID
+agdash connect unrule ID RULE
+```
+
 ## Webhooks, optional
 
 Polling is enough on its own. A webhook only makes agdash sync a connection as
