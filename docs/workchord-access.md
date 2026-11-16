@@ -133,6 +133,31 @@ and keeps the evidence for each link, strongest first:
 
 `agdash connect sync ID` runs one sync now.
 
+## Webhooks, optional
+
+Polling is enough on its own. A webhook only makes agdash sync a connection as
+soon as WorkChord reports a change, instead of at the next poll. The receiver is
+off unless `AGDASH_WEBHOOK_PORT` is set. When it is on, it is a second listener
+on agdash's loopback address, apart from the API. A delivery never reaches the
+API, and nothing in a delivery is stored.
+
+To use it:
+
+1. Choose a signing secret, and give it to agdash with
+   `agdash connect webhook-secret ID`.
+2. In WorkChord, an operator adds an outgoing webhook target with the same
+   secret, the address `http://127.0.0.1:<port>/workchord/<ID>`, and the events
+   to send, such as `task.*` and `agent.*`.
+
+WorkChord refuses loopback and private addresses as webhook targets unless its
+`allow_private_egress_urls` setting is on, so this works only with a WorkChord
+on the same host that allows it.
+
+agdash accepts a delivery only when its `X-WorkChord-Signature-256` matches the
+HMAC-SHA256 of the body under that connection's secret. Anything else, unsigned
+deliveries included, is refused with 401. WorkChord signs no timestamp, so an
+event id agdash has already accepted is answered without syncing again.
+
 ## What changed in WorkChord
 
 [WorkChord changes that agdash relies on](workchord-changes.md) records the
