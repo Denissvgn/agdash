@@ -51,8 +51,10 @@ beside WorkChord, whose design system it uses.
 
 ## Brand Commitments
 
-The visual system is WorkChord's DESIGN.md, used unchanged, so agdash reads as
-part of the same toolset.
+The visual system is WorkChord's DESIGN.md, used unchanged for everything it
+defines, so agdash reads as part of the same toolset. For charts and diagrams,
+which it does not cover, agdash adds a figure layer built from WorkChord's own
+colours at fixed opacities, with no new hues (DESIGN.md, Figures).
 
 ## Evidence on Hand
 
