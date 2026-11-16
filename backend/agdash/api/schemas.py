@@ -26,6 +26,9 @@ class SessionSummary(BaseModel):
     cwd: str | None
     branch: str | None
     state: SessionState
+    state_basis: str | None = Field(
+        default=None, description="Why the state was chosen, such as process_running or turn_ended."
+    )
     started_at: datetime | None
     last_activity_at: datetime | None
     ended_at: datetime | None

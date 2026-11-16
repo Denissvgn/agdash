@@ -257,5 +257,84 @@
       "noneBody": "No session in this selection called a tool, or none has been recorded yet.",
       "noteTruncated": "Only the {{count}} most used tools are listed; the totals count every call."
     }
+  },
+  "live": {
+    "loading": "Loading live sessions",
+    "groupBy": "Group by",
+    "groups": {
+      "folder": "Folder",
+      "harness": "Harness"
+    },
+    "sessions_one": "{{count}} session",
+    "sessions_other": "{{count}} sessions",
+    "notRecorded": {
+      "folder": "Folder not recorded",
+      "harness": "Harness not recorded"
+    },
+    "summary": {
+      "none": "Nothing is running now.",
+      "live_one": "{{count}} session live: {{states}}.",
+      "live_other": "{{count}} sessions live: {{states}}.",
+      "state": {
+        "active_one": "{{count}} active",
+        "active_other": "{{count}} active",
+        "waiting_one": "{{count}} waiting",
+        "waiting_other": "{{count}} waiting",
+        "idle_one": "{{count}} idle",
+        "idle_other": "{{count}} idle",
+        "unknown_one": "{{count}} unknown",
+        "unknown_other": "{{count}} unknown"
+      }
+    },
+    "stream": {
+      "connecting": "Connecting to live updates…",
+      "live": "Updates as sessions start, change and end.",
+      "retrying": "Live updates stopped; reconnecting. The board may be out of date until then."
+    },
+    "row": {
+      "latestPrompt": "Latest prompt",
+      "noPrompt": "No prompt recorded yet",
+      "ended": "Ended {{when}}",
+      "effort": "{{effort}} effort",
+      "parentNotLive": "Started by a session that is not live",
+      "startedBy": "Sessions started by {{title}}",
+      "lastActive": "Last active {{when}}"
+    },
+    "basis": {
+      "process_exited": "Process exited",
+      "harness_closed": "Closed by the harness",
+      "end_record": "Transcript records the end",
+      "archived": "Archived by the harness",
+      "harness_busy": "Harness reports busy",
+      "harness_waiting": "Harness reports waiting",
+      "harness_idle": "Harness reports idle",
+      "mid_turn": "Turn in progress",
+      "turn_ended": "Last turn ended",
+      "quiet": "No recent writes",
+      "process_running": "Process running",
+      "recent_writes": "Transcript changed recently",
+      "process_hidden": "Process not visible",
+      "no_evidence": "No evidence of its state"
+    },
+    "empty": {
+      "title": "Nothing is running",
+      "body": "Sessions appear here as soon as a harness starts one. agdash checks the process table every two seconds."
+    },
+    "ended": {
+      "title": "Just ended",
+      "body": "Sessions that ended in the last {{minutes}} minutes."
+    },
+    "sessionsWithOthers_one": "{{count}} session, {{others}} started on another harness",
+    "sessionsWithOthers_other": "{{count}} sessions, {{others}} started on another harness",
+    "unknownWindow": "Sessions in an unknown state show here while they were active in the last {{minutes}} minutes; History has the rest.",
+    "error": {
+      "unreachableTitle": "Can't reach the agdash service",
+      "unreachableBody": "Make sure the service is running on this machine. The board loads again by itself once the service answers.",
+      "refusedTitle": "The service refused this request",
+      "refusedBody": "The page did not present the service's local token. Open agdash from its app, or restart it.",
+      "serverTitle": "The service could not answer",
+      "serverBody": "Something went wrong while reading the live sessions. The board tries again when the live stream reconnects.",
+      "retry": "Try again"
+    }
   }
 }

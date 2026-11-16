@@ -79,6 +79,7 @@ def _summary(session: Session, events: int, children: int) -> dict[str, Any]:
         "cwd": session.cwd,
         "branch": session.branch,
         "state": session.state,
+        "state_basis": (session.state_evidence or {}).get("basis"),
         "started_at": session.started_at,
         "last_activity_at": session.last_activity_at,
         "ended_at": session.ended_at,

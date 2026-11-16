@@ -292,9 +292,23 @@ The one dominant work object of the History pages: rows, never cards.
 
 - **Surface:** One working-paper container, 1px hairline, 8px corners, resting shadow; rows separated by hairline dividers, 12px by 16px padding.
 - **Row:** A state chip and the session title (Body, 600, kept at least 12rem wide so the last-active time wraps below it rather than squeezing it; two lines at 520px and below, one truncated line above); the last-active time, or "No activity recorded" for a session known only from another's reference, which sorts last; a line of Label-size facts in secondary ink (harness and surface, models, events, subagents, matches) separated by middle dots; the folder in monospace at 12px, as an identifier, truncated from its start so the distinguishing last folders stay visible. Counts use tabular numerals.
-- **No affordance yet:** rows do not open until the session timeline exists, so they carry no link styling or hover state.
+- **No affordance yet:** rows do not open until the session timeline exists, so they carry no link styling or hover state. This holds for the live board's rows too.
 - **Loading:** four still placeholder rows of canvas-mist bars, announced as busy. No shimmer or other motion.
 - **More:** a secondary "Show more" button below the list loads the next page; there is no infinite scroll.
+
+### Live board
+
+A calm roll call of the sessions running now: groups of session-list rows, never tiles, counters or gauges. Sessions appear, change and end in place as the live stream reports them.
+
+- **Summary:** one Body sentence in primary ink giving the live count and its split by state ("3 sessions live: 2 active · 1 waiting."), a polite live status region. Below it, in Label size and secondary ink, the stream's status line: connecting, updating, or, while reconnecting, a line led by a 14px alert-circle icon in feedback warning saying the board may be out of date, so the trouble never rests on colour alone. Last, a Label-size note that sessions in an unknown state show only while active in the last 30 minutes; the note also shows on the empty board. With nothing live and nothing just ended, the sentence becomes visually hidden and the empty notice speaks instead.
+- **Group by:** the grouping switch with Folder (the default) and Harness, shown while anything is live. The choice lives in the address (`?group=harness`).
+- **Groups:** each group is a heading over its own session-list container (working paper, hairline, 8px corners, resting shadow, hairline dividers), 8px apart; groups stack on the page gap, the most recently active first. The heading is Label size: the folder in 12px monospace cut from its start, or the harness name, in primary ink, then a count in secondary ink with tabular numerals. Grouped by harness, the count is that harness's own sessions, and nested sessions running on another harness are named separately ("4 sessions, 1 started on another harness"). A missing folder or harness reads "Folder not recorded" or "Harness not recorded".
+- **Row:** the session list's row anatomy. The time reads "Last active" with a relative time, or "Ended" with one in Just ended. The facts line carries harness and surface, the latest model, the effort and, in words, the basis for the state ("Harness reports waiting", "No recent writes"); a session whose parent is not live says so there. Then "Latest prompt" in Label size and the prompt in Body and primary ink, clamped to two lines and capped at 90 characters wide; while it loads a still canvas-mist bar holds the line so the row does not grow. The folder appears only when grouped by harness and in Just ended.
+- **Nesting:** sessions a session started sit inside its parent's row as a labelled list ("Sessions started by <title>"), inset 24px per level, each with a hairline above. A 1px hairline elbow with a 4px corner runs from the parent's column to the child's chip; the vertical line continues between siblings and stops at the last child. The chip and time align to the title's first line so the elbow meets the chip.
+- **Just ended:** a section below the live groups: a Title-size heading, "Just ended", and one Body line in secondary ink, 4px apart, over one container of the sessions that ended in the last 15 minutes.
+- **Times:** relative, in words, from the browser's relative-time formatting ("now", "5 minutes ago"), refreshed every 30 seconds with no animation.
+- **Stream:** 40 seconds of silence counts as a dropped connection; reconnects wait longer each time, up to 30 seconds, and every reconnect fetches the board again, so a board left showing an error recovers by itself.
+- **Loading, empty and error:** still placeholder rows; an empty notice, "Nothing is running"; an error notice with the board's own copy.
 
 ### State chip
 
@@ -319,7 +333,7 @@ Secondary controls above the session list, per WorkChord's Persistent Object Rul
 
 ### Notices
 
-Empty and error states share one quiet panel: working paper, hairline, 8px corners, 20px padding, resting shadow; a Title-size heading led by an 18px icon (dashed circle in planned slate for an empty state, alert circle in feedback warning for an error) and one Body line in secondary ink saying what is true and what to do next. An error notice adds a secondary "Try again" button.
+Empty and error states share one quiet panel: working paper, hairline, 8px corners, 20px padding, resting shadow; a Title-size heading led by an 18px icon (dashed circle in planned slate for an empty state, alert circle in feedback warning for an error) and one Body line in secondary ink saying what is true and what to do next. An error notice adds a secondary "Try again" button. Its copy comes from the catalogue entry of the page it sits on, so each page explains the failure in its own terms.
 
 ### Buttons and fields
 
@@ -341,7 +355,7 @@ The Analytics pages show figures as a ledger: one table per page, never metric t
 
 ### Grouping switch
 
-"Group by" with Harness, Model and Folder: native radio buttons, visually hidden, inside pills styled as the filter pills. The checked pill takes the planning-thread soft fill, cobalt border and cobalt text; keyboard focus draws the 2px cobalt outline around the pill. The choice lives in the page address.
+"Group by" with the page's groupings (Harness, Model and Folder on Analytics; Folder and Harness on the live board): native radio buttons, visually hidden, inside pills styled as the filter pills. The checked pill takes the planning-thread soft fill, cobalt border and cobalt text; keyboard focus draws the 2px cobalt outline around the pill. The choice lives in the page address.
 
 ### Primary action
 
@@ -356,6 +370,7 @@ The first focusable element on every page. Hidden until focused, then fixed near
 - **State transitions:** Colour changes on every interactive element take the agdash state duration (160ms, a derived value filling the upstream "Motion is brief and explanatory" with no duration given).
 - **Drawer:** Slides in over 180ms from 16px left, starting at 85% opacity so a delayed or paused animation never hides it, easing `cubic-bezier(0.16, 1, 0.3, 1)`. There is no exit animation.
 - **Reduced motion:** All animations and transitions collapse to an instant switch; the drawer appears without sliding. State feedback (fills, underline, thread) is unaffected.
+- **Live updates:** The live board changes in place without animation: rows appear, change and leave instantly, and relative times refresh every 30 seconds without motion.
 - **Hover:** Hover styles apply only on devices that can hover, so a tap never leaves one stuck. No information or action depends on hover.
 
 ### Accessibility behaviour
@@ -363,6 +378,7 @@ The first focusable element on every page. Hidden until focused, then fixed near
 - **Focus:** A 2px planning-thread outline offset by 2px on every keyboard-focused element.
 - **Targets:** Controls and rows grow to 44px on coarse pointers.
 - **Landmarks and names:** A labelled Workspaces navigation, a "<workspace> sections" navigation, a main region that receives the skip link, and pages built as an article titled by their one Display heading. The current workspace and destination carry `aria-current="page"`.
+- **Announcements:** The live board's summary sentence is a polite status region, so changes in the live counts are announced without moving focus.
 - **Window title:** "<page title> · agdash", including on the not-found page.
 - **Icons:** Outline icons are decorative and hidden from assistive technology; every control has a visible or catalogue-sourced accessible name.
 - **Viewport:** Full-height layers use dynamic viewport units and respect safe-area insets.

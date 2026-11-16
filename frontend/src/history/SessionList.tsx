@@ -164,14 +164,23 @@ export function Notice({
   )
 }
 
-export function ErrorNotice({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+/** ``scope`` names the catalogue entry whose copy fits the page, such as "live.error". */
+export function ErrorNotice({
+  error,
+  onRetry,
+  scope = 'history.error',
+}: {
+  error: unknown
+  onRetry: () => void
+  scope?: string
+}) {
   const { t } = useTranslation()
   const kind = error instanceof ApiError ? error.kind : 'server'
   const key = kind === 'unreachable' ? 'unreachable' : kind === 'refused' ? 'refused' : 'server'
   return (
-    <Notice body={t(`history.error.${key}Body`)} title={t(`history.error.${key}Title`)} tone="problem">
+    <Notice body={t(`${scope}.${key}Body`)} title={t(`${scope}.${key}Title`)} tone="problem">
       <button className="button-secondary" type="button" onClick={onRetry}>
-        {t('history.error.retry')}
+        {t(`${scope}.retry`)}
       </button>
     </Notice>
   )

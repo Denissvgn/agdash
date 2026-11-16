@@ -28,6 +28,8 @@ export interface SessionSummary {
   cwd: string | null
   branch: string | null
   state: SessionState
+  /** Why the state was chosen, such as process_running; null when nothing was recorded. */
+  state_basis?: string | null
   started_at: string | null
   last_activity_at: string | null
   ended_at: string | null
