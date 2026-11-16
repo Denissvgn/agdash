@@ -40,6 +40,13 @@ Checks:
 (cd frontend && npm run lint && npm run test:run && npm run build)
 ```
 
+The same UI tests also run in WebKit, the engine of the desktop app's web view on
+macOS and Linux (the few that read files with Node run under jsdom only):
+
+```bash
+(cd frontend && npx playwright install webkit && npm run test:webkit)
+```
+
 Build the service as one self-contained binary for this machine, and check that it
 starts, answers `/health` and stops cleanly:
 

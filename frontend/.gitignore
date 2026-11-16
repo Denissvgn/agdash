@@ -1,0 +1,3 @@
+# What browser-mode tests save when they fail.
+__screenshots__/
+.vitest-attachments/

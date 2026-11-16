@@ -65,6 +65,29 @@ jobs:
       - run: npm run test:run
       - run: npm run build
 
+  webkit:
+    name: UI in WebKit (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      # WebKit is the engine of the app's web view on both systems.
+      - run: npx playwright install --with-deps webkit
+      - run: npm run test:webkit
+
   desktop:
     name: Desktop shell (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

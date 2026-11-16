@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import App from '../App'
 import { unnamedControls } from '../test/controls'
+import { DESKTOP, PHONE, setWidth } from '../test/viewport'
 
 function open(path: string) {
   window.location.hash = `#${path}`
@@ -82,6 +83,10 @@ describe('pages', () => {
 })
 
 describe('the navigation drawer', () => {
+  // The drawer is the navigation of narrow windows.
+  beforeEach(() => setWidth(PHONE))
+  afterEach(() => setWidth(DESKTOP))
+
   test('opens from the menu button and closes on Escape, returning focus', async () => {
     open('/analytics')
     const button = screen.getByRole('button', { name: 'Menu' })
@@ -128,6 +133,7 @@ describe('the navigation drawer', () => {
 })
 
 test('tapping the scrim closes the drawer', async () => {
+  await setWidth(PHONE)
   open('/live')
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Menu' })))
   const drawer = screen.getByRole('dialog', { name: 'Navigation' })
@@ -148,9 +154,12 @@ test('the window title names a missing page too', () => {
 })
 
 test('the close button is the first thing the drawer can focus', async () => {
+  await setWidth(PHONE)
   open('/live')
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Menu' })))
   const drawer = screen.getByRole('dialog', { name: 'Navigation' })
   const focusable = drawer.querySelectorAll('button, a[href], [tabindex]')
   expect(focusable[0]).toHaveAccessibleName('Close navigation')
 })
+
+afterEach(() => setWidth(DESKTOP))
