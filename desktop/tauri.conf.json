@@ -1,7 +1,7 @@
 {
   "productName": "agdash",
   "version": "0.1.0",
-  "identifier": "dev.agdash.app",
+  "identifier": "dev.agdash.dashboard",
   "build": {
     "frontendDist": "../frontend/dist",
     "devUrl": "http://localhost:5174"

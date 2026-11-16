@@ -77,6 +77,9 @@ itself and then on the `PATH`. Its checks:
 (cd desktop && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked)
 ```
 
+Building, signing and notarising the macOS app and disk image are in
+[docs/macos-package.md](docs/macos-package.md).
+
 Backfill speed and memory, and how to measure them, are in
 [docs/performance.md](docs/performance.md).
 
