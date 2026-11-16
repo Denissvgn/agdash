@@ -4,7 +4,8 @@ the API in one process.
 The data directory is created readable by its owner only (0700) and the SQLite
 database likewise (0600). The store runs in write-ahead mode, so the API reads
 while the collector writes. The service refuses any address that is not
-loopback before anything listens.
+loopback before anything listens. The WorkChord webhook receiver is a second
+listener on the same address, started only when a port is configured for it.
 """
 
 import contextlib
@@ -24,8 +25,9 @@ from sqlalchemy.orm import sessionmaker
 
 from agdash.api.security import NotLoopback, ensure_loopback
 from agdash.collector.run import Collector
-from agdash.config import database_url, get_settings
+from agdash.config import Settings, database_url, get_settings
 from agdash.connectors.mirror import MirrorSync
+from agdash.connectors.webhook import create_receiver
 from agdash.db.migrate import sync_database_url, upgrade
 from agdash.main import create_app
 from agdash.platform import Host, current_host
@@ -124,6 +126,31 @@ def collector_for(store: Store, host: Host | None = None) -> tuple[Collector, En
     return collector, engine
 
 
+def start_receiver(
+    settings: Settings, sessions: sessionmaker, secrets, wake
+) -> tuple[uvicorn.Server, threading.Thread] | None:
+    """The webhook receiver on its own port, or None, with nothing listening, when it is off."""
+    if settings.webhook_port is None:
+        return None
+    ensure_loopback(settings.host)
+    if settings.webhook_port == settings.port:
+        raise ValueError("the webhook receiver needs a port of its own")
+    config = uvicorn.Config(
+        create_receiver(sessions, secrets, wake),
+        host=settings.host,
+        port=settings.webhook_port,
+        access_log=False,
+        server_header=False,
+        proxy_headers=False,
+        timeout_graceful_shutdown=2,
+        log_level="warning",
+    )
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, name="agdash-webhook", daemon=True)
+    thread.start()
+    return server, thread
+
+
 def serve() -> int:
     """The service: the collector and the read API, until the process is told to stop."""
     settings = get_settings()
@@ -132,16 +159,24 @@ def serve() -> int:
     except NotLoopback as error:
         print(f"agdash: refusing to start: {error}", file=sys.stderr)
         return 2
+    if settings.webhook_port is not None and settings.webhook_port == settings.port:
+        print("agdash: refusing to start: the webhook receiver needs a port of its own")
+        return 2
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     store = prepare()
     collector, engine = collector_for(store)
     stop = threading.Event()
     threads = collector.run(stop)
-    threads += MirrorSync(
-        sessionmaker(engine, expire_on_commit=False), current_host().secret_store()
-    ).run(stop)
+    sessions = sessionmaker(engine, expire_on_commit=False)
+    secrets = current_host().secret_store()
+    mirror = MirrorSync(sessions, secrets)
+    threads += mirror.run(stop)
     log.info("collecting; serving on %s:%d", settings.host, settings.port)
+    receiver = None
     try:
+        receiver = start_receiver(settings, sessions, secrets, mirror.wake)
+        if receiver is not None:
+            log.info("receiving WorkChord webhooks on %s:%d", settings.host, settings.webhook_port)
         config = uvicorn.Config(
             create_app(store.url, port=settings.port),
             host=settings.host,
@@ -154,6 +189,9 @@ def serve() -> int:
         )
         _Server(config).run()
     finally:
+        if receiver is not None:
+            receiver[0].should_exit = True
+            threads.append(receiver[1])
         stop.set()
         for thread in threads:
             thread.join(timeout=10)

@@ -64,6 +64,11 @@ def run_key_ref(connection_id: int) -> str:
     return f"workchord.{connection_id}.run-key"
 
 
+def webhook_ref(connection_id: int) -> str:
+    """The secret WorkChord signs this connection's webhook deliveries with."""
+    return f"workchord.{connection_id}.webhook"
+
+
 # -- the read-only client -----------------------------------------------------------
 
 
@@ -387,7 +392,11 @@ class WorkChordConnector:
         )
 
     def forget(self, db: DbSession, secrets: SecretStore, connection: Connection) -> None:
-        for ref in (connection.credential_ref, connection.run_credential_ref):
+        for ref in (
+            connection.credential_ref,
+            connection.run_credential_ref,
+            webhook_ref(connection.id),
+        ):
             if ref:
                 secrets.delete(ref)
         db.delete(connection)

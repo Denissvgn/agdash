@@ -712,6 +712,10 @@ class MirrorSync:
             min(self._interval * (2**failures), self._max_backoff) if failures else self._interval
         )
 
+    def wake(self, connection_id: int) -> None:
+        """Sync this connection at the next tick instead of waiting for its turn."""
+        self._next[connection_id] = 0.0
+
     def due(self, connection_id: int) -> bool:
         return self._clock() >= self._next.get(connection_id, 0.0)
 

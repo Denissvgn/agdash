@@ -30,6 +30,7 @@ from agdash.connectors.workchord import (
     WorkChordConnector,
     pair,
     set_run_key,
+    webhook_ref,
 )
 from agdash.db.migrate import sync_database_url, upgrade
 from agdash.db.models import Connection
@@ -69,6 +70,7 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
         ("status", "whether a connection still works"),
         ("sync", "refresh the local copy of the server's objects once"),
         ("run-key", "store or clear an agent key with planning:read"),
+        ("webhook-secret", "store or clear the secret WorkChord signs webhooks with"),
         ("forget", "remove a connection and its stored credentials"),
     ):
         commands.add_parser(command, help=text).add_argument("id", type=int)
@@ -135,6 +137,21 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
         set_run_key(db, secrets, row, key or None)
         db.commit()
         print("Agent key stored." if key else "Agent key cleared.")
+        return 0
+    if args.command == "webhook-secret":
+        secret = (
+            getpass.getpass("Webhook signing secret, as set in WorkChord (empty to clear): ")
+            if sys.stdin.isatty()
+            else sys.stdin.readline()
+        ).strip()
+        if secret:
+            secrets.set(webhook_ref(row.id), secret)
+            print(
+                f"Webhook secret stored. WorkChord's target: /workchord/{row.id} on the receiver."
+            )
+        else:
+            secrets.delete(webhook_ref(row.id))
+            print("Webhook secret cleared; deliveries for this connection are refused.")
         return 0
     connector.forget(db, secrets, row)
     db.commit()

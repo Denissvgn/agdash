@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     retention_days: int | None = None
     # Keep the original harness lines, redacted and compressed, besides the events.
     keep_raw: bool = True
+    # A port for the WorkChord webhook receiver, on the same loopback address; unset is off.
+    webhook_port: int | None = None
 
 
 @lru_cache
