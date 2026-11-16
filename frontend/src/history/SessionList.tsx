@@ -1,6 +1,7 @@
 import { CircleAlert, CircleDashed } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import type { Excerpt, SessionHit, SessionState, SessionSummary } from '../api/types'
 import { formatWhen } from './format'
@@ -56,7 +57,9 @@ function Row({ session }: { session: SessionSummary | SessionHit }) {
         <StateChip state={session.state} />
         {/* At least 12rem for the title; the date wraps below it rather than squeezing it. */}
         <h3 className="line-clamp-2 min-w-[min(100%,12rem)] flex-1 break-words text-body font-semibold text-primary-ink roomy:line-clamp-none roomy:truncate">
-          {session.title || t('history.list.untitled')}
+          <Link className="hover:underline focus-visible:underline" to={`/history/sessions/${session.id}`}>
+            {session.title || t('history.list.untitled')}
+          </Link>
         </h3>
         <span className="data shrink-0 text-label text-secondary-ink">
           {lastActive ? t('history.list.lastActive', { when: lastActive }) : t('history.list.noActivity')}
