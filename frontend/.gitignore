@@ -1,3 +1,5 @@
 # What browser-mode tests save when they fail.
 __screenshots__/
 .vitest-attachments/
+# Chart-kit specimen captures, uploaded by CI for review.
+specimen-shots/

@@ -5,6 +5,7 @@ import { defineConfig } from 'vitest/config'
 // (WKWebView) and Linux (WebKitGTK). These read source or theme files with Node and
 // check code and data rather than rendering, so they run with the jsdom suite only.
 export const NODE_ONLY = [
+  'src/charts/geometry.test.ts',
   'src/i18n/keys.test.ts',
   'src/i18n/literals.test.ts',
   'src/theme/figures.test.ts',
