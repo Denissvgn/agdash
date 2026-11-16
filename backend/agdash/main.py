@@ -6,7 +6,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from agdash import __version__
-from agdash.api import analytics, exports, mapping, series, stream, timeline, workchord
+from agdash.api import (
+    analytics,
+    exports,
+    mapping,
+    projects,
+    series,
+    stream,
+    timeline,
+    workchord,
+)
 from agdash.api.routes import router
 from agdash.api.security import LazyToken, LocalAccess, load_or_create_token
 from agdash.api.store import Store
@@ -55,6 +64,7 @@ def create_app(
     app.include_router(timeline.router, prefix=settings.api_prefix)
     app.include_router(mapping.router, prefix=settings.api_prefix)
     app.include_router(workchord.router, prefix=settings.api_prefix)
+    app.include_router(projects.router, prefix=settings.api_prefix)
 
     @app.get("/health")
     def health() -> dict[str, str]:
