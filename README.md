@@ -52,6 +52,24 @@ starts, answers `/health` and stops cleanly:
 CI builds and smoke-tests it for macOS arm64 and x86_64 and Linux amd64 and arm64,
 each on a runner of that kind.
 
+The desktop app (`desktop/`, Tauri 2) is a window on the UI and a tray item with
+the number of live sessions. It attaches to the service on `127.0.0.1:8765`, or
+starts it (through the LaunchAgent or systemd unit when installed, otherwise
+`agdash serve` in its own process group), and takes the local token from
+`agdash token`. Quitting it leaves the service running. Build the UI first, then:
+
+```bash
+(cd frontend && npm run build)
+(cd desktop && cargo run)
+```
+
+`AGDASH_BIN` names the `agdash` command to use; by default the app looks beside
+itself and then on the `PATH`. Its checks:
+
+```bash
+(cd desktop && cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked)
+```
+
 Backfill speed and memory, and how to measure them, are in
 [docs/performance.md](docs/performance.md).
 

@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "The main window loads agdash's own UI and needs no app permissions: it talks only to the agdash service over loopback.",
+  "windows": ["main"],
+  "permissions": []
+}
