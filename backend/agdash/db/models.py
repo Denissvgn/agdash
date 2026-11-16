@@ -448,6 +448,33 @@ class ProjectLink(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utcnow)
 
 
+class PublishedLink(Base):
+    """A link agdash added on a WorkChord task, pointing at the session it observed.
+
+    The only thing agdash ever writes to WorkChord. One row per session and task,
+    so a link is sent once; ``refused`` rows are not sent again.
+    """
+
+    __tablename__ = "published_links"
+    __table_args__ = (
+        UniqueConstraint("connection_id", "session_id", "task_remote_id"),
+        Index(None, "session_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    connection_id: Mapped[int] = mapped_column(
+        ForeignKey("connections.id", ondelete="CASCADE"), nullable=False
+    )
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    task_remote_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)  # published or refused
+    remote_link_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempted_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
 class MappingRule(Base):
     """A rule or pin the user made: sessions that match resolve to a WorkChord target.
 
