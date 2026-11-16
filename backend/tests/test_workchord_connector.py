@@ -30,6 +30,7 @@ from agdash.connectors.http import (
 from agdash.connectors.workchord import (
     PAIRING_POSTS,
     PairingError,
+    Session,
     WorkChordClient,
     WorkChordConnector,
     finish_pairing,
@@ -54,6 +55,9 @@ class FakeWorkChord:
         self.connections: dict[str, dict] = {}
         self.sessions: dict[str, datetime] = {}
         self.agent_keys = {"agent-key-planning"}
+        self.features: list[str] = []
+        self.started: list[dict] = []
+        self.grant: str | None = None  # an access to issue whatever was asked for
 
     @property
     def transport(self) -> httpx.MockTransport:
@@ -95,6 +99,7 @@ class FakeWorkChord:
                 "workspace_role": None,
                 "projects": {},
                 "authentication_error": None,
+                "features": self.features,
             }
             if who == "person":
                 body.update(
@@ -106,7 +111,9 @@ class FakeWorkChord:
                 body["authentication_error"] = "authentication_required"
             return httpx.Response(200, json=body)
         if path == "/api/auth/native-connections/start" and method == "POST":
-            challenge = json.loads(request.content)["code_challenge"]
+            started = json.loads(request.content)
+            self.started.append(started)
+            challenge = started["code_challenge"]
             assert re.fullmatch(r"[A-Za-z0-9_-]{43}", challenge)
             request_id = random.token_urlsafe(32)[:43]
             expires = datetime.now(UTC) + timedelta(minutes=10)
@@ -115,6 +122,7 @@ class FakeWorkChord:
                 "approved": False,
                 "consumed": False,
                 "expires": expires,
+                "access": started.get("access"),
             }
             return httpx.Response(
                 201,
@@ -142,14 +150,15 @@ class FakeWorkChord:
             token = random.token_urlsafe(32)
             expires = datetime.now(UTC) + timedelta(hours=8)
             self.sessions[token] = expires
-            return httpx.Response(
-                200,
-                json={
-                    "access_token": token,
-                    "token_type": "Bearer",
-                    "expires_at": expires.isoformat(),
-                },
-            )
+            issued = {
+                "access_token": token,
+                "token_type": "Bearer",
+                "expires_at": expires.isoformat(),
+            }
+            access = self.grant or row["access"]
+            if access is not None:  # servers before observer sessions say nothing
+                issued["access"] = access
+            return httpx.Response(200, json=issued)
         if method != "GET":
             return httpx.Response(405)
         if path.startswith("/api/agent/") and path != "/api/agent/pipeline":
@@ -480,3 +489,58 @@ def test_every_endpoint_the_client_reads_is_in_the_access_document(server):
         forms = (f"`GET {path}`", f"`GET /api{path}`", f"`{path}`")
         assert any(form in document for form in forms), path
     assert "8efbcef87" in document, "the WorkChord commit the rules were read from"
+
+
+# -- read-only sessions -------------------------------------------------------------
+
+
+def test_a_server_that_offers_observer_sessions_gets_asked_for_one(server, place, capsys):
+    server.features = ["observer-sessions-v1"]
+    engine, store, secrets = opened(place)
+    with store() as db:
+        row = pair(db, secrets, ORIGIN, transport=server.transport, sleep=approving(server))
+        (started,) = server.started
+        assert (started["access"], started["client_label"]) == ("observe", "agdash")
+        assert Session.load(secrets.get(row.credential_ref)).access == "observe"
+        assert row.contract_seen["session_access"] == "observe"
+        assert row.contract_seen["features"] == ["observer-sessions-v1"]
+        assert WorkChordConnector(server.transport).access(db, secrets, row).session_access == (
+            "observe"
+        )
+        capsys.readouterr()
+        assert cli.run(["list"], db, secrets, server.transport) == 0
+        assert cli.run(["status", str(row.id)], db, secrets, server.transport) == 0
+    engine.dispose()
+    printed = capsys.readouterr().out
+    assert "read-only session" in printed and "session: read-only" in printed
+
+
+def test_an_older_server_still_pairs_a_full_session_and_says_so(server, place, capsys):
+    engine, store, secrets = opened(place)
+    with store() as db:
+        row = pair(db, secrets, ORIGIN, transport=server.transport, sleep=approving(server))
+        (started,) = server.started
+        assert set(started) == {"code_challenge"}
+        assert Session.load(secrets.get(row.credential_ref)).access == "full"
+        capsys.readouterr()
+        assert cli.run(["list"], db, secrets, server.transport) == 0
+    engine.dispose()
+    assert "full session" in capsys.readouterr().out
+
+
+def test_a_full_session_issued_for_a_read_only_request_is_not_kept(server, place):
+    server.features = ["observer-sessions-v1"]
+    server.grant = "full"
+    engine, store, secrets = opened(place)
+    with store() as db:
+        with pytest.raises(PairingError, match="read-only"):
+            pair(db, secrets, ORIGIN, transport=server.transport, sleep=approving(server))
+        db.rollback()
+        assert db.scalars(select(Connection)).all() == []
+    engine.dispose()
+
+
+def test_a_session_stored_before_access_was_recorded_loads_as_full():
+    stored = json.dumps({"token": "t", "expires_at": "2026-11-17T12:00:00+00:00"})
+    assert Session.load(stored).access == "full"
+    assert Session.load(Session("t", None, "observe").dump()).access == "observe"

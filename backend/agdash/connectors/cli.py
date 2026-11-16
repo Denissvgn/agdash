@@ -209,14 +209,28 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
             print(f"Not connected: {error}", file=sys.stderr)
             return 1
         db.commit()
-        how = "with your session" if row.credential_ref else "as an open local workspace"
+        access = (row.contract_seen or {}).get("session_access")
+        how = (
+            "as an open local workspace"
+            if not row.credential_ref
+            else (
+                "with a read-only session"
+                if access == "observe"
+                else "with your full session (this server has no read-only sessions)"
+            )
+        )
         print(f"Connected to {row.base_url} {how} (connection {row.id}).")
         return 0
     if args.command == "list":
         for row in db.scalars(
             select(Connection).where(Connection.kind == KIND).order_by(Connection.id)
         ):
-            how = "session" if row.credential_ref else "open"
+            access = (row.contract_seen or {}).get("session_access")
+            how = (
+                ("read-only session" if access == "observe" else "full session")
+                if row.credential_ref
+                else "open"
+            )
             runs = ", agent key" if row.run_credential_ref else ""
             publishing = ", publish on" if row.publish_enabled else ""
             print(f"{row.id}\t{row.base_url}\t{how}{runs}{publishing}\t{row.name or ''}")
@@ -228,6 +242,10 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
         print(f"Connection {row.id} to {row.base_url} {state}.")
         for label, value in (
             ("signed in as", access.principal),
+            (
+                "session",
+                {"observe": "read-only", "full": "full rights"}.get(access.session_access or ""),
+            ),
             ("workspace role", access.workspace_role),
             ("projects", access.projects),
             ("session expires", access.expires_at),

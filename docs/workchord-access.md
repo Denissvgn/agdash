@@ -38,6 +38,14 @@ session is kept read-only by the server. Either way, agdash's client refuses,
 in code, every method but GET and HEAD. Pairing alone may POST, and only to the start and exchange
 endpoints.
 
+When a managed server lists `observer-sessions-v1` among its features, agdash
+pairs as a read-only observer named `agdash`, and keeps the session only if the
+server issued it read-only. On an older server it pairs a full session and says
+so. `agdash connect list` and `agdash connect status ID` show which one a
+connection holds. agdash does not renew either kind; when one ends, pair again.
+Publish mode, when turned on, pairs a full session of its own for its one write
+and never uses this one.
+
 ## Two credentials, never in one request
 
 WorkChord rejects a request that carries credentials of two different

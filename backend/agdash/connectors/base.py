@@ -25,6 +25,7 @@ class Access:
     workspace_role: str | None = None
     projects: int | None = None
     run_traces: bool = False  # whether a second credential for run detail is stored
+    session_access: str | None = None  # "observe" (read-only on the server) or "full"
     expires_at: datetime | None = None
     problem: str | None = None  # why the connection does not work, when it does not
     notes: tuple[str, ...] = field(default=())
