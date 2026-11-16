@@ -13,13 +13,17 @@ is synced on its own, inside its own savepoint, and leaves a row in
   guess, and the row names where the shape broke (never the values).
 * **error** — the server could not be reached or failed; the next pass retries.
 
-Runs have no list endpoint, so the mirror refreshes the runs agdash already
-knows of: those a session links to, and those not yet ended. Actors come from
+With the agent key, the mirror refreshes the runs agdash already knows of: those
+a session links to, and those not yet ended. Without it, a server that lets
+people read runs (it lists ``person-run-reads-v1`` among its features) gives the
+newest runs from its run list instead. Either way each run keeps the harness
+session its actor declared, which links that session exactly. Actors come from
 the roster when the agent key may read it, and are otherwise learned from task
 claims and assignments, which name them.
 
 Only GET requests leave this module (the client refuses anything else). A
-server that cannot be reached is retried with exponential backoff.
+server that cannot be reached is retried with exponential backoff. After each
+pass, sessions are linked to runs and tasks (``agdash.connectors.links``).
 """
 
 import logging
@@ -36,6 +40,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import sessionmaker
 
+from agdash.connectors.links import Linker
 from agdash.connectors.workchord import KIND, Session, WorkChordClient, open_client
 from agdash.db.models import (
     Connection,
@@ -57,6 +62,8 @@ INTERVAL_SECONDS = 60.0
 MAX_BACKOFF_SECONDS = 900.0
 TICK_SECONDS = 5.0
 RUNS_PER_PASS = 50
+RUN_LIST_LIMIT = 200
+PERSON_RUN_READS = "person-run-reads-v1"
 ASSIGNMENT_LIMIT = 500
 USAGE_FIELDS = (
     "source",
@@ -157,6 +164,40 @@ class RunIn(_In):
     ended_at: datetime | None = None
 
 
+class _Harness(_In):
+    kind: str
+    session_id: str
+
+
+class RunRowIn(_In):
+    """A row of the run list people may read: no metadata, but the declared harness."""
+
+    id: int
+    task_id: int | None = None
+    actor_id: int
+    assignment_id: int | None = None
+    status: str
+    trace_id: str | None = None
+    harness: _Harness | None = None
+    configured_model_alias: str | None = None
+    resolved_model_id: str | None = None
+    started_at: datetime
+    heartbeat_at: datetime | None = None
+    ended_at: datetime | None = None
+    usage: dict[str, Any] | None = None
+
+
+def _declared_harness(metadata: dict[str, Any]) -> tuple[str | None, str | None]:
+    """The harness a run's metadata declares, if it has the shape WorkChord checks for."""
+    harness = metadata.get("harness")
+    if not isinstance(harness, dict):
+        return None, None
+    kind, session_id = harness.get("kind"), harness.get("session_id")
+    if not isinstance(kind, str) or not isinstance(session_id, str):
+        return None, None
+    return kind[:40], session_id[:255]
+
+
 class Unparseable(Exception):
     """The server's answer is not in a shape agdash knows."""
 
@@ -183,6 +224,7 @@ PIPELINE = TypeAdapter(dict[str, list[TaskIn]])
 ASSIGNMENTS = TypeAdapter(list[AssignmentIn])
 ACTORS = TypeAdapter(list[ActorIn])
 RUN = TypeAdapter(RunIn)
+RUN_ROWS = TypeAdapter(list[RunRowIn])
 
 
 def _flatten(tasks: Iterable[TaskIn]) -> Iterable[TaskIn]:
@@ -215,6 +257,7 @@ class Pass:
     projects: list[ProjectIn] | None = None
     actors_seen: dict[int, _Named] = field(default_factory=dict)
     roles: dict[int, str] = field(default_factory=dict)
+    features: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -424,8 +467,41 @@ class _Syncer:
             rows=learned,
         )
 
+    def _listed_runs(self) -> Outcome:
+        rows = _parse(RUN_ROWS, self.client.run_list(limit=RUN_LIST_LIMIT), "runs")
+        for run in rows:
+            usage = (
+                redact_value({k: run.usage.get(k) for k in USAGE_FIELDS if k in run.usage})
+                if run.usage
+                else None
+            )
+            _upsert(
+                self.db,
+                WcRun,
+                self.cid,
+                run.id,
+                task_remote_id=run.task_id,
+                actor_remote_id=run.actor_id,
+                assignment_remote_id=run.assignment_id,
+                status=run.status[:50],
+                trace_id=redact_text(run.trace_id)[:255] if run.trace_id else None,
+                configured_model_alias=run.configured_model_alias,
+                resolved_model_id=run.resolved_model_id,
+                declared_usage=usage,
+                started_at=_utc(run.started_at),
+                heartbeat_at=_utc(run.heartbeat_at),
+                ended_at=_utc(run.ended_at),
+                harness_kind=run.harness.kind[:40] if run.harness else None,
+                harness_session_id=run.harness.session_id[:255] if run.harness else None,
+                fetched_at=self.seen.now,
+            )
+        detail = f"the newest {RUN_LIST_LIMIT}" if len(rows) >= RUN_LIST_LIMIT else None
+        return Outcome(MirrorState.OK, detail, rows=len(rows))
+
     def runs(self) -> Outcome:
         if not self.client.can_read_runs:
+            if PERSON_RUN_READS in self.seen.features:
+                return self._listed_runs()
             raise Unavailable("runs need an agent key with planning:read")
         linked = select(RunLink.run_remote_id).where(
             RunLink.connection_id == self.cid, RunLink.run_remote_id.is_not(None)
@@ -465,6 +541,7 @@ class _Syncer:
             except httpx.HTTPStatusError as error:
                 if error.response.status_code not in (403, 404):
                     raise
+            kind, session_id = _declared_harness(run.metadata)
             _upsert(
                 self.db,
                 WcRun,
@@ -482,6 +559,8 @@ class _Syncer:
                 started_at=_utc(run.started_at),
                 heartbeat_at=_utc(run.heartbeat_at),
                 ended_at=_utc(run.ended_at),
+                harness_kind=kind,
+                harness_session_id=session_id,
                 fetched_at=self.seen.now,
             )
         left = max(0, len(order) - RUNS_PER_PASS)
@@ -562,6 +641,9 @@ def sync_connection(
             row.sync_state, row.last_error = SyncState.ERROR, problem
             return Report(row.id, False, problem, {})
         syncer = _Syncer(db, row, client, now)
+        features = me.get("features")
+        if isinstance(features, list):
+            syncer.seen.features = frozenset(f for f in features if isinstance(f, str))
         outcomes: dict[MirrorObject, Outcome] = {}
         for kind in ORDER:
             savepoint = db.begin_nested()
@@ -622,6 +704,7 @@ class MirrorSync:
         self._clock = clock
         self._next: dict[int, float] = {}
         self._failures: dict[int, int] = {}
+        self._linker = Linker()
 
     def delay(self, connection_id: int) -> float:
         failures = self._failures.get(connection_id, 0)
@@ -657,7 +740,19 @@ class MirrorSync:
             for gone in set(self._next) - set(ids):
                 self._next.pop(gone, None)
                 self._failures.pop(gone, None)
+            if reports:
+                self.link(db, ids)
         return reports
+
+    def link(self, db: DbSession, ids: list[int]) -> None:
+        """Link sessions to runs and tasks from local evidence and the fresh copy."""
+        try:
+            connections = [db.get(Connection, connection_id) for connection_id in ids]
+            self._linker.run(db, [c for c in connections if c is not None])
+            db.commit()
+        except Exception:
+            db.rollback()
+            log.exception("linking sessions to WorkChord failed; the next pass retries")
 
     def run(self, stop: threading.Event) -> list[threading.Thread]:
         def loop() -> None:

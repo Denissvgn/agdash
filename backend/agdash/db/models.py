@@ -337,6 +337,7 @@ class WcRun(Base):
         UniqueConstraint("connection_id", "remote_id"),
         Index(None, "connection_id", "trace_id"),
         Index(None, "connection_id", "task_remote_id"),
+        Index(None, "connection_id", "harness_session_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -357,6 +358,9 @@ class WcRun(Base):
     heartbeat_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    # The harness session the run's actor declared at begin: an exact link to a session.
+    harness_kind: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    harness_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class RunLink(Base):

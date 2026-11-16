@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import sessionmaker
 
 from agdash.config import get_settings
+from agdash.connectors.links import Linker
 from agdash.connectors.mirror import object_states, sync_connection
 from agdash.connectors.workchord import (
     KIND,
@@ -114,7 +115,11 @@ def run(argv: Sequence[str], db: DbSession, secrets: SecretStore, transport=None
         return 0 if state == "works" else 1
     if args.command == "sync":
         report = sync_connection(db, secrets, row, transport=transport)
+        linked = Linker().run(db, [row])
         db.commit()
+        if linked.added:
+            added = ", ".join(f"{n} {basis}" for basis, n in sorted(linked.added.items()))
+            print(f"New session links: {added}.")
         if not report.reachable:
             print(f"Not synced: {report.problem}", file=sys.stderr)
             return 1
