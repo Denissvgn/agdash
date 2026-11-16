@@ -43,6 +43,9 @@ PASSED_SETTINGS = (
 
 
 def service_program() -> tuple[str, ...]:
+    """How the service manager starts agdash: the frozen binary itself, or this Python."""
+    if getattr(sys, "frozen", False):
+        return (sys.executable, "serve")
     return (sys.executable, "-m", "agdash.cli", "serve")
 
 

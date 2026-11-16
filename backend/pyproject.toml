@@ -32,6 +32,10 @@ dev = [
     "pytest>=8.4,<10",
     "ruff>=0.8",
 ]
+# Builds the self-contained service binary (backend/packaging/agdash.spec).
+freeze = [
+    "pyinstaller>=6.16",
+]
 
 [tool.setuptools.packages.find]
 include = ["agdash*"]

@@ -40,6 +40,18 @@ Checks:
 (cd frontend && npm run lint && npm run test:run && npm run build)
 ```
 
+Build the service as one self-contained binary for this machine, and check that it
+starts, answers `/health` and stops cleanly:
+
+```bash
+.venv/bin/pip install -e "backend[freeze]"
+(cd backend && ../.venv/bin/pyinstaller --noconfirm packaging/agdash.spec)
+(cd backend && ../.venv/bin/python packaging/smoke.py dist/agdash)
+```
+
+CI builds and smoke-tests it for macOS arm64 and x86_64 and Linux amd64 and arm64,
+each on a runner of that kind.
+
 Contributor and agent rules are in [AGENTS.md](AGENTS.md).
 
 ## License

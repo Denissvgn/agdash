@@ -64,3 +64,47 @@ jobs:
       - run: npm run lint
       - run: npm run test:run
       - run: npm run build
+
+  freeze:
+    name: Service binary (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: macos-arm64, os: macos-15, arch: arm64 }
+          - { target: macos-x86_64, os: macos-15-intel, arch: x86_64 }
+          - { target: linux-amd64, os: ubuntu-24.04, arch: x86-64 }
+          - { target: linux-arm64, os: ubuntu-24.04-arm, arch: aarch64 }
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Create the project environment
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e "backend[freeze]"
+      - name: Build
+        working-directory: backend
+        run: ../.venv/bin/pyinstaller --noconfirm --log-level WARN packaging/agdash.spec
+      - name: Check the architecture
+        working-directory: backend
+        run: |
+          file dist/agdash
+          file dist/agdash | grep -q "${{ matrix.arch }}"
+      - name: Smoke test on this runner
+        working-directory: backend
+        run: python packaging/smoke.py dist/agdash
+      - name: Name the binary for its target
+        working-directory: backend
+        run: mv dist/agdash dist/agdash-${{ matrix.target }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agdash-${{ matrix.target }}
+          path: backend/dist/agdash-${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 14

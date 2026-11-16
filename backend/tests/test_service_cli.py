@@ -373,3 +373,14 @@ def test_the_service_collects_serves_and_stops_cleanly(tmp_path):
         if service.poll() is None:
             service.kill()
     assert database.exists(), "the data stays after the service stops"
+
+
+def test_the_installed_service_runs_the_frozen_binary_itself(monkeypatch):
+    monkeypatch.setattr(cli.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(cli.sys, "executable", "/Applications/agdash/agdash")
+    assert cli.service_program() == ("/Applications/agdash/agdash", "serve")
+
+
+def test_the_installed_service_runs_this_python_when_not_frozen(monkeypatch):
+    monkeypatch.delattr(cli.sys, "frozen", raising=False)
+    assert cli.service_program()[1:] == ("-m", "agdash.cli", "serve")
