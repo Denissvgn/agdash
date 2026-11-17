@@ -88,7 +88,7 @@ export function RowStrips({ row, scale, from, until }: { row: LiveRow; scale: He
           )}
         </span>
         {row.states.length > 0 ? (
-          <span className="flex items-center gap-sm">
+          <span className="flex flex-wrap items-center gap-x-sm gap-y-xs">
             <span className="w-[3.5rem] shrink-0">{t('live.strips.states')}</span>
             <StateStrip from={from} row={row} until={until} />
           </span>

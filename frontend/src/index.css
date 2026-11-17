@@ -95,3 +95,16 @@
     @apply border-planning-thread bg-planning-thread-soft text-planning-thread hover:bg-planning-thread-soft hover:text-planning-thread;
   }
 }
+
+/* Forced colours flatten fills and borders to one system colour, so a pressed or
+   checked pill takes the system's selection colours instead. Important, because the
+   utilities that colour a checked pill are emitted after everything else. */
+@media (forced-colors: active) {
+  .toggle-chip[aria-pressed='true'],
+  .toggle-chip:has(:checked) {
+    forced-color-adjust: none;
+    background-color: Highlight !important;
+    border-color: Highlight !important;
+    color: HighlightText !important;
+  }
+}

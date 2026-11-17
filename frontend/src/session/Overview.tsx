@@ -404,7 +404,7 @@ export function SessionOverviewFigure({
           aria-valuemin={model.start}
           aria-valuenow={Math.round(view0)}
           aria-valuetext={t('session.overview.windowValue', { from: formatMoment(new Date(view0)), to: formatMoment(new Date(view1)) })}
-          className="absolute cursor-grab touch-none rounded-compact outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-planning-thread"
+          className="absolute cursor-grab touch-none rounded-compact focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-planning-thread"
           role="slider"
           style={{ left: wx0, top: TOP, width: wx1 - wx0, height: height - AXIS - TOP }}
           tabIndex={0}

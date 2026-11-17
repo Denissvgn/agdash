@@ -109,10 +109,13 @@ export function Lanes({
       })),
     ]
     // Up and down move to the nearest mark in time on the lane above or below.
-    const navigate = rowNeighbours(
+    const neighbours = rowNeighbours(
       placed.map((p) => p.lane),
       placed.map((_, i) => marks[i].x),
     )
+    // Home and End go to the first and last span or moment; the breaks follow them in order.
+    const navigate = (from: number, key: string) =>
+      key === 'Home' ? 0 : key === 'End' ? placed.length - 1 : neighbours(from, key)
     const pick = (px: number, py: number) => {
       if (py > bottom) {
         const gap = x.gaps.findIndex((g) => Math.abs(g.x - px) <= BREAK)
