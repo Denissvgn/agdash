@@ -178,7 +178,7 @@ def serve() -> int:
         if receiver is not None:
             log.info("receiving WorkChord webhooks on %s:%d", settings.host, settings.webhook_port)
         config = uvicorn.Config(
-            create_app(store.url, port=settings.port),
+            create_app(store.url, port=settings.port, reading=collector.reading),
             host=settings.host,
             port=settings.port,
             access_log=False,

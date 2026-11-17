@@ -11,6 +11,7 @@ import { apiParams, isFiltered } from './filters'
 import { useAddressFilters, useFacets } from './hooks'
 import { PageHeader } from './PageHeader'
 import { ErrorNotice, LoadingRows, Notice, SessionRows, ShowMore } from './SessionList'
+import { ReadingLine } from '../shell/ReadingLine'
 
 const PAGE_SIZE = 30
 
@@ -37,6 +38,7 @@ export function SessionsPage() {
   return (
     <article aria-labelledby="page-title" className="flex flex-col gap-page-gap">
       <PageHeader purposeKey={`${base}.purpose`} titleKey={`${base}.title`} />
+      <ReadingLine />
       <FilterBar facets={facets.data} filters={filters} onChange={setFilters} />
       <Overview filters={filters} onChange={setFilters} />
       {sessions.isPending ? (

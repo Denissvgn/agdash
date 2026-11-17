@@ -103,6 +103,17 @@ export interface StateHistory {
   earlier_omitted: number
 }
 
+/**
+ * How far the service's read of what the harnesses had written when it started has got.
+ * `known` is false when the service cannot tell; until `finished`, lists are short.
+ */
+export interface Reading {
+  known: boolean
+  done: number
+  total: number
+  finished: boolean
+}
+
 /** The last 30 minutes of every live session: events per minute, and its states. */
 export interface LiveActivity {
   minutes: string[]

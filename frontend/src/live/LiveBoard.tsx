@@ -23,6 +23,7 @@ import {
 import { formatAgo } from './format'
 import { useLiveStream, type StreamMessage, type StreamStatus } from './stream'
 import { RowStrips, StripsKey, type LiveRow } from './Strips'
+import { ReadingLine } from '../shell/ReadingLine'
 
 const TICK_MS = 30_000
 const REFETCH_DELAY_MS = 300
@@ -380,6 +381,7 @@ export function LiveBoardPage() {
   return (
     <article aria-labelledby="page-title" className="flex flex-col gap-page-gap">
       <PageHeader purposeKey="workspaces.live.destinations.board.purpose" titleKey="workspaces.live.destinations.board.title" />
+      <ReadingLine />
       {query.isPending ? (
         <LoadingRows label={t('live.loading')} />
       ) : query.isError ? (

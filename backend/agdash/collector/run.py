@@ -50,7 +50,13 @@ from agdash.collector.state import (
     turn_phase,
 )
 from agdash.db.models import Event, Session, SessionProcess, SessionStateChange
-from agdash.ingest import Ingestor, discover_files
+from agdash.ingest import (
+    Ingestor,
+    discover_files,
+    match_files,
+    session_folders,
+    single_files,
+)
 from agdash.ingest.engine import ScanReport
 from agdash.ingest.ledger import SqlLedger
 from agdash.ingest.watch import run as watch
@@ -83,6 +89,22 @@ class Source:
     patterns: Sequence[str]
     writer: Callable[[], object]
     ingestor: Ingestor | None = None
+    # Folders watched whole, for what the harness keeps beside its session files.
+    beside: tuple[Path, ...] = ()
+
+
+@dataclass(frozen=True)
+class Reading:
+    """How far the read of everything the harnesses had written at start-up has got.
+
+    On a first start that is all their history; on a later one, mostly a check
+    that each file is where it was left. Until it is finished the store misses
+    sessions, so the UI says so rather than showing a short list as the whole.
+    """
+
+    done: int = 0
+    total: int = 0
+    finished: bool = False
 
 
 @dataclass
@@ -121,7 +143,6 @@ class Collector:
             base for base in roots[Harness.ANTIGRAVITY] if base.name in antigravity.SURFACES
         )
         directories = tuple(root for harness_roots in roots.values() for root in harness_roots)
-        self._directories = directories
         self._access = ReadOnlyAccess(directories, snapshot_dir=snapshot_dir)
         sources = [
             Source(
@@ -134,6 +155,8 @@ class Collector:
                 self._antigravity_bases,
                 antigravity.PATTERNS,
                 antigravity.Writer,
+                # Its summaries, read on every scan, sit beside the transcripts.
+                beside=self._antigravity_bases,
             ),
         ]
         for source in sources:
@@ -157,6 +180,8 @@ class Collector:
             clock=clock,
         )
         self._auth_at = 0.0
+        self._reading: Reading | None = None
+        self._reading_logged = time.monotonic()
 
     # -- ingest -----------------------------------------------------------------------
 
@@ -165,6 +190,73 @@ class Collector:
         for source in self._sources:
             found += discover_files(self._access, source.roots, source.patterns)
         return found
+
+    def watched(self) -> list[Path]:
+        """What to watch: where session files can be, and no more of a harness."""
+        folders: set[Path] = set()
+        for source in self._sources:
+            folders.update(session_folders(self._access, source.roots, source.patterns))
+            folders.update(single_files(self._access, source.roots, source.patterns))
+            folders.update(base for base in source.beside if base.is_dir())
+        return sorted(f for f in folders if not any(other in f.parents for other in folders))
+
+    def matching(self, paths: Iterable[Path]) -> list[Path]:
+        """The session files among ``paths``, found without listing any folder."""
+        paths = list(paths)
+        found: list[Path] = []
+        for source in self._sources:
+            found += match_files(self._access, source.roots, source.patterns, paths)
+        return found
+
+    def urgent_first(self, paths: list[Path]) -> list[Path]:
+        """``paths`` in the order to read them first: what runs now, then newest first.
+
+        The live board can only show a session once its file is read, so the
+        sessions with a process now, and their subagents, go before all history.
+        """
+        try:
+            snapshot = take_snapshot(self._probe.table(), self._probe, self._access.roots)
+            registry = self._claude_registry()
+            held = {f for process in snapshot.processes for f in process.harness_files}
+            running = {
+                registry[process.identity.pid].session_id
+                for process in snapshot.processes
+                if process.identity.pid in registry
+            }
+        except Exception:
+            log.exception("could not tell which sessions run now; reading newest first")
+            held, running = set(), set()
+
+        def runs_now(path: Path) -> bool:
+            return str(path) in held or path.stem in running or not running.isdisjoint(path.parts)
+
+        def urgency(path: Path) -> tuple[bool, float]:
+            try:
+                found = self._access.stat(path)
+            except OSError:
+                return True, 0.0
+            if runs_now(path):
+                # Smallest first: one long transcript should not hold the others back.
+                return False, float(found.st_size)
+            return True, -found.st_mtime
+
+        return sorted(paths, key=urgency)
+
+    def reading(self) -> Reading | None:
+        """How far the start-up read has got, or None when the loops do not run."""
+        return self._reading
+
+    def _read_so_far(self, done: int, total: int) -> None:
+        finished = done >= total
+        if self._reading is not None and self._reading.finished:
+            return
+        self._reading = Reading(done, total, finished)
+        now = time.monotonic()
+        if finished:
+            log.info("start-up read done: %d files", total)
+        elif now - self._reading_logged >= 30:
+            self._reading_logged = now
+            log.info("start-up read: %d of %d files", done, total)
 
     def scan(self, paths: Iterable[Path]) -> Totals:
         """Read new lines from ``paths``, each through its harness's adapter."""
@@ -394,22 +486,34 @@ class Collector:
 
     def run(self, stop: threading.Event, *, poll_seconds: float = 30.0) -> list[threading.Thread]:
         """Start both loops; they stop when ``stop`` is set."""
+        self._reading = Reading()
 
         def ingest_loop() -> None:
-            def scan(paths: list[Path]) -> None:
+            def scan(paths: list[Path]) -> bool:
                 try:
                     totals = self.scan(paths)
-                    if totals.lines:
+                    starting = self._reading is not None and not self._reading.finished
+                    if totals.lines and not starting:  # that read reports its own progress
                         log.info("read %d new lines from %d files", totals.lines, totals.files)
+                    return True
                 except Exception:
                     log.exception("an ingest pass failed; the next one retries")
+                    return False
+
+            def signature(path: Path) -> tuple[int, int, int]:
+                found = self._access.stat(path)
+                return found.st_size, found.st_mtime_ns, found.st_ino
 
             watch(
-                directories=self._directories,
+                directories=self.watched,
                 discover=self.discover,
                 scan=scan,
                 stop=stop,
                 poll_seconds=poll_seconds,
+                match=self.matching,
+                order=self.urgent_first,
+                progress=self._read_so_far,
+                signature=signature,
             )
 
         def probe_loop() -> None:

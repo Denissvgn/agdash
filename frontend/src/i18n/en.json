@@ -429,6 +429,12 @@
       "eventsKey": "Events per minute, darker for more"
     }
   },
+  "reading": {
+    "starting": "Looking for session files. Lists may be incomplete until this finishes.",
+    "underway": "Still catching up on session files: {{done}} of {{total}} done. Running sessions come first, then the newest; lists may be incomplete until this finishes.",
+    "announce": "agdash is still catching up on session files. Lists may be incomplete until this finishes.",
+    "finished": "agdash has caught up on session files. The lists are complete."
+  },
   "workchord": {
     "loading": "Loading connected servers",
     "servers": "Connected servers",

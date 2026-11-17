@@ -29,6 +29,34 @@ Measured on an Apple M5 Pro with 24 GB of memory, macOS 27.2, Python 3.14.
 
 The largest plain rollout on its own, 555 MB, peaks at 217 MB.
 
+## What shows while it runs
+
+The dashboard does not wait for a backfill. When the service starts, it reads
+the files of sessions that have a process now first, the smallest first, and
+then the rest from the newest to the oldest. It reads in slices of about a
+second, and between slices it reads whatever the harnesses wrote meanwhile, so
+a running session keeps up while history is still coming in. The Live board and
+History say how many files are read of how many until it is done.
+
+Only the folders that can hold session files are listed and watched: a
+harness's checkouts and installed packages beside them are never walked. A
+changed file is looked up directly, and a full pass over everything, every 30
+seconds, reads only the files whose size or modification time changed.
+
+On a home with 6,383 session files (7.4 GB of transcripts) beside 120,000 other
+files in the harness folders:
+
+| | |
+|---|---|
+| First live session on the board, first ever start | 6 s |
+| All eight running sessions on the board | 30 s |
+| Listing the session files | 0.6 s |
+| A restart catching up with every file | 9 s |
+| A line written by a harness reaching the store | 0.3 s (median) |
+
+A harness that writes its records late adds its own delay on top: Codex writes
+in bursts, many seconds after the events they record.
+
 ## Peak memory against transcript size
 
 | Rollout | 5 MB | 20 MB | 80 MB | 160 MB |

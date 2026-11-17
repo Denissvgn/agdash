@@ -14,6 +14,7 @@ import socket
 import stat
 import subprocess
 import sys
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -116,6 +117,108 @@ def test_backfill_reads_every_harness_and_archives_raw_lines(setup):
         assert harnesses == {"claude_code", "codex", "pi", "antigravity"}
         assert db.scalar(select(func.count()).select_from(RawChunk)) > 0
     assert collector.backfill().lines == 0, "a second pass reads nothing new"
+
+
+def test_only_where_session_files_can_be_is_watched(setup):
+    collector, _, _, home, _ = setup
+    # What a harness keeps beside its sessions is neither listed nor watched.
+    (home / ".codex/worktrees/checkout").mkdir(parents=True)
+    (home / ".pi/agent/install/node_modules").mkdir(parents=True)
+    real = home.resolve()
+    assert collector.watched() == sorted(
+        [
+            real / ".claude/projects",
+            real / ".codex/archived_sessions",
+            real / ".codex/session_index.jsonl",
+            real / ".codex/sessions",
+            # Antigravity keeps its summaries beside its transcripts, so each is watched whole.
+            real / ".gemini/antigravity",
+            real / ".gemini/antigravity-cli",
+            real / ".pi/agent/sessions",
+        ]
+    )
+    assert {path for path in collector.discover() if "worktrees" in path.parts} == set()
+
+
+def test_a_changed_file_is_matched_to_its_harness_without_listing(setup, monkeypatch):
+    collector, _, _, home, _ = setup
+    found = collector.discover()
+    rollout = next(home.glob(f".codex/sessions/*/*/*/rollout-*-{CODEX_SESSION}.jsonl")).resolve()
+    transcript = next(home.glob(f".claude/projects/*/{CLAUDE_SESSION}.jsonl")).resolve()
+    monkeypatch.setattr(
+        type(collector._access), "walk", lambda *_: pytest.fail("a folder was listed")
+    )
+    changed = [rollout, transcript, home / ".codex/goals_1.sqlite", home / ".codex/config.toml"]
+    assert sorted(collector.matching(changed)) == sorted([rollout, transcript])
+    assert sorted(collector.matching(found)) == sorted(found)
+
+
+def test_what_runs_now_is_read_first_then_the_newest(setup):
+    collector, _, probe, home, _ = setup
+    found = collector.discover()
+    # Every file a day apart, oldest first in name order: read in that order, the live
+    # sessions would wait for all the history before them.
+    for age, path in enumerate(sorted(found, reverse=True)):
+        when = (NOW - timedelta(days=age)).timestamp()
+        os.utime(path, (when, when))
+    rollout = next(home.glob(f".codex/sessions/*/*/*/rollout-*-{CODEX_SESSION}.jsonl")).resolve()
+    transcript = next(home.glob(f".claude/projects/*/{CLAUDE_SESSION}.jsonl")).resolve()
+    subagents = sorted(transcript.with_suffix("").glob("subagents/*.jsonl"))
+    (home / ".claude/sessions/5151.json").write_text(
+        json.dumps({"pid": 5151, "sessionId": CLAUDE_SESSION, "status": "busy"})
+    )
+    probe.rows = [
+        process(4242, "codex", ("codex", "exec", "do it")),
+        process(5151, "claude", ("claude",)),
+    ]
+    probe.files = {4242: [str(rollout)]}
+
+    ordered = collector.urgent_first(found)
+    running = {rollout, transcript, *subagents}
+    assert set(ordered[: len(running)]) == running, "sessions with a process, and their subagents"
+    sizes = [path.stat().st_size for path in ordered[: len(running)]]
+    assert sizes == sorted(sizes), "the smallest first, so one long transcript holds none back"
+    rest = ordered[len(running) :]
+    assert sorted(rest) == sorted(set(found) - running)
+    written = [path.stat().st_mtime for path in rest]
+    assert written == sorted(written, reverse=True), "then history, newest first"
+
+
+def test_reading_goes_newest_first_when_the_processes_cannot_be_seen(setup):
+    collector, _, probe, _, _ = setup
+    found = collector.discover()
+    for age, path in enumerate(found):
+        when = (NOW - timedelta(days=age)).timestamp()
+        os.utime(path, (when, when))
+    probe.table = lambda: 1 / 0
+    assert collector.urgent_first(list(reversed(found))) == found
+
+
+def test_the_start_up_read_reports_how_far_it_is_and_when_it_is_done(setup):
+    collector, sessions, *_ = setup
+    assert collector.reading() is None, "nothing is known before the loops run"
+    total = len(collector.discover())
+    stop = threading.Event()
+    seen = []
+    threads = collector.run(stop, poll_seconds=30.0)
+    try:
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            reading = collector.reading()
+            seen.append(reading)
+            if reading.finished:
+                break
+            time.sleep(0.005)
+    finally:
+        stop.set()
+        for thread in threads:
+            thread.join(timeout=20)
+    assert seen[0].finished is False
+    assert seen[-1] == type(seen[-1])(done=total, total=total, finished=True)
+    assert [reading.done for reading in seen] == sorted(reading.done for reading in seen)
+    with sessions() as db:
+        harnesses = set(db.scalars(select(Session.harness).distinct()))
+    assert harnesses == {"claude_code", "codex", "pi", "antigravity"}
 
 
 def test_a_running_codex_process_makes_its_session_live_and_its_exit_ends_it(setup):

@@ -128,15 +128,30 @@ class ReadOnlyAccess:
         Linked directories are not entered. A linked file is yielded only if
         its target is inside the allowlisted roots.
         """
-        for directory, subdirectories, names in os.walk(self.resolve(path), followlinks=False):
-            subdirectories.sort()
-            for name in sorted(names):
+        # Below a resolved folder, entered without following links, a plain file's path
+        # is already its real one, inside the roots. Only a link has to be resolved.
+        waiting = [str(self.resolve(path))]
+        while waiting:
+            directory = waiting.pop()
+            try:
+                with os.scandir(directory) as found:
+                    entries = sorted(found, key=lambda entry: entry.name)
+            except OSError:
+                continue
+            folders = []
+            for entry in entries:
                 try:
-                    real_path = self.resolve(os.path.join(directory, name))
+                    if entry.is_symlink():
+                        real_path = self.resolve(entry.path)
+                        if real_path.is_file():
+                            yield real_path
+                    elif entry.is_dir(follow_symlinks=False):
+                        folders.append(entry.path)
+                    elif entry.is_file(follow_symlinks=False):
+                        yield Path(entry.path)
                 except (OutsideAllowedRoots, OSError):
                     continue
-                if real_path.is_file():
-                    yield real_path
+            waiting.extend(reversed(folders))
 
     # -- files ---------------------------------------------------------------
 

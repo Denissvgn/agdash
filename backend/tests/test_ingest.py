@@ -20,7 +20,7 @@ from agdash.access import ReadOnlyAccess
 from agdash.access.guard import assert_untouched
 from agdash.db.migrate import upgrade
 from agdash.db.models import Event, IngestCursor, Session
-from agdash.ingest import Cursor, Ingestor, discover_files
+from agdash.ingest import Cursor, Ingestor, discover_files, match_files, pattern_folders
 from agdash.ingest.compressed import UnreadableArchive, compress, decompress
 from agdash.ingest.engine import split_lines
 from agdash.ingest.ledger import SqlLedger
@@ -371,6 +371,66 @@ def test_ingest_leaves_the_harness_directory_untouched(store, home):
 # -- keeping up ----------------------------------------------------------------------
 
 
+def test_only_the_folders_patterns_begin_with_are_listed(home, monkeypatch):
+    assert pattern_folders(PATTERNS) == ["archived_sessions", "sessions"]
+    assert pattern_folders(["a/b/*.x", "a/*.x", "index.jsonl"]) == ["a"]
+    assert pattern_folders(["*.jsonl", "sessions/*.jsonl"]) == [""]
+
+    (home / "sessions/2026/01/02" / NAME).write_bytes(record(1))
+    (home / "session_index.jsonl").write_text("{}\n")
+    # What a harness keeps beside its sessions: never listed, however much it is.
+    (home / "worktrees/checkout/sessions/2026/01/02").mkdir(parents=True)
+    (home / "worktrees/checkout/sessions/2026/01/02" / NAME).write_bytes(record(1))
+    access = ReadOnlyAccess([home], snapshot_dir=home.parent)
+    walked = []
+    walk = access.walk
+    monkeypatch.setattr(access, "walk", lambda path: walked.append(Path(path)) or walk(path))
+    found = discover_files(access, [home], [*PATTERNS, "session_index.jsonl"])
+    real = home.resolve()
+    assert found == [real / "session_index.jsonl", real / "sessions/2026/01/02" / NAME]
+    assert walked == [real / "archived_sessions", real / "sessions"]
+
+
+def test_a_linked_sessions_folder_is_not_entered(home):
+    elsewhere = home / "elsewhere/2026/01/02"
+    elsewhere.mkdir(parents=True)
+    (elsewhere / NAME).write_bytes(record(1))
+    (home / "sessions/2026/01/02").rmdir()
+    for folder in ("sessions/2026/01", "sessions/2026", "sessions"):
+        (home / folder).rmdir()
+    (home / "sessions").symlink_to(home / "elsewhere")
+    access = ReadOnlyAccess([home], snapshot_dir=home.parent)
+    assert discover_files(access, [home], PATTERNS) == []
+
+
+def test_changed_paths_are_matched_without_listing_a_folder(home, tmp_path, monkeypatch):
+    session_file = home / "sessions/2026/01/02" / NAME
+    session_file.write_bytes(record(1))
+    (home / "sessions/2026/01/02/notes.txt").write_text("x")
+    (home / "worktrees").mkdir()
+    (home / "worktrees" / NAME).write_bytes(record(1))
+    (tmp_path / "outside.jsonl").write_bytes(record(1))
+    (home / "archived_sessions/rollout-link.jsonl").symlink_to(tmp_path / "outside.jsonl")
+    access = ReadOnlyAccess([home], snapshot_dir=home.parent)
+    monkeypatch.setattr(access, "walk", lambda path: pytest.fail("a folder was listed"))
+    changed = [
+        session_file,
+        home / "sessions/2026/01/02/notes.txt",
+        home / "sessions/2026/01/02",  # a folder
+        home / "sessions/2026/01/02/rollout-gone.jsonl",  # deleted again
+        home / "worktrees" / NAME,  # not where sessions are kept
+        home / "archived_sessions/rollout-link.jsonl",  # leaves the roots
+        tmp_path / "outside.jsonl",
+    ]
+    assert match_files(access, [home], PATTERNS, changed) == [session_file.resolve()]
+    assert match_files(access, [home], PATTERNS, changed) == discover_files_plain(home)
+
+
+def discover_files_plain(home: Path) -> list[Path]:
+    access = ReadOnlyAccess([home], snapshot_dir=home.parent)
+    return discover_files(access, [home], PATTERNS)
+
+
 def _count(store) -> int:
     with store() as session:
         return session.scalar(select(func.count()).select_from(Event))
@@ -410,6 +470,201 @@ def test_the_watch_loop_ingests_lines_as_they_are_written(store, home, force_pol
         stop.set()
         worker.join(timeout=20)
     assert not worker.is_alive()
+
+
+class Recorder:
+    """A scan that only notes what it was asked to read, and when."""
+
+    def __init__(self, seconds: float = 0.0) -> None:
+        self.calls: list[list[Path]] = []
+        self.progress: list[tuple[int, int]] = []
+        self.discovered = 0
+        self._seconds = seconds
+
+    def scan(self, paths: list[Path]) -> None:
+        time.sleep(self._seconds)
+        self.calls.append(list(paths))
+
+    def read(self) -> list[Path]:
+        return [path for call in self.calls for path in call]
+
+
+def run_until(condition, *, timeout: float = 20.0, **options) -> None:
+    """Run the watch loop until ``condition()`` holds, then stop it."""
+    stop = threading.Event()
+    worker = threading.Thread(target=run, kwargs={"stop": stop, **options}, daemon=True)
+    worker.start()
+    try:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and not condition():
+            time.sleep(0.02)
+        assert condition(), "the loop did not get there in time"
+    finally:
+        stop.set()
+        worker.join(timeout=20)
+    assert not worker.is_alive()
+
+
+def test_the_first_read_goes_in_the_order_given_and_says_how_far_it_is(home):
+    files = [home / "sessions/2026/01/02" / NAME.replace("05-0b5", f"0{n}-0b5") for n in range(5)]
+    for path in files:
+        path.write_bytes(record(1))
+    seen = Recorder()
+    run_until(
+        lambda: seen.progress[-1:] == [(5, 5)],
+        directories=[home / "sessions"],
+        discover=lambda: sorted(files),
+        scan=seen.scan,
+        order=lambda paths: list(reversed(paths)),
+        progress=lambda done, total: seen.progress.append((done, total)),
+        slice_seconds=0.0,  # one file a slice
+        poll_seconds=30.0,
+    )
+    assert seen.read()[:5] == sorted(files, reverse=True)
+    assert seen.progress == [(0, 5), (1, 5), (2, 5), (3, 5), (4, 5), (5, 5)]
+
+
+@pytest.mark.parametrize("force_polling", [True, False], ids=["polling", "file-events"])
+def test_a_file_written_during_the_first_read_does_not_wait_for_its_end(home, force_polling):
+    old = [home / "archived_sessions" / f"rollout-old-{n:03}.jsonl" for n in range(120)]
+    live = home / "sessions/2026/01/02" / NAME
+    for path in [*old, live]:
+        path.write_bytes(record(1))
+    seen = Recorder(seconds=0.05)  # the whole first read takes six seconds
+    access = ReadOnlyAccess([home], snapshot_dir=home.parent)
+    written_at = 20  # a second in, once any kind of watcher has its bearings
+
+    def read_after_writing() -> int | None:
+        """Which scan first read the live file once it was written to, if any has yet."""
+        if len(seen.calls) == written_at:
+            with open(live, "ab") as target:
+                target.write(record(2))
+        # A watcher may name other files in the same batch, so the file is looked for.
+        return next(
+            (n for n, call in enumerate(seen.calls) if n > written_at and live.resolve() in call),
+            None,
+        )
+
+    run_until(
+        lambda: read_after_writing() is not None,
+        directories=[home / "sessions", home / "archived_sessions"],
+        discover=lambda: [*old, live],  # the live file would come last
+        scan=seen.scan,
+        match=lambda paths: match_files(access, [home], PATTERNS, paths),
+        slice_seconds=0.1,
+        force_polling=force_polling,
+        debounce_ms=50,
+    )
+    assert read_after_writing() < 100, "it was read long before the old files were done"
+
+
+def test_a_change_is_looked_up_directly_not_by_listing_everything_again(home):
+    path = home / "sessions/2026/01/02" / NAME
+    path.write_bytes(record(1))
+    seen = Recorder()
+    access = ReadOnlyAccess([home], snapshot_dir=home.parent)
+
+    def discover() -> list[Path]:
+        seen.discovered += 1
+        return discover_files(access, [home], PATTERNS)
+
+    def changed_and_read() -> bool:
+        if len(seen.calls) == 1:
+            with open(path, "ab") as target:
+                target.write(record(2))
+        return len(seen.calls) >= 2
+
+    run_until(
+        changed_and_read,
+        directories=[home / "sessions"],
+        discover=discover,
+        scan=seen.scan,
+        match=lambda paths: match_files(access, [home], PATTERNS, paths),
+        poll_seconds=30.0,
+        debounce_ms=50,
+    )
+    assert seen.calls[1] == [path.resolve()]
+    assert seen.discovered == 1
+
+
+def test_a_single_file_is_watched_like_a_folder(home):
+    index = home / "session_index.jsonl"
+    index.write_text("{}\n")
+    seen = Recorder()
+    access = ReadOnlyAccess([home], snapshot_dir=home.parent)
+
+    def changed_and_read() -> bool:
+        if len(seen.calls) == 1:
+            with open(index, "a") as target:
+                target.write("{}\n")
+        return len(seen.calls) >= 2
+
+    run_until(
+        changed_and_read,
+        directories=lambda: [index],
+        discover=lambda: [index.resolve()],
+        scan=seen.scan,
+        match=lambda paths: match_files(access, [home], ["session_index.jsonl"], paths),
+        poll_seconds=30.0,
+        debounce_ms=50,
+    )
+    assert seen.calls[1] == [index.resolve()]
+
+
+def _signature(path: Path) -> tuple[int, int]:
+    found = path.stat()
+    return found.st_size, found.st_mtime_ns
+
+
+def test_a_full_poll_reads_only_what_changed_since_it_was_last_read(home):
+    quiet = home / "archived_sessions" / "rollout-quiet.jsonl"
+    busy = home / "sessions/2026/01/02" / NAME
+    for path in (quiet, busy):
+        path.write_bytes(record(1))
+    seen = Recorder()
+
+    def discover() -> list[Path]:
+        seen.discovered += 1
+        return [quiet, busy]
+
+    def polled_then_written() -> bool:
+        if seen.discovered == 4 and busy.stat().st_size == len(record(1)):
+            with open(busy, "ab") as target:
+                target.write(record(2))
+        return seen.discovered >= 8
+
+    # Nothing is watched, so every pass after the first read is a full poll.
+    run_until(
+        polled_then_written,
+        directories=[],
+        discover=discover,
+        scan=seen.scan,
+        signature=_signature,
+        poll_seconds=0.05,
+    )
+    assert seen.calls[:2] == [[quiet], [busy]], "the first read takes every file"
+    later = [call for call in seen.calls[2:] if call]
+    assert later == [[busy]], "after it, only the file that was written to"
+
+
+def test_a_scan_that_failed_is_tried_again_at_the_next_full_poll(home):
+    path = home / "sessions/2026/01/02" / NAME
+    path.write_bytes(record(1))
+    calls: list[list[Path]] = []
+
+    def scan(paths: list[Path]) -> bool:
+        calls.append(list(paths))
+        return len(calls) > 2  # the store was busy twice
+
+    run_until(
+        lambda: len(calls) >= 5,
+        directories=[],
+        discover=lambda: [path],
+        scan=scan,
+        signature=_signature,
+        poll_seconds=0.05,
+    )
+    assert calls[:5] == [[path], [path], [path], [], []]
 
 
 # -- compressed archives ------------------------------------------------------------

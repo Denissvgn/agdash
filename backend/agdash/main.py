@@ -38,8 +38,13 @@ def create_app(
     token: str | Callable[[], str] | None = None,
     port: int | None = None,
     ui_dir: str | None = None,
+    reading: Callable[[], object] | None = None,
 ) -> FastAPI:
-    """The service's API. Nothing touches the database or the keyring until the first request."""
+    """The service's API. Nothing touches the database or the keyring until the first request.
+
+    ``reading`` reports how far the collector's start-up read has got, when the
+    collector runs in this process.
+    """
     settings = get_settings()
     store = Store(database_url or settings.database_url or default_database_url())
 
@@ -58,6 +63,7 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.store = store
+    app.state.reading = reading
     app.include_router(router, prefix=settings.api_prefix)
     app.include_router(stream.router, prefix=settings.api_prefix)
     app.include_router(exports.router, prefix=settings.api_prefix)
