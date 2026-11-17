@@ -270,7 +270,13 @@ for (const mode of MODES) {
     ...(forced ? { forcedColors: 'active' } : {}),
   })
   const page = await context.newPage()
-  page.on('pageerror', (error) => fail(`${engine} ${mode.name}`, `page error: ${error.message}`))
+  page.on('pageerror', (error) => {
+    // WebKit words a request that leaving the page cancelled as failing "access control
+    // checks". These pages only ask their own service, where no such check can fail, so
+    // that is the check's own next step cutting a request short, not an error of the page.
+    const cancelled = error.message.includes('due to access control checks') && error.message.includes(new URL(values.base).host)
+    if (!cancelled) fail(`${engine} ${mode.name}`, `page error: ${error.message}`)
+  })
   // The way `agdash open` hands a browser tab its token: the tab keeps it for later pages.
   await page.goto(`${values.base}/#agdash-token=${encodeURIComponent(values.token)}`)
   await page.waitForFunction(() => !window.location.hash.startsWith('#agdash-token='))
