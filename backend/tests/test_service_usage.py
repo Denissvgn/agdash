@@ -510,6 +510,7 @@ def test_the_store_is_given_by_what_fills_it(url, store, tmp_path):
         )
     with client(url) as api:
         parts = api.get("/api/storage/parts").json()
+    assert parts.pop("compacts_at_start") is False and parts.pop("releases") is False
     assert set(parts) == {"bytes", "archive_bytes", "free_bytes", "rest_bytes"}
     assert parts["archive_bytes"] == 5000
     assert parts["free_bytes"] is not None and parts["free_bytes"] >= 0

@@ -1075,7 +1075,9 @@
         "archive": "Original lines",
         "free": "Free inside the file"
       },
-      "note": "Free space inside the file is room that removed data left. New data fills it before the file grows."
+      "note": "Free space inside the file is room that removed data left. New data fills it before the file grows.",
+      "atStart": "So much is free that the service writes the store anew without it when it next starts, which takes some minutes.",
+      "released": "After a removal the service gives it back to the disk, a little at a time."
     },
     "encoded": {
       "term": "Encoded data",

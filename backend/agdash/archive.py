@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import sessionmaker
 
 from agdash import saved
+from agdash.compact import release
 from agdash.config import database_url
 from agdash.db.migrate import sync_database_url
 from agdash.db.models import RawChunk, SessionFile
@@ -246,6 +247,9 @@ class Trimmer:
                     log.info(
                         "archive: looked at %d chunks, %d bytes less", done.chunks, done.saved_bytes
                     )
+                    engine = self._sessions.kw.get("bind")
+                    if engine is not None:
+                        release(engine, stop=stop)
                 except Exception:
                     log.exception("trimming the archive failed; ask again to go on")
                 finally:
