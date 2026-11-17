@@ -204,13 +204,19 @@ def test_storage_says_where_the_store_is_and_how_much_it_holds(url, store, tmp_p
     assert found["store"]["sessions"] == 2
     first = datetime.fromisoformat(found["store"]["first_started_at"])
     assert timedelta(days=399) < datetime.now(UTC) - first < timedelta(days=401)
-    assert found["archive"] == {"enabled": True, "chunks": 0}
+    assert found["archive"] == {"enabled": True, "source": "default", "chunks": 0}
     # Off unless a limit is set: nothing is worked out, and nothing is named as removable.
+    # This process has no keeper, so it says it removes nothing by itself.
     assert found["retention"] == {
         "days": None,
+        "source": "default",
         "cutoff": None,
         "removable_sessions": None,
         "kept_alive": None,
+        "automatic": False,
+        "running": False,
+        "next_removal_at": None,
+        "last_removal": None,
     }
     assert "sqlite" not in answer.text, "the store's address is never returned"
 
@@ -228,13 +234,13 @@ def test_retention_in_effect_says_what_it_would_remove_and_removes_nothing(url, 
     with client(url) as api:
         found = api.get("/api/storage").json()
     retention = found["retention"]
-    assert retention["days"] == 30
+    assert retention["days"] == 30 and retention["source"] == "environment"
     cutoff = datetime.fromisoformat(retention["cutoff"])
     assert timedelta(days=29) < datetime.now(UTC) - cutoff < timedelta(days=31)
     assert retention["removable_sessions"] == 2
     # The idle one may still run, and the old parent stays with its recent child.
     assert retention["kept_alive"] == 2
-    assert found["archive"]["enabled"] is False
+    assert found["archive"]["enabled"] is False and found["archive"]["source"] == "environment"
     with store() as db:
         assert db.scalar(select(func.count()).select_from(Session)) == 6
 
@@ -266,11 +272,22 @@ def test_only_a_store_that_is_a_file_has_a_path():
 
 
 def test_these_routes_only_read_and_need_the_token(url, home):
-    for router in (sources.router, storage.router):
-        for route in router.routes:
-            assert isinstance(route, APIRoute) and route.methods <= {"GET", "HEAD"}, route.path
+    for route in sources.router.routes:
+        assert isinstance(route, APIRoute) and route.methods <= {"GET", "HEAD"}, route.path
+    # On storage, exactly the two routes it names may change anything.
+    writing = {
+        (method, route.path)
+        for route in storage.router.routes
+        for method in route.methods - {"GET", "HEAD"}
+    }
+    assert writing == storage.WRITE_ROUTES
     with client(url, home) as api:
-        for path in ("/api/sources", "/api/storage", "/api/storage/archive"):
+        for path in (
+            "/api/sources",
+            "/api/storage",
+            "/api/storage/archive",
+            "/api/storage/retention/preview?days=30",
+        ):
             assert api.get(path).status_code == 200, path
             assert api.get(path, headers={"Authorization": ""}).status_code == 401, path
             for method in ("post", "put", "patch", "delete"):

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../App'
 import { newQueryClient } from '../api/queryClient'
-import type { ArchiveSize, Source, SourcesReport, StorageReport } from '../api/types'
+import type { ArchiveSize, RetentionPreview, Source, SourcesReport, StorageReport } from '../api/types'
 import { unnamedControls } from '../test/controls'
 import { DESKTOP, PHONE, setWidth } from '../test/viewport'
 import { sizeParts } from './format'
@@ -94,10 +94,34 @@ const SOURCES: SourcesReport = {
   ],
 }
 
+// No limit, in a service that removes by itself once one is set.
 const STORAGE: StorageReport = {
   store: { file: '/home/example/agdash/agdash.db', bytes: 7_707_283_456, sessions: 7737, first_started_at: '2025-03-03T08:00:00Z' },
-  archive: { enabled: true, chunks: 10_841 },
-  retention: { days: null, cutoff: null, removable_sessions: null, kept_alive: null },
+  archive: { enabled: true, source: 'default', chunks: 10_841 },
+  retention: {
+    days: null,
+    source: 'default',
+    cutoff: null,
+    removable_sessions: null,
+    kept_alive: null,
+    automatic: true,
+    running: false,
+    next_removal_at: null,
+    last_removal: null,
+  },
+}
+// A limit of 30 days saved on the page, with sessions past it.
+const LIMITED: StorageReport = {
+  ...STORAGE,
+  retention: {
+    ...STORAGE.retention,
+    days: 30,
+    source: 'page',
+    cutoff: '2026-10-17T12:00:00Z',
+    removable_sessions: 1204,
+    kept_alive: 3,
+    next_removal_at: '2026-11-18T09:00:00Z',
+  },
 }
 
 type Served = {
@@ -105,19 +129,55 @@ type Served = {
   storage?: StorageReport | number
   archive?: ArchiveSize | number | 'never'
   exports?: Record<string, string | number>
+  /** What a limit would remove, by its days. */
+  preview?: (days: number) => RetentionPreview | number
+  /** What the service answers to a saved setting; the page then shows that. */
+  save?: (body: { retention_days?: number | null; keep_raw?: boolean }, now: StorageReport) => StorageReport | number
+  /** What the store holds once an asked-for removal is over. */
+  afterRemoval?: StorageReport
 }
 
 function serve(served: Served) {
   const asked: string[] = []
+  const sent: { path: string; body: unknown }[] = []
+  let storage = served.storage
+  let removing = false
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: string) => {
+    vi.fn(async (input: string, init?: RequestInit) => {
       const url = new URL(input, 'http://127.0.0.1:8765')
+      const json = (value: unknown, status = 200) =>
+        typeof value === 'number' ? new Response('{}', { status: value }) : new Response(JSON.stringify(value), { status })
+      if (init?.method === 'POST') {
+        const body = init.body ? JSON.parse(String(init.body)) : undefined
+        sent.push({ path: url.pathname, body })
+        if (typeof storage !== 'object') return json(404)
+        if (url.pathname === '/api/storage/settings') {
+          const answer = served.save?.(body, storage) ?? 500
+          if (typeof answer === 'object') storage = answer
+          return json(answer)
+        }
+        if (url.pathname === '/api/storage/retention/removal') {
+          if (!served.afterRemoval) return json(503)
+          removing = true
+          storage = { ...storage, retention: { ...storage.retention, running: true } }
+          return json(storage, 202)
+        }
+        return json(404)
+      }
       asked.push(`${url.pathname}${url.search}`)
-      const json = (value: unknown) =>
-        typeof value === 'number' ? new Response('{}', { status: value }) : new Response(JSON.stringify(value), { status: 200 })
       if (url.pathname === '/api/sources' && served.sources !== undefined) return json(served.sources)
-      if (url.pathname === '/api/storage' && served.storage !== undefined) return json(served.storage)
+      if (url.pathname === '/api/storage' && storage !== undefined) {
+        // The first look after a removal was asked for finds it over.
+        if (removing && served.afterRemoval) {
+          removing = false
+          storage = served.afterRemoval
+        }
+        return json(storage)
+      }
+      if (url.pathname === '/api/storage/retention/preview' && served.preview) {
+        return json(served.preview(Number(url.searchParams.get('days'))))
+      }
       if (url.pathname === '/api/storage/archive' && served.archive !== undefined) {
         if (served.archive === 'never') return new Promise<Response>(() => {})
         return json(served.archive)
@@ -157,7 +217,7 @@ function serve(served: Served) {
       return json(404)
     }),
   )
-  return asked
+  return { asked, sent }
 }
 
 function open(path: string) {
@@ -286,63 +346,227 @@ describe('Settings · Sources', () => {
 })
 
 describe('Settings · Data', () => {
-  test('says where the store is, how much it holds, and that nothing is removed', async () => {
-    const asked = serve({ storage: STORAGE, archive: { chunks: 10_841, bytes: 2_238_184_614 } })
+  const retentionOf = async () => within(await screen.findByRole('region', { name: 'Retention' }))
+  const limits = (retention: ReturnType<typeof within>) =>
+    within(retention.getByRole('radiogroup', { name: 'Keep' }))
+      .getAllByRole('radio')
+      .map((radio) => `${radio.closest('label')?.textContent}${(radio as HTMLInputElement).checked ? ' ✓' : ''}`)
+
+  test('says where the store is, how much it holds, and what is kept', async () => {
+    const { asked, sent } = serve({ storage: STORAGE, archive: { chunks: 10_841, bytes: 2_238_184_614 } })
     open('/settings/data')
     const store = await screen.findByRole('region', { name: 'Store' })
     expect(within(store).getByText('/home/example/agdash/agdash.db')).toBeInTheDocument()
     expect(within(store).getByText('7.7 GB')).toBeInTheDocument()
     expect(within(store).getByText('7,737 sessions, the earliest started Mar 3, 2025')).toBeInTheDocument()
     // The archive's size is asked for apart from the rest, and arrives after it.
-    expect(await within(store).findByText('Kept, redacted and compressed. 2.2 GB archived.')).toBeInTheDocument()
+    expect(await within(store).findByText('A copy is kept, redacted and compressed. 2.2 GB archived.')).toBeInTheDocument()
     expect(asked).toContain('/api/storage/archive')
-    expect(within(store).getByText('AGDASH_KEEP_RAW=false')).toBeInTheDocument()
+    expect(within(store).getByRole('checkbox', { name: "Keep a copy of the harnesses' original lines" })).toBeChecked()
 
-    const retention = screen.getByRole('region', { name: 'Retention' })
-    expect(within(retention).getByText('agdash keeps every session: no limit is set.')).toBeInTheDocument()
-    expect(within(retention).getByText('AGDASH_RETENTION_DAYS')).toBeInTheDocument()
-    expect(within(retention).queryByText('Would remove now')).toBeNull()
-    // With no limit the commands show an example one, and say so.
-    expect(within(retention).getByText('agdash retention --days 90')).toBeInTheDocument()
-    expect(within(retention).getByText('Lists what a limit of 90 days would remove. Removes nothing.')).toBeInTheDocument()
-    // The page reports; it offers nothing that changes or removes.
-    expect(within(retention).queryByRole('button')).toBeNull()
-    expect(within(retention).queryByRole('textbox')).toBeNull()
+    const retention = await retentionOf()
+    expect(retention.getByText('agdash keeps every session: no limit is set.')).toBeInTheDocument()
+    expect(limits(retention)).toEqual(['Everything ✓', '30 days', '90 days', '180 days', '365 days'])
+    expect(retention.getByText('Nothing: by default agdash keeps everything')).toBeInTheDocument()
+    // With no limit nothing can be removed, and nothing is offered that would.
+    expect(retention.queryByRole('button')).toBeNull()
+    expect(retention.queryByText('Would remove now')).toBeNull()
+    expect(retention.getByText('agdash retention --days 90')).toBeInTheDocument()
+    expect(sent).toEqual([])
     expect(unnamedControls(document.body)).toEqual([])
   })
 
-  test('a limit in effect says what it would remove now and what it keeps', async () => {
-    serve({
-      storage: {
-        ...STORAGE,
-        archive: { enabled: false, chunks: 0 },
-        retention: { days: 30, cutoff: '2026-10-17T12:00:00Z', removable_sessions: 1204, kept_alive: 3 },
+  test('a new limit shows what it would remove before it is saved, and saving removes nothing', async () => {
+    const { sent } = serve({
+      storage: STORAGE,
+      archive: { chunks: 1, bytes: 1 },
+      preview: (days) => ({ days, cutoff: '2026-10-17T12:00:00Z', removable_sessions: days === 30 ? 117 : 12, kept_alive: 2 }),
+      save: (body) => ({ ...LIMITED, retention: { ...LIMITED.retention, days: body.retention_days ?? null, removable_sessions: 117 } }),
+    })
+    open('/settings/data')
+    const retention = await retentionOf()
+    fireEvent.click(retention.getByRole('radio', { name: '90 days' }))
+    expect(await retention.findByText(/^12 sessions last active before Oct 17, 2026/)).toBeInTheDocument()
+    // Changing one's mind costs nothing: the choice goes back and nothing was sent.
+    fireEvent.click(retention.getByRole('button', { name: 'Cancel' }))
+    expect(limits(retention)[0]).toBe('Everything ✓')
+    expect(retention.queryByRole('button', { name: 'Save limit' })).toBeNull()
+
+    fireEvent.click(retention.getByRole('radio', { name: '30 days' }))
+    expect(await retention.findByText(/^117 sessions last active before Oct 17, 2026/)).toBeInTheDocument()
+    expect(retention.getByText('Keeping 30 days would remove now')).toBeInTheDocument()
+    // The last press before removal that asks no more says so, and that it cannot be undone.
+    expect(
+      retention.getByText(/^Saving removes nothing now\. From an hour after you save, .* without asking again, and they cannot be brought back\./),
+    ).toBeInTheDocument()
+    expect(sent).toEqual([])
+    fireEvent.click(retention.getByRole('button', { name: 'Save limit' }))
+    expect(await retention.findByText(/^Saved\. Nothing was removed; the next daily removal is on Nov 18, 2026/)).toBeInTheDocument()
+    expect(sent).toEqual([{ path: '/api/storage/settings', body: { retention_days: 30 } }])
+    expect(retention.getByText('agdash keeps 30 days of history. Sessions past that are removed once a day.')).toBeInTheDocument()
+    expect(limits(retention)).toEqual(['Everything', '30 days ✓', '90 days', '180 days', '365 days'])
+    expect(retention.getByText('This page')).toBeInTheDocument()
+    expect(retention.queryByRole('button', { name: 'Save limit' })).toBeNull()
+    expect(unnamedControls(document.body)).toEqual([])
+  })
+
+  test('keeping everything again is a choice that is saved too', async () => {
+    const { sent } = serve({ storage: LIMITED, archive: { chunks: 1, bytes: 1 }, save: () => STORAGE })
+    open('/settings/data')
+    const retention = await retentionOf()
+    fireEvent.click(retention.getByRole('radio', { name: 'Everything' }))
+    expect(retention.getByText('Keeping everything removes nothing, and ends the daily removal.')).toBeInTheDocument()
+    fireEvent.click(retention.getByRole('button', { name: 'Save limit' }))
+    expect(await retention.findByText('agdash keeps every session: no limit is set.')).toBeInTheDocument()
+    expect(sent).toEqual([{ path: '/api/storage/settings', body: { retention_days: null } }])
+  })
+
+  test('a limit is saved only once what it would remove has been shown', async () => {
+    let working = false
+    const { sent } = serve({
+      storage: STORAGE,
+      archive: { chunks: 1, bytes: 1 },
+      preview: (days) => (working ? { days, cutoff: '2026-10-17T12:00:00Z', removable_sessions: 117, kept_alive: 2 } : 500),
+      save: () => 500,
+    })
+    open('/settings/data')
+    const retention = await retentionOf()
+    fireEvent.click(retention.getByRole('radio', { name: '30 days' }))
+    // While it is worked out, and when it cannot be, there is nothing to agree to yet.
+    expect(retention.getByRole('button', { name: 'Save limit' })).toBeDisabled()
+    expect(await retention.findByText(/could not be worked out, so it cannot be saved yet\.$/, {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(retention.getByRole('button', { name: 'Save limit' })).toBeDisabled()
+    working = true
+    fireEvent.click(retention.getByRole('button', { name: 'Try again' }))
+    expect(await retention.findByText(/^117 sessions last active before Oct 17, 2026/)).toBeInTheDocument()
+    expect(retention.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(retention.getByRole('button', { name: 'Save limit' })).toBeEnabled()
+
+    fireEvent.click(retention.getByRole('button', { name: 'Save limit' }))
+    expect(await retention.findByText('The limit was not saved. Try again.')).toBeInTheDocument()
+    expect(retention.getByRole('button', { name: 'Save limit' })).toBeEnabled()
+    expect(sent).toHaveLength(1)
+  })
+
+  test('a limit in effect says what it would remove, what it keeps and when it next removes', async () => {
+    serve({ storage: LIMITED, archive: { chunks: 1, bytes: 1 } })
+    open('/settings/data')
+    const retention = await retentionOf()
+    expect(retention.getByText(/^1,204 sessions last active before Oct 17, 2026/)).toBeInTheDocument()
+    // Nothing is being tried, so nothing speaks of a limit that would be.
+    expect(retention.queryByText(/^Keeping .* would remove now$/)).toBeNull()
+    expect(retention.getByText('3 sessions that may still run, or belong with one that may')).toBeInTheDocument()
+    expect(retention.getByText(/^Once a day by the agdash service, next on Nov 18, 2026/)).toBeInTheDocument()
+    expect(retention.getByText('Nothing has been removed yet')).toBeInTheDocument()
+    expect(retention.getByText('agdash retention --apply')).toBeInTheDocument()
+  })
+
+  test('removing now is asked twice, says what goes, and is followed to its end', async () => {
+    const { asked, sent } = serve({
+      storage: LIMITED,
+      archive: { chunks: 1, bytes: 1 },
+      afterRemoval: {
+        ...LIMITED,
+        retention: {
+          ...LIMITED.retention,
+          removable_sessions: 0,
+          last_removal: { at: '2026-11-17T09:05:00Z', sessions: 1204, events: 52_000, automatic: false, error: null },
+        },
       },
     })
     open('/settings/data')
-    const retention = await screen.findByRole('region', { name: 'Retention' })
-    expect(within(retention).getByText(/^agdash is set to keep 30 days of history\./)).toBeInTheDocument()
-    expect(within(retention).getByText('AGDASH_RETENTION_DAYS=30')).toBeInTheDocument()
-    expect(within(retention).getByText(/^1,204 sessions last active before Oct 17, 2026/)).toBeInTheDocument()
-    expect(within(retention).getByText('3 sessions that may still run, or belong with one that may')).toBeInTheDocument()
-    expect(within(retention).getByText('agdash retention --days 30 --apply')).toBeInTheDocument()
-    expect(within(retention).getByText(/This cannot be undone\.$/)).toBeInTheDocument()
+    const retention = await retentionOf()
+    const looks = () => asked.filter((path) => path === '/api/storage').length
+    const before = looks()
+    fireEvent.click(retention.getByRole('button', { name: 'Remove 1,204 sessions now' }))
+    expect(retention.getByText(/^Remove 1,204 sessions last active before Oct 17, 2026.*\?$/)).toBeInTheDocument()
+    // The question is asked of what the store holds now: the page looks again as it opens.
+    await waitFor(() => expect(looks()).toBe(before + 1))
+    expect(retention.getByText(/cannot be brought back\. The harnesses' own files are not touched\.$/)).toBeInTheDocument()
+    // The safe answer has the focus, and taking it sends nothing.
+    await waitFor(() => expect(retention.getByRole('button', { name: 'Keep them' })).toHaveFocus())
+    fireEvent.click(retention.getByRole('button', { name: 'Keep them' }))
+    expect(retention.queryByRole('button', { name: 'Keep them' })).toBeNull()
+    expect(sent).toEqual([])
 
-    // Not kept, and nothing archived: nothing is measured, and no way to stop is offered.
-    const store = screen.getByRole('region', { name: 'Store' })
-    expect(within(store).getByText('Not kept for lines read from now on. Nothing is archived yet.')).toBeInTheDocument()
-    // The setting that turned it off is named, and how to keep them again.
-    expect(within(store).getByText('AGDASH_KEEP_RAW')).toBeInTheDocument()
-    expect(within(store).getByText(/^Turned off where the agdash service starts\./)).toBeInTheDocument()
-    expect(within(store).queryByText('AGDASH_KEEP_RAW=false')).toBeNull()
+    fireEvent.click(retention.getByRole('button', { name: 'Remove 1,204 sessions now' }))
+    await waitFor(() => expect(retention.getByRole('button', { name: 'Remove 1,204 sessions' })).toBeEnabled())
+    fireEvent.click(retention.getByRole('button', { name: 'Remove 1,204 sessions' }))
+    expect(await retention.findByText(/^Removing the sessions past the limit\./)).toBeInTheDocument()
+    // The time the question showed goes with the request, so nothing later can be taken.
+    expect(sent).toEqual([{ path: '/api/storage/retention/removal', body: { before: '2026-10-17T12:00:00Z' } }])
+    // With the question gone, the focus stays where it was asked.
+    expect(retention.getByRole('heading', { name: 'Remove now' })).toHaveFocus()
+    // The page asks again by itself until it is over, then says what went.
+    expect(await retention.findByText(/: 1,204 sessions with 52,000 events$/, {}, { timeout: 6000 })).toBeInTheDocument()
+    expect(retention.getByText('Nothing is past the limit now.')).toBeInTheDocument()
+    expect(retention.queryByText(/^Removing the sessions/)).toBeNull()
+    expect(unnamedControls(document.body)).toEqual([])
+  }, 10_000)
+
+  test('a service that removes nothing by itself offers the command, not a button', async () => {
+    serve({
+      storage: { ...LIMITED, retention: { ...LIMITED.retention, source: 'environment', days: 45, automatic: false, next_removal_at: null } },
+      archive: { chunks: 1, bytes: 1 },
+    })
+    open('/settings/data')
+    const retention = await retentionOf()
+    expect(retention.getByText(/^agdash is set to keep 45 days of history\. Nothing is removed until you run the command below\.$/)).toBeInTheDocument()
+    // A limit set where the service starts joins the choices, and is named as what it is.
+    expect(limits(retention)).toEqual(['Everything', '30 days', '45 days ✓', '90 days', '180 days', '365 days'])
+    expect(retention.getByText('AGDASH_RETENTION_DAYS=45')).toBeInTheDocument()
+    expect(retention.getByText('Only by the command below: this service removes nothing by itself')).toBeInTheDocument()
+    expect(retention.queryByRole('heading', { name: 'Remove now' })).toBeNull()
+    expect(retention.queryByRole('button')).toBeNull()
   })
 
-  test('the store’s facts show while the archive is still being measured, and when it cannot be', async () => {
+  test('a removal that did not finish is said, with its kind', async () => {
+    serve({
+      storage: {
+        ...LIMITED,
+        retention: {
+          ...LIMITED.retention,
+          last_removal: { at: '2026-11-17T09:05:00Z', sessions: 0, events: 0, automatic: true, error: 'OperationalError' },
+        },
+      },
+      archive: { chunks: 1, bytes: 1 },
+    })
+    open('/settings/data')
+    const retention = await retentionOf()
+    expect(retention.getByText(/: the removal did not finish \(OperationalError\)\. The next one tries again\.$/)).toBeInTheDocument()
+  })
+
+  test('keeping original lines is switched with a checkbox and saved as it is changed', async () => {
+    const { sent } = serve({
+      storage: STORAGE,
+      archive: { chunks: 10_841, bytes: 2_238_184_614 },
+      save: (body, now) => ({ ...now, archive: { ...now.archive, enabled: body.keep_raw ?? true, source: 'page' } }),
+    })
+    open('/settings/data')
+    const store = await screen.findByRole('region', { name: 'Store' })
+    fireEvent.click(within(store).getByRole('checkbox', { name: "Keep a copy of the harnesses' original lines" }))
+    // What is already archived stays, and is still measured.
+    expect(await within(store).findByText('No copy is kept of lines read from now on. 2.2 GB archived.')).toBeInTheDocument()
+    expect(within(store).getByText(/^Saved\. It holds from the next lines read/)).toBeInTheDocument()
+    expect(within(store).getByRole('checkbox')).not.toBeChecked()
+    expect(sent).toEqual([{ path: '/api/storage/settings', body: { keep_raw: false } }])
+  })
+
+  test('the store’s facts show while the archive is still being measured', async () => {
     serve({ storage: STORAGE, archive: 'never' })
     open('/settings/data')
     const store = await screen.findByRole('region', { name: 'Store' })
     expect(within(store).getByText('7.7 GB')).toBeInTheDocument()
-    expect(within(store).getByText('Kept, redacted and compressed. Measuring what is archived.')).toBeInTheDocument()
+    expect(within(store).getByText('A copy is kept, redacted and compressed. Measuring what is archived.')).toBeInTheDocument()
+  })
+
+  test('an archive set where the service starts names the setting', async () => {
+    serve({ storage: { ...STORAGE, archive: { enabled: false, source: 'environment', chunks: 0 } } })
+    open('/settings/data')
+    const store = await screen.findByRole('region', { name: 'Store' })
+    expect(within(store).getByText('No copy is kept of lines read from now on. Nothing is archived yet.')).toBeInTheDocument()
+    expect(within(store).getByText('AGDASH_KEEP_RAW')).toBeInTheDocument()
+    expect(within(store).getByRole('checkbox')).not.toBeChecked()
   })
 
   test('export is explained and leads to the sessions', async () => {
@@ -383,7 +607,7 @@ describe('exporting a session', () => {
 
   test('the choices open from the title line and each saves a file', async () => {
     const saved = saving()
-    const asked = serve({ exports: { markdown: '# Synthetic session\n', jsonl: '{"type":"session"}\n' } })
+    const { asked } = serve({ exports: { markdown: '# Synthetic session\n', jsonl: '{"type":"session"}\n' } })
     open('/history/sessions/1')
     const toggle = await screen.findByRole('button', { name: 'Export' })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')

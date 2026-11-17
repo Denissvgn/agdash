@@ -42,12 +42,14 @@ def create_app(
     ui_dir: str | None = None,
     reading: Callable[[], object] | None = None,
     host: Host | None = None,
+    retention: object | None = None,
 ) -> FastAPI:
     """The service's API. Nothing touches the database or the keyring until the first request.
 
     ``reading`` reports how far the collector's start-up read has got, when the
     collector runs in this process. ``host`` is the machine whose harness folders are
-    reported; left out, it is this one.
+    reported; left out, it is this one. ``retention`` is the service's keeper, which
+    removes sessions past the limit; without one this process only reports.
     """
     settings = get_settings()
     store = Store(database_url or settings.database_url or default_database_url())
@@ -60,8 +62,8 @@ def create_app(
     app = FastAPI(
         title="agdash",
         version=__version__,
-        summary="Read API over the agentic coding sessions seen on this host, and the "
-        "WorkChord connector's settings.",
+        summary="Read API over the agentic coding sessions seen on this host, with the "
+        "WorkChord connector's settings and agdash's own.",
         docs_url=f"{settings.api_prefix}/docs",
         openapi_url=f"{settings.api_prefix}/openapi.json",
         lifespan=lifespan,
@@ -69,6 +71,7 @@ def create_app(
     app.state.store = store
     app.state.reading = reading
     app.state.host = host
+    app.state.retention = retention
     app.include_router(router, prefix=settings.api_prefix)
     app.include_router(stream.router, prefix=settings.api_prefix)
     app.include_router(exports.router, prefix=settings.api_prefix)

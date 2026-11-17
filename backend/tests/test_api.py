@@ -16,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from agdash.access import ReadOnlyAccess
 from agdash.adapters import antigravity, claude_code, codex, pi
 from agdash.api.routes import match_expression, router
+from agdash.api.storage import WRITE_ROUTES as STORAGE_WRITE_ROUTES
 from agdash.api.workchord import WRITE_ROUTES
 from agdash.db.migrate import upgrade
 from agdash.db.models import Event, Session
@@ -226,6 +227,7 @@ def test_reading_every_endpoint_leaves_the_store_unchanged(filled):
             "/api/sources",
             "/api/storage",
             "/api/storage/archive",
+            "/api/storage/retention/preview?days=30",
         ):
             assert fresh.get(url).status_code == 200, url
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
@@ -267,15 +269,19 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/sources",
         "/api/storage",
         "/api/storage/archive",
+        "/api/storage/retention/preview",
+        "/api/storage/settings",
+        "/api/storage/retention/removal",
     }
-    # Only the WorkChord settings routes change anything; every other route reads.
+    # Only the settings routes change anything, the WorkChord connector's and agdash's
+    # own; every other route reads.
     writes = {
         (method.upper(), path.removeprefix("/api"))
         for path, operations in document["paths"].items()
         for method in operations
         if method != "get"
     }
-    assert writes == WRITE_ROUTES
+    assert writes == WRITE_ROUTES | STORAGE_WRITE_ROUTES
     for schema in (
         "SessionSummary",
         "SessionDetail",

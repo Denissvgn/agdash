@@ -25,7 +25,14 @@ MAX_CHUNK_BYTES = 256 * 1024 * 1024
 class Archiving:
     """An adapter writer that also keeps the redacted, compressed lines it was given."""
 
-    def __init__(self, inner: Writer, harness: str, *, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        inner: Writer,
+        harness: str,
+        *,
+        enabled: bool | Callable[[DbSession], bool] = True,
+    ) -> None:
+        """``enabled`` may be asked of the store each time, so a saved change holds at once."""
         self._inner = inner
         self._harness = harness
         self._enabled = enabled
@@ -33,7 +40,9 @@ class Archiving:
 
     def __call__(self, db: DbSession, cursor: Cursor, lines: Sequence[Line]) -> None:
         self._inner(db, cursor, lines)
-        if not self._enabled or not lines:
+        if not lines:
+            return
+        if not (self._enabled(db) if callable(self._enabled) else self._enabled):
             return
         data = self._compressor.frame(
             (redact_text(line.data.decode("utf-8", errors="replace")) + "\n").encode("utf-8")

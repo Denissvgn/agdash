@@ -276,4 +276,10 @@ def test_the_settings_writer_cannot_touch_collected_data(url):
         assert db.scalar(select(Session.title).where(Session.id == ids["inside"])) is None
         assert db.scalars(select(ProjectLink)).all() == []
     engine.dispose()
-    assert WRITABLE == {"connections", "mapping_rules", "identity_links", "project_links"}
+    assert WRITABLE == {
+        "connections",
+        "mapping_rules",
+        "identity_links",
+        "project_links",
+        "settings",
+    }

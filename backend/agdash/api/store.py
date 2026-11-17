@@ -1,11 +1,12 @@
 """The API's connections to the store, opened lazily.
 
 Every reading connection is put in read-only mode by the database itself, so a
-mistake in a handler cannot change collected data. The WorkChord settings
-routes have one more connection, for writing, which on SQLite the database lets
-change only the connector's own tables: connections, mapping rules and pins,
-and the mappings worked out from them. Sessions, events and everything else
-collected stay out of its reach.
+mistake in a handler cannot change collected data. The settings routes have one
+more connection, for writing, which on SQLite the database lets change only
+settings: the WorkChord connector's own tables (connections, mapping rules and
+pins, and the mappings worked out from them) and agdash's own ``settings``.
+Sessions, events and everything else collected stay out of its reach; removing
+sessions past the retention limit is the service's keeper's work, not the API's.
 """
 
 import sqlite3
@@ -41,7 +42,9 @@ def read_only_engine(database_url: str) -> Engine:
 
 
 # What the API's writer may change; every other table is read-only to it.
-WRITABLE = frozenset({"connections", "mapping_rules", "identity_links", "project_links"})
+WRITABLE = frozenset(
+    {"connections", "mapping_rules", "identity_links", "project_links", "settings"}
+)
 _WRITES = {sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE}
 _SCHEMA = {
     action
@@ -59,7 +62,7 @@ def _authorize(action: int, first, _second, _database, _source) -> int:
 
 
 def settings_engine(database_url: str) -> Engine:
-    """A connection that may write the connector's own tables and nothing else."""
+    """A connection that may write settings, the connector's and agdash's own, and nothing else."""
     url = sync_database_url(database_url)
     sqlite = url.startswith("sqlite")
     engine = create_engine(url, connect_args={"check_same_thread": False} if sqlite else {})
@@ -104,7 +107,7 @@ class Store:
 
     @contextmanager
     def writing(self) -> Iterator[DbSession]:
-        """For the WorkChord settings routes only; see ``settings_engine``."""
+        """For the settings routes only; see ``settings_engine``."""
         with self._lock:
             if self._writer is None:
                 self._writer = sessionmaker(

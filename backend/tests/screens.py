@@ -12,8 +12,9 @@ Every name, folder and number here is made up. The store holds:
   and folder rules, for Projects;
 - files read for three of the four harnesses, a format that changed last week, and
   archived lines, for Settings. Served, the harness folders are looked for in a made-up
-  home beside the store, where Pi has none. Set ``AGDASH_RETENTION_DAYS`` to see a
-  limit in effect.
+  home beside the store, where Pi has none, and a keeper runs as in the service, so a
+  limit saved on the Data page can be applied there: it removes from this made-up store
+  only. Set ``AGDASH_RETENTION_DAYS`` to start with a limit in effect.
 
 Run from ``backend/`` to serve it on loopback with the built UI::
 
@@ -669,11 +670,15 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    import threading
+
     import uvicorn
 
     from agdash.collector.run import Reading
     from agdash.main import create_app
     from agdash.platform import Host, current_host
+    from agdash.retention import Keeper
+    from agdash.runtime import writer_engine
 
     reading = None
     if args.reading:
@@ -689,7 +694,17 @@ def main() -> None:
     for found in HOME_FOLDERS:
         (home / found).mkdir(parents=True)
     host = Host(current_host().os, home, {})
-    app = create_app(url, token=TOKEN, port=args.port, ui_dir=args.ui, reading=reading, host=host)
+    keeper = Keeper(sessionmaker(writer_engine(url), expire_on_commit=False))
+    keeper.run(threading.Event())
+    app = create_app(
+        url,
+        token=TOKEN,
+        port=args.port,
+        ui_dir=args.ui,
+        reading=reading,
+        host=host,
+        retention=keeper,
+    )
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 
 

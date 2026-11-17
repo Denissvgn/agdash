@@ -126,7 +126,7 @@ class Collector:
         host: Host,
         *,
         snapshot_dir: Path,
-        keep_raw: bool = True,
+        keep_raw: bool | Callable[[DbSession], bool] = True,
         probe=None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
