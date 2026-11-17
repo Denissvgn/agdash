@@ -66,6 +66,13 @@ test('a read that never gets an answer fails as unreachable after the timeout, s
   }
 })
 
+test.each([502, 503, 504])('a gateway that cannot reach the service (%i) reads as unreachable, not as its failure', async (status) => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status })))
+  const error = await getJson('/api/sessions').catch((caught: unknown) => caught)
+  expect(error).toBeInstanceOf(ApiError)
+  expect((error as ApiError).kind).toBe('unreachable')
+})
+
 test("the caller's cancel is still a cancel, not an error, and clears the timeout", async () => {
   vi.useFakeTimers()
   try {
