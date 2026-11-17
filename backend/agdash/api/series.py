@@ -30,7 +30,7 @@ from sqlalchemy import func, select
 
 from agdash.api.analytics import METRICS
 from agdash.api.routes import Db, Filters, _one_per_message
-from agdash.db.models import Event, Session
+from agdash.db.models import Event, EventUsage, Session
 
 router = APIRouter()
 
@@ -273,18 +273,20 @@ def series_report(
     by_model = group == "model"
     keys = {} if by_model else _keys(db, scope, group)
 
-    usage = select(Event.session_id, Event.occurred_at, Event.payload).where(
-        Event.id.in_(_one_per_message().where(Event.session_id.in_(scope)))
+    numbers = [getattr(EventUsage, metric) for metric in METRICS]
+    usage = select(EventUsage.session_id, EventUsage.occurred_at, EventUsage.model, *numbers).where(
+        EventUsage.event_id.in_(_one_per_message().where(EventUsage.session_id.in_(scope)))
     )
     if since is not None:
-        usage = usage.where(Event.occurred_at >= since)
+        usage = usage.where(EventUsage.occurred_at >= since)
     if until is not None:
-        usage = usage.where(Event.occurred_at < until)
+        usage = usage.where(EventUsage.occurred_at < until)
     reports, undated = [], 0
-    for session_id, occurred, payload in db.execute(usage):
+    for session_id, occurred, model, *values in db.execute(usage):
         if occurred is None:
             undated += 1
             continue
+        payload = {"model": model, **dict(zip(METRICS, values, strict=True))}
         reports.append((session_id, occurred, payload))
     minutes = [] if by_model else _session_minutes(db, scope, since, until)
 

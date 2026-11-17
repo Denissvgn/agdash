@@ -28,7 +28,7 @@ from sqlalchemy import case, func, select
 from agdash.api.analytics import METRICS
 from agdash.api.routes import Db, _one_per_message
 from agdash.api.series import Span, _minute, _next, _spans, _zone
-from agdash.db.models import Event, Session, SessionStateChange
+from agdash.db.models import Event, EventUsage, Session, SessionStateChange
 from agdash.vocab import EventKind, ParentBasis, SessionState, StateBasis, ThoughtsCoverage
 
 router = APIRouter()
@@ -288,18 +288,22 @@ def _turns(db, session_id: int) -> list[Turn]:
         .where(Event.session_id == session_id, Event.kind == EventKind.USER_PROMPT)
         .order_by(Event.sequence)
     ).all()
+    # The numbers from the narrow usage table; the event itself only for where it sits.
     usage = db.execute(
-        select(Event.sequence, Event.payload).where(
-            Event.id.in_(_one_per_message().where(Event.session_id == session_id))
+        select(Event.sequence, *(getattr(EventUsage, metric) for metric in METRICS))
+        .join(EventUsage, EventUsage.event_id == Event.id)
+        .where(
+            EventUsage.event_id.in_(_one_per_message().where(EventUsage.session_id == session_id))
         )
     ).all()
     starts = [sequence for sequence, _ in prompts]
     totals: dict[int, dict[str, Any]] = defaultdict(lambda: {"messages": 0, "by": {}})
-    for sequence, payload in usage:
+    for sequence, *values in usage:
+        payload = dict(zip(METRICS, values, strict=True))
         turn = totals[bisect_right(starts, sequence)]
         turn["messages"] += 1
         for metric in METRICS:
-            value = (payload or {}).get(metric)
+            value = payload.get(metric)
             if isinstance(value, bool) or not isinstance(value, int | float):
                 continue
             turn[metric] = (turn.get(metric) or 0) + value

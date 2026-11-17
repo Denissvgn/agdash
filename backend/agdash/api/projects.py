@@ -38,7 +38,7 @@ from agdash.connectors.resolver import ACTOR_ORDER, PROJECT_ORDER, Candidate, de
 from agdash.connectors.workchord import KIND
 from agdash.db.models import (
     Connection,
-    Event,
+    EventUsage,
     IdentityLink,
     ProjectLink,
     RunLink,
@@ -231,9 +231,13 @@ def board(
     usage = {
         sid: UsageTotals(**_usage(rest))
         for sid, *rest in db.execute(
-            select(Event.session_id, *_usage_columns())
-            .where(Event.id.in_(_one_per_message().where(Event.session_id.in_(ids or [-1]))))
-            .group_by(Event.session_id)
+            select(EventUsage.session_id, *_usage_columns())
+            .where(
+                EventUsage.event_id.in_(
+                    _one_per_message().where(EventUsage.session_id.in_(ids or [-1]))
+                )
+            )
+            .group_by(EventUsage.session_id)
         )
     }
     if row is None:
