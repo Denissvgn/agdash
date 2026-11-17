@@ -16,7 +16,7 @@ from sqlalchemy.orm import aliased
 
 from agdash.api.routes import Db, Filters, _one_per_message, _usage, _usage_columns
 from agdash.api.schemas import UsageTotals
-from agdash.db.models import Event, Session
+from agdash.db.models import EventTool, EventUsage, Session
 from agdash.vocab import EventKind
 
 router = APIRouter()
@@ -39,7 +39,7 @@ def _reporting_columns():
     """Per metric, how many sessions reported it at least once."""
     return [
         func.count(
-            func.distinct(case((Event.payload[metric].as_float().is_not(None), Event.session_id)))
+            func.distinct(case((getattr(EventUsage, metric).is_not(None), EventUsage.session_id)))
         )
         for metric in METRICS
     ]
@@ -110,11 +110,13 @@ def usage_report(
     group: Annotated[Group, Query(description="What to group by.")] = "harness",
 ) -> dict[str, Any]:
     scope = filters.apply(select(Session.id))
-    usage_ids = _one_per_message().where(Event.session_id.in_(scope))
-    in_usage = Event.id.in_(usage_ids)
+    usage_ids = _one_per_message().where(EventUsage.session_id.in_(scope))
+    in_usage = EventUsage.event_id.in_(usage_ids)
 
     total_usage = db.execute(select(*_usage_columns(), *_reporting_columns()).where(in_usage)).one()
-    with_usage = db.scalar(select(func.count(func.distinct(Event.session_id))).where(in_usage)) or 0
+    with_usage = (
+        db.scalar(select(func.count(func.distinct(EventUsage.session_id))).where(in_usage)) or 0
+    )
     overall = _durations(db, scope, Session.harness)
     sessions = sum(row[0] for row in overall.values())
     known = sum(row[2] for row in overall.values())
@@ -130,11 +132,11 @@ def usage_report(
 
     rows: list[UsageRow] = []
     if group == "model":
-        model = Event.payload["model"].as_string()
+        model = EventUsage.model
         for key, reporting, *numbers in db.execute(
             select(
                 model,
-                func.count(func.distinct(Event.session_id)),
+                func.count(func.distinct(EventUsage.session_id)),
                 *_usage_columns(),
                 *_reporting_columns(),
             )
@@ -160,11 +162,11 @@ def usage_report(
             for key, reporting, *numbers in db.execute(
                 select(
                     key_column,
-                    func.count(func.distinct(Event.session_id)),
+                    func.count(func.distinct(EventUsage.session_id)),
                     *_usage_columns(),
                     *_reporting_columns(),
                 )
-                .join(Session, Session.id == Event.session_id)
+                .join(Session, Session.id == EventUsage.session_id)
                 .where(in_usage)
                 .group_by(key_column)
             )
@@ -193,38 +195,44 @@ def usage_report(
 
 @router.get("/analytics/tools", response_model=ToolReport, summary="Tool mix")
 def tool_report(db: Db, filters: Filters) -> dict[str, Any]:
-    """Tool calls by tool, with errors where a call's result could be matched to it."""
+    """Tool calls by tool, with errors where a call's result could be matched to it.
+
+    Read from ``EventTool``, the calls and results kept beside the events, for the reason
+    usage is read from ``EventUsage``.
+    """
     scope = filters.apply(select(Session.id))
-    name = Event.payload["name"].as_string()
+    call = EventTool
+    name = call.name
+    is_call = and_(call.kind == EventKind.TOOL_CALL, call.session_id.in_(scope))
     calls = (
         select(
             name.label("name"),
             func.count().label("calls"),
-            func.count(func.distinct(Event.session_id)),
+            func.count(func.distinct(call.session_id)),
         )
-        .where(Event.kind == EventKind.TOOL_CALL, Event.session_id.in_(scope))
+        .where(is_call)
         .group_by(name)
         .order_by(func.count().desc(), name)
         .limit(MAX_TOOLS)
     )
-    result = aliased(Event)
+    result = aliased(EventTool)
     outcomes = {
         key: (matched, errors or 0)
         for key, matched, errors in db.execute(
             select(
                 name,
-                func.count(result.id),
-                func.sum(case((result.payload["is_error"].as_boolean().is_(True), 1), else_=0)),
+                func.count(result.event_id),
+                func.sum(case((result.is_error.is_(True), 1), else_=0)),
             )
             .join(
                 result,
                 and_(
-                    result.session_id == Event.session_id,
+                    result.session_id == call.session_id,
                     result.kind == EventKind.TOOL_RESULT,
-                    result.payload["call_id"].as_string() == Event.payload["call_id"].as_string(),
+                    result.call_id == call.call_id,
                 ),
             )
-            .where(Event.kind == EventKind.TOOL_CALL, Event.session_id.in_(scope))
+            .where(is_call)
             .group_by(name)
         )
     }
@@ -240,15 +248,9 @@ def tool_report(db: Db, filters: Filters) -> dict[str, Any]:
         if key
     ]
     total_calls, total_sessions = db.execute(
-        select(func.count(), func.count(func.distinct(Event.session_id))).where(
-            Event.kind == EventKind.TOOL_CALL, Event.session_id.in_(scope)
-        )
+        select(func.count(), func.count(func.distinct(call.session_id))).where(is_call)
     ).one()
-    distinct_tools = db.scalar(
-        select(func.count(func.distinct(name))).where(
-            Event.kind == EventKind.TOOL_CALL, Event.session_id.in_(scope)
-        )
-    )
+    distinct_tools = db.scalar(select(func.count(func.distinct(name))).where(is_call))
     return {
         "rows": rows,
         "total_calls": total_calls,

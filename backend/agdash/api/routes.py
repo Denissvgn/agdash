@@ -35,7 +35,7 @@ from agdash.api.schemas import (
 )
 from agdash.api.store import Store
 from agdash.db.base import UTCDateTime
-from agdash.db.models import Event, Session, SessionProcess, SourceHealth
+from agdash.db.models import Event, EventUsage, Session, SessionProcess, SourceHealth
 from agdash.db.search import SEARCH_TABLE
 from agdash.vocab import EventKind, SessionState, Surface
 
@@ -280,30 +280,28 @@ def session_facets(db: Db) -> dict[str, Any]:
 
 
 def _one_per_message():
-    """Usage events, one per model message: some harnesses repeat a message's usage."""
-    message = func.coalesce(
-        Event.payload[("extra", "message_id")].as_string(), cast(Event.id, String)
-    )
+    """Usage events, one per model message: some harnesses repeat a message's usage.
+
+    Read from ``EventUsage``, the usage numbers kept beside the events: adding them up
+    from event payloads reads through the whole store, which takes minutes on a large one.
+    Filter it by ``EventUsage``'s own columns.
+    """
     return (
-        select(func.min(Event.id).label("id"))
-        .where(Event.kind == EventKind.USAGE, Event.payload["scope"].as_string() == "message")
-        .group_by(Event.session_id, message)
+        select(func.min(EventUsage.event_id).label("id"))
+        .where(EventUsage.scope == "message")
+        .group_by(EventUsage.session_id, EventUsage.message_key)
     )
 
 
 def _usage_columns():
-    def total(field: str, as_float: bool = False):
-        value = Event.payload[field].as_float() if as_float else Event.payload[field].as_integer()
-        return func.sum(value)
-
     return (
-        func.count(Event.id),
-        total("input_tokens"),
-        total("output_tokens"),
-        total("cache_read_tokens"),
-        total("cache_write_tokens"),
-        total("reasoning_tokens"),
-        total("reported_cost", as_float=True),
+        func.count(EventUsage.event_id),
+        func.sum(EventUsage.input_tokens),
+        func.sum(EventUsage.output_tokens),
+        func.sum(EventUsage.cache_read_tokens),
+        func.sum(EventUsage.cache_write_tokens),
+        func.sum(EventUsage.reasoning_tokens),
+        func.sum(EventUsage.reported_cost),
     )
 
 
@@ -338,7 +336,7 @@ def get_session(db: Db, session_id: int) -> dict[str, Any]:
     }
     usage = db.execute(
         select(*_usage_columns()).where(
-            Event.id.in_(_one_per_message().where(Event.session_id == session_id))
+            EventUsage.event_id.in_(_one_per_message().where(EventUsage.session_id == session_id))
         )
     ).one()
     processes = db.scalars(
@@ -710,21 +708,24 @@ def stats(
 
     by_harness = by(Session.harness)
     events_in_window = Event.session_id.in_(sessions)
+    usage_in_window = EventUsage.session_id.in_(sessions)
     if since is not None:
         events_in_window = and_(events_in_window, Event.occurred_at >= since)
+        usage_in_window = and_(usage_in_window, EventUsage.occurred_at >= since)
     if until is not None:
         events_in_window = and_(events_in_window, Event.occurred_at < until)
+        usage_in_window = and_(usage_in_window, EventUsage.occurred_at < until)
     events_by_kind = {
         str(kind): count
         for kind, count in db.execute(
             select(Event.kind, func.count()).where(events_in_window).group_by(Event.kind)
         )
     }
-    model = Event.payload["model"].as_string()
+    model = EventUsage.model
     usage_rows = db.execute(
         select(Session.harness, model, *_usage_columns())
-        .join(Session, Session.id == Event.session_id)
-        .where(Event.id.in_(_one_per_message().where(events_in_window)))
+        .join(Session, Session.id == EventUsage.session_id)
+        .where(EventUsage.event_id.in_(_one_per_message().where(usage_in_window)))
         .group_by(Session.harness, model)
         .order_by(Session.harness, model)
     ).all()

@@ -176,6 +176,60 @@ class Event(Base):
     recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utcnow)
 
 
+class EventUsage(Base):
+    """A usage event's numbers on their own, so they are summed without reading payloads.
+
+    Events of every kind share one table and payloads can be large, so adding up usage
+    from them reads through the whole store. This holds one narrow row per usage event,
+    kept in step with ``events`` by triggers on SQLite. Nothing writes it from Python.
+    """
+
+    __tablename__ = "event_usage"
+    __table_args__ = (Index(None, "session_id", "message_key"),)
+
+    event_id: Mapped[int] = mapped_column(
+        BigIntegerKey,
+        ForeignKey("events.id", ondelete="CASCADE"),
+        primary_key=True,
+        autoincrement=False,
+    )
+    session_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    occurred_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # The message the usage belongs to, or the event's own id where the harness names none.
+    message_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    cache_read_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    cache_write_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    reasoning_tokens: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    reported_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class EventTool(Base):
+    """A tool call or a tool result on its own: which tool, which call, and whether it failed.
+
+    Kept beside ``events`` for the same reason as ``EventUsage``, and in the same way.
+    """
+
+    __tablename__ = "event_tools"
+    __table_args__ = (Index(None, "session_id", "call_id"),)
+
+    event_id: Mapped[int] = mapped_column(
+        BigIntegerKey,
+        ForeignKey("events.id", ondelete="CASCADE"),
+        primary_key=True,
+        autoincrement=False,
+    )
+    session_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    occurred_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    kind: Mapped[EventKind] = mapped_column(vocabulary(EventKind), nullable=False)
+    name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    call_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_error: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+
 class UsageSnapshot(Base):
     """Token and cost numbers as a harness reported them. A missing number is NULL, not zero."""
 
