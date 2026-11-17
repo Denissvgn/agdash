@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom'
 import type { SessionSummary } from '../api/types'
 import { useSessionName } from '../history/names'
 import { StateChip } from '../history/SessionList'
-import { endedAt, flatten, lastActive, type Group, type LiveGroup, type Node } from './board'
+import { endedAt, flatten, isNew, lastActive, type Group, type LiveGroup, type Node } from './board'
 import { formatAgo } from './format'
 import { Folder, type LinkTo, type Strips } from './parts'
 import { Lane } from './Strips'
@@ -32,6 +32,16 @@ export function RosterHead() {
         <span className="hidden roomy:inline">{t('live.columns.active')}</span>
       </span>
     </div>
+  )
+}
+
+/** Marks a session that started within the last minute, where it was added: nothing moves to show it. */
+export function NewTag() {
+  const { t } = useTranslation()
+  return (
+    <span className="ml-sm shrink-0 rounded-compact border border-planning-thread px-xs text-counter text-planning-thread" data-new="">
+      {t('live.row.new')}
+    </span>
   )
 }
 
@@ -89,6 +99,7 @@ function Row({
         >
           {name(session)}
         </Link>
+        {!ended && isNew(session, now) ? <NewTag /> : null}
       </span>
       <span className="hidden truncate text-secondary-ink min-[1340px]:block">{harness}</span>
       <span aria-hidden="true" className="hidden roomy:block">

@@ -374,7 +374,8 @@
       "ended": "Ended {{when}}",
       "effort": "{{effort}} effort",
       "lastActive": "Last active {{when}}",
-      "edge": "Started from {{harness}}, known from {{basis}}"
+      "edge": "Started from {{harness}}, known from {{basis}}",
+      "new": "New"
     },
     "basis": {
       "process_exited": "Process exited",

@@ -14,6 +14,7 @@ import { ReadingLine } from '../shell/ReadingLine'
 import { AgentGraph } from './AgentGraph'
 import {
   DENSE_ABOVE,
+  LOOSE_BELOW,
   ENDED_WINDOW_MS,
   LIVE_GROUPS,
   LIVE_STATES,
@@ -244,7 +245,11 @@ function LiveBoard({ view }: { view: LiveView }) {
   // Below 1024px it takes the rows' place, so there it shows only what was picked.
   const chosen = placed.find((row) => row.node.session.id === picked) ?? null
   const inPanel = chosen ?? placed[0] ?? null
-  const dense = placed.length > DENSE_ABOVE
+  // Tighter rows past twenty, and loose again only below sixteen: a count hovering around
+  // one threshold would otherwise change every row's height back and forth.
+  const [tight, setTight] = useState(false)
+  const dense = placed.length > DENSE_ABOVE ? true : placed.length < LOOSE_BELOW ? false : tight
+  if (dense !== tight) setTight(dense)
   // The states some lane on the board draws, for its key.
   const drawn = useMemo(() => {
     const found = new Set<string>()
@@ -320,7 +325,7 @@ function LiveBoard({ view }: { view: LiveView }) {
                   to={to}
                 >
                   {view === 'agents' ? (
-                    <AgentGraph baseId={baseId} by={by} groups={arranged} selected={inPanel?.node.session.id ?? null} to={to} />
+                    <AgentGraph baseId={baseId} by={by} groups={arranged} now={now} selected={inPanel?.node.session.id ?? null} to={to} />
                   ) : undefined}
                 </Roster>
                 {strips && view === 'timeline' ? <StripsKey scale={strips.scale} states={drawn} /> : null}

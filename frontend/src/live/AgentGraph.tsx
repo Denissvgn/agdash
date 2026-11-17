@@ -4,9 +4,9 @@ import type { SessionSummary } from '../api/types'
 import { useWidth } from '../charts/useWidth'
 import { useSessionName } from '../history/names'
 import { StateDot } from '../history/SessionList'
-import type { Group, LiveGroup, Node } from './board'
+import { isNew, type Group, type LiveGroup, type Node } from './board'
 import type { LinkTo } from './parts'
-import { GroupHeading } from './Roster'
+import { GroupHeading, NewTag } from './Roster'
 import { useRowKeys } from './words'
 
 const NODE = 24
@@ -48,12 +48,14 @@ export function AgentGraph({
   by,
   baseId,
   selected,
+  now,
   to,
 }: {
   groups: Group[]
   by: LiveGroup
   baseId: string
   selected: number | null
+  now: number
   to: LinkTo
 }) {
   const { t } = useTranslation()
@@ -121,6 +123,7 @@ export function AgentGraph({
                           {t(`history.states.${session.state}`)}
                         </span>
                         <span className="truncate font-semibold">{name(session)}</span>
+                        {isNew(session, now) ? <NewTag /> : null}
                         {from ? (
                           <span className="sr-only">
                             {t('live.agents.startedBy', {
