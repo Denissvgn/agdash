@@ -102,6 +102,7 @@ def run(
     progress: Callable[[int, int], object] | None = None,
     signature: Callable[[Path], object] | None = None,
     slice_seconds: float = DEFAULT_SLICE_SECONDS,
+    watcher_type: Callable[..., "_Watcher"] | None = None,
 ) -> None:
     """Read everything once, then read what changes, until ``stop`` is set.
 
@@ -118,6 +119,9 @@ def run(
     changed and not how much there is. A scan that returns False counts as not
     done, and its files are scanned again at the next full poll.
 
+    ``watcher_type`` is what gathers the file events, by default from the operating
+    system; a test puts its own in, to say exactly which files changed and when.
+
     Only what exists is watched; ``directories`` (folders, and single files too)
     may be a function, asked again at each full poll, so a folder made later is
     watched from then on. When the system refuses a watch, for example because
@@ -129,6 +133,7 @@ def run(
         fixed = tuple(directories)
         listed = lambda: fixed  # noqa: E731
     full_seconds = poll_seconds if full_seconds is None else full_seconds
+    make_watcher = watcher_type or _Watcher
     watcher: _Watcher | None = None
     refused = False
 
@@ -141,7 +146,7 @@ def run(
             watcher.close()
             watcher = None
         if watcher is None and wanted and not refused:
-            watcher = _Watcher(wanted, force_polling=force_polling, debounce_ms=debounce_ms)
+            watcher = make_watcher(wanted, force_polling=force_polling, debounce_ms=debounce_ms)
 
     def among(changed: set[Path]) -> list[Path]:
         if match is not None:
