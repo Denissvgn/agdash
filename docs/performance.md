@@ -97,6 +97,18 @@ several times lower on a machine under memory pressure. One row a minute is
 kept for two days and one an hour for ninety, under a megabyte in all, and a
 sample costs well under a millisecond.
 
+## Giving freed room back to the disk
+
+A SQLite file stays the size it once grew to: what removed data leaves is room
+inside the file, which new data fills before the file grows. When at least a
+quarter of the store's file and 256 MB are free, the service writes the store
+anew without it as it starts, before anything else opens it. That takes some
+minutes on a large store and room on the volume for twice what the store will
+hold; without that room it leaves the store as it is and says so in its log.
+From then on the store gives free room back a little at a time after sessions
+are removed or the archive is trimmed. `agdash compact` says how much is free,
+and `agdash compact --apply` compacts with the service stopped.
+
 ## Peak memory against transcript size
 
 | Rollout | 5 MB | 20 MB | 80 MB | 160 MB |

@@ -171,6 +171,8 @@ const PARTS: StoreParts = {
   archive_bytes: 2_260_000_000,
   free_bytes: 1_970_000_000,
   rest_bytes: 3_490_000_000,
+  compacts_at_start: true,
+  releases: false,
 }
 
 type Served = {
@@ -845,6 +847,8 @@ describe('Settings · Data: what the store holds', () => {
       ['Free inside the file', '2 GB', '26%'],
     ])
     expect(asked).toContain('/api/storage/parts')
+    // A quarter of the file is free, so it says when that goes back to the disk.
+    expect(within(store).getByText(/the service writes the store anew without it when it next starts/)).toBeInTheDocument()
     expect(unnamedControls(document.body)).toEqual([])
   })
 
