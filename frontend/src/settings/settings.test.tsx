@@ -98,7 +98,16 @@ const SOURCES: SourcesReport = {
 // No limit, in a service that removes by itself once one is set.
 const STORAGE: StorageReport = {
   store: { file: '/home/example/agdash/agdash.db', bytes: 7_707_283_456, sessions: 7737, first_started_at: '2025-03-03T08:00:00Z' },
-  archive: { enabled: true, source: 'default', chunks: 10_841 },
+  archive: {
+    enabled: true,
+    source: 'default',
+    chunks: 10_841,
+    keep_encoded: false,
+    keep_encoded_source: 'default',
+    untrimmed_chunks: 0,
+    trimming: false,
+    last_trim: null,
+  },
   retention: {
     days: null,
     source: 'default',
@@ -174,7 +183,9 @@ type Served = {
   /** What a limit would remove, by its days. */
   preview?: (days: number) => RetentionPreview | number
   /** What the service answers to a saved setting; the page then shows that. */
-  save?: (body: { retention_days?: number | null; keep_raw?: boolean }, now: StorageReport) => StorageReport | number
+  save?: (body: { retention_days?: number | null; keep_raw?: boolean; keep_encoded?: boolean }, now: StorageReport) => StorageReport | number
+  /** What the store holds once an asked-for trim of the archive is over. */
+  afterTrim?: StorageReport
   /** What the store holds once an asked-for removal is over. */
   afterRemoval?: StorageReport
 }
@@ -184,6 +195,7 @@ function serve(served: Served) {
   const sent: { path: string; body: unknown }[] = []
   let storage = served.storage
   let removing = false
+  let trimming = false
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string, init?: RequestInit) => {
@@ -198,6 +210,12 @@ function serve(served: Served) {
           const answer = served.save?.(body, storage) ?? 500
           if (typeof answer === 'object') storage = answer
           return json(answer)
+        }
+        if (url.pathname === '/api/storage/archive/trim') {
+          if (!served.afterTrim) return json(503)
+          trimming = true
+          storage = { ...storage, archive: { ...storage.archive, trimming: true } }
+          return json(storage, 202)
         }
         if (url.pathname === '/api/storage/retention/removal') {
           if (!served.afterRemoval) return json(503)
@@ -214,6 +232,10 @@ function serve(served: Served) {
         if (removing && served.afterRemoval) {
           removing = false
           storage = served.afterRemoval
+        }
+        if (trimming && served.afterTrim) {
+          trimming = false
+          storage = served.afterTrim
         }
         return json(storage)
       }
@@ -595,7 +617,7 @@ describe('Settings · Data', () => {
     // What is already archived stays, and is still measured.
     expect(await within(store).findByText('No copy is kept of lines read from now on. 2.2 GB archived.')).toBeInTheDocument()
     expect(within(store).getByText(/^Saved\. It holds from the next lines read/)).toBeInTheDocument()
-    expect(within(store).getByRole('checkbox')).not.toBeChecked()
+    expect(within(store).getByRole('checkbox', { name: "Keep a copy of the harnesses' original lines" })).not.toBeChecked()
     expect(sent).toEqual([{ path: '/api/storage/settings', body: { keep_raw: false } }])
   })
 
@@ -608,12 +630,12 @@ describe('Settings · Data', () => {
   })
 
   test('an archive set where the service starts names the setting', async () => {
-    serve({ storage: { ...STORAGE, archive: { enabled: false, source: 'environment', chunks: 0 } } })
+    serve({ storage: { ...STORAGE, archive: { ...STORAGE.archive, enabled: false, source: 'environment', chunks: 0 } } })
     open('/settings/data')
     const store = await screen.findByRole('region', { name: 'Store' })
     expect(within(store).getByText('No copy is kept of lines read from now on. Nothing is archived yet.')).toBeInTheDocument()
     expect(within(store).getByText('AGDASH_KEEP_RAW')).toBeInTheDocument()
-    expect(within(store).getByRole('checkbox')).not.toBeChecked()
+    expect(within(store).getByRole('checkbox', { name: "Keep a copy of the harnesses' original lines" })).not.toBeChecked()
   })
 
   test('export is explained and leads to the sessions', async () => {
@@ -842,5 +864,67 @@ describe('Settings · Data: what the store holds', () => {
       'Events, their search index and the rest',
       'Original lines',
     ])
+  })
+})
+
+describe('Settings · Data: encoded data in the archive', () => {
+  const WAITING: StorageReport = { ...STORAGE, archive: { ...STORAGE.archive, untrimmed_chunks: 10_841 } }
+  const TRIMMED: StorageReport = {
+    ...STORAGE,
+    archive: {
+      ...STORAGE.archive,
+      last_trim: { at: '2026-11-17T12:00:00Z', through: 10_841, chunks: 10_841, saved_bytes: 1_430_000_000 },
+    },
+  }
+
+  test('says it is left out, and keeping it is saved as it is changed', async () => {
+    const { sent } = serve({
+      storage: STORAGE,
+      save: (body, now) => ({ ...now, archive: { ...now.archive, keep_encoded: body.keep_encoded ?? false, keep_encoded_source: 'page' } }),
+    })
+    open('/settings/data')
+    const store = within(await screen.findByRole('region', { name: 'Store' }))
+    const keep = store.getByRole('checkbox', { name: 'Keep encoded data in the original lines' })
+    expect(keep).not.toBeChecked()
+    expect(store.getByText('Long runs are left out, with a note of their length.')).toBeInTheDocument()
+    // Nothing waits to be looked at, so nothing is offered.
+    expect(store.queryByRole('button', { name: 'Take it out of what is archived' })).toBeNull()
+    fireEvent.click(keep)
+    expect(await store.findByText('Kept whole, however long.')).toBeInTheDocument()
+    expect(sent).toEqual([{ path: '/api/storage/settings', body: { keep_encoded: true } }])
+    expect(store.getByText(/^Saved\. It holds from the next lines read; what is archived already stays/)).toBeInTheDocument()
+  })
+
+  test('taking it out of what is archived is asked twice, and followed until it is over', async () => {
+    const { sent } = serve({ storage: WAITING, afterTrim: TRIMMED })
+    open('/settings/data')
+    const store = within(await screen.findByRole('region', { name: 'Store' }))
+    expect(store.getByText('10,841 archived chunks have not been looked at for encoded data.')).toBeInTheDocument()
+    fireEvent.click(store.getByRole('button', { name: 'Take it out of what is archived' }))
+    expect(store.getByText('Take encoded data out of 10,841 archived chunks?')).toBeInTheDocument()
+    expect(store.getByText(/^It cannot be undone/)).toBeInTheDocument()
+    // The safe answer has the focus, and takes the question away without sending anything.
+    const leave = store.getByRole('button', { name: 'Leave it' })
+    await waitFor(() => expect(leave).toHaveFocus())
+    fireEvent.click(leave)
+    expect(store.queryByText('Take encoded data out of 10,841 archived chunks?')).toBeNull()
+    expect(sent).toEqual([])
+
+    fireEvent.click(store.getByRole('button', { name: 'Take it out of what is archived' }))
+    fireEvent.click(store.getByRole('button', { name: 'Take it out' }))
+    expect(await store.findByText('Taking encoded data out: 10,841 chunks left.')).toBeInTheDocument()
+    expect(sent).toEqual([{ path: '/api/storage/archive/trim', body: {} }])
+    expect(await store.findByText(/; the archive is 1\.4 GB smaller for it\.$/, {}, { timeout: 6000 })).toBeInTheDocument()
+    expect(store.queryByRole('button', { name: 'Take it out of what is archived' })).toBeNull()
+    expect(unnamedControls(document.body)).toEqual([])
+  })
+
+  test('while it is kept there is nothing to take out', async () => {
+    serve({ storage: { ...WAITING, archive: { ...WAITING.archive, keep_encoded: true, keep_encoded_source: 'environment' } } })
+    open('/settings/data')
+    const store = within(await screen.findByRole('region', { name: 'Store' }))
+    expect(store.getByRole('checkbox', { name: 'Keep encoded data in the original lines' })).toBeChecked()
+    expect(store.getByText('AGDASH_KEEP_ENCODED')).toBeInTheDocument()
+    expect(store.queryByText(/have not been looked at/)).toBeNull()
   })
 })

@@ -1077,6 +1077,27 @@
       },
       "note": "Free space inside the file is room that removed data left. New data fills it before the file grows."
     },
+    "encoded": {
+      "term": "Encoded data",
+      "keep": "Keep encoded data in the original lines",
+      "on": "Kept whole, however long.",
+      "off": "Long runs are left out, with a note of their length.",
+      "about": "Images, signatures and encrypted reasoning are long runs of encoded data. Nothing agdash shows uses them, they do not compress, and they are most of what a copy holds.",
+      "saved": "Saved. It holds from the next lines read; what is archived already stays as it is.",
+      "waiting_one": "{{shown}} archived chunk has not been looked at for encoded data.",
+      "waiting_other": "{{shown}} archived chunks have not been looked at for encoded data.",
+      "trim": "Take it out of what is archived",
+      "confirm_one": "Take encoded data out of {{shown}} archived chunk?",
+      "confirm_other": "Take encoded data out of {{shown}} archived chunks?",
+      "confirmBody": "It cannot be undone: a session exported as raw lines will show the length of each run in its place. The harnesses' own files are not touched.",
+      "go": "Take it out",
+      "leave": "Leave it",
+      "failed": "It could not be started. Try again.",
+      "trimming_one": "Taking encoded data out: {{shown}} chunk left.",
+      "trimming_other": "Taking encoded data out: {{shown}} chunks left.",
+      "last": "Last taken out {{when}}; the archive is {{size}} smaller for it.",
+      "lastNone": "Last looked at {{when}}; nothing encoded was found."
+    },
     "archive": {
       "term": "Original lines",
       "on": "A copy is kept, redacted and compressed.",
@@ -1085,7 +1106,7 @@
       "measuring": "Measuring what is archived.",
       "unmeasured": "What is archived could not be measured.",
       "size": "{{size}} archived.",
-      "about": "The copy lets a session be exported as the harness wrote it, after the harness has pruned its own files.",
+      "about": "The copy lets a session be exported line by line as the harness wrote it, after the harness has pruned its own files.",
       "keep": "Keep a copy of the harnesses' original lines",
       "started": "Set where the agdash service starts, by",
       "saved": "Saved. It holds from the next lines read; nothing already archived is removed, and the harnesses' own files are not touched.",
@@ -1164,7 +1185,7 @@
       "formats": {
         "markdown": "A transcript to read: prompts, replies, thoughts and tool calls in order.",
         "jsonl": "One event per line, as agdash stores it, for scripts.",
-        "raw": "The harness's own lines as archived: redacted, otherwise unchanged."
+        "raw": "The harness's own lines as archived: redacted, and without long runs of encoded data unless they are kept."
       },
       "redacted": "Secrets are redacted before anything is stored, so every export is redacted too.",
       "choose": "Choose a session in History",
@@ -1186,6 +1207,7 @@
       "preview": "agdash retention --days {{days}}",
       "exportSession": "agdash export SESSION_ID --format markdown --out FILE",
       "keepRaw": "AGDASH_KEEP_RAW",
+      "keepEncoded": "AGDASH_KEEP_ENCODED",
       "previewSaved": "agdash retention",
       "applySaved": "agdash retention --apply"
     }
