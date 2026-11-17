@@ -77,6 +77,7 @@ class Session(Base):
     worktree: Mapped[str | None] = mapped_column(Text, nullable=True)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     initial_task: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Each model the session used, once, in the order last used: the last is the current one.
     models: Mapped[list[str]] = mapped_column(json_document(), nullable=False, default=list)
     effort: Mapped[str | None] = mapped_column(String(32), nullable=True)
     permission_mode: Mapped[str | None] = mapped_column(String(64), nullable=True)

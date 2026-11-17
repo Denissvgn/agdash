@@ -94,8 +94,11 @@ def apply_facts(session: Session, facts: SessionFacts, title_ranks: dict[int, in
         session.permission_mode = facts.permission_mode
     if facts.effort:
         session.effort = facts.effort
-    if facts.model and facts.model not in (session.models or []):
-        session.models = [*(session.models or []), facts.model]
+    if facts.model and (session.models or [None])[-1] != facts.model:
+        # Each model once, in the order last used: the last one is the model the session
+        # is on now, also when it went back to one it had used before.
+        earlier = [name for name in session.models or [] if name != facts.model]
+        session.models = [*earlier, facts.model]
     if facts.title and facts.title_rank >= title_ranks.get(session.id, 0):
         session.title = redact_text(facts.title)[:500]
         title_ranks[session.id] = facts.title_rank

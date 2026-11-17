@@ -398,7 +398,8 @@ def test_a_model_switch_between_turns_is_a_model_change(store, tmp_path):
             ("gpt-a", "gpt-b"),
             ("gpt-b", "gpt-a"),
         ]
-        assert stored.models == ["gpt-a", "gpt-b"]
+        # Each model once, the one it went back to last: that is the current one.
+        assert stored.models == ["gpt-b", "gpt-a"]
 
 
 # -- single records ------------------------------------------------------------------
