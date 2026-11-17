@@ -1,12 +1,14 @@
-import { useQuery } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { TriangleAlert } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { getJson } from '../api/client'
-import type { ArchiveSize, StorageReport } from '../api/types'
+import { getJson, sendJson } from '../api/client'
+import type { ArchiveSize, RetentionPreview, StorageReport } from '../api/types'
 import { formatWhen } from '../history/format'
 import { PageHeader } from '../history/PageHeader'
 import { ErrorNotice, LoadingRows } from '../history/SessionList'
+import { Choice } from '../shell/Choice'
 import { Section } from '../workchord/WorkChordPage'
 import { formatCount, formatDay, useSize } from './format'
 import { PathText } from './PathText'
@@ -17,7 +19,27 @@ const BASE = 'workspaces.settings.destinations.data'
 const ARCHIVE_FRESH_MS = 5 * 60_000
 // The limit the commands show while none is set.
 const EXAMPLE_DAYS = 90
+// The limits offered; one saved elsewhere, such as where the service starts, joins them.
+const LIMITS = [30, 90, 180, 365]
+const EVERYTHING = 'everything'
+// How often the page asks again while sessions are being removed.
+const FOLLOW_MS = 2000
+const STORAGE = ['storage'] as const
 const FORMATS = ['markdown', 'jsonl', 'raw'] as const
+
+type Retention = StorageReport['retention']
+
+/** Save a setting; the service answers with everything the page shows, as it now is. */
+function useSave() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { retention_days?: number | null; keep_raw?: boolean }) =>
+      sendJson<StorageReport>('POST', '/api/storage/settings', body),
+    onSuccess: (answer) => {
+      if (answer) client.setQueryData(STORAGE, answer)
+    },
+  })
+}
 
 /** A setting's or a command's own name, as the service and its command line take it. */
 function Code({ children }: { children: string }) {
@@ -82,6 +104,7 @@ function StoreSection({ report }: { report: StorageReport }) {
         : measured.isError
           ? t('storage.archive.unmeasured')
           : t('storage.archive.size', { size: size(measured.data.bytes) })
+  const keep = useSave()
   return (
     <Section labelledBy="store-title" title={t('storage.store.title')}>
       <p className="max-w-[70ch] text-body text-secondary-ink">{t('storage.store.lead')}</p>
@@ -110,43 +133,221 @@ function StoreSection({ report }: { report: StorageReport }) {
           </span>
         </Fact>
         <Fact term={t('storage.archive.term')}>
+          {/* Saved as it is changed: it removes nothing, and holds from the next lines read. */}
+          <label className="flex cursor-pointer items-center gap-sm pointer-coarse:min-h-touch">
+            <input
+              checked={archive.enabled}
+              className="size-[16px] shrink-0 cursor-pointer accent-planning-thread"
+              disabled={keep.isPending}
+              type="checkbox"
+              onChange={(event) => keep.mutate({ keep_raw: event.target.checked })}
+            />
+            {t('storage.archive.keep')}
+          </label>
           <span aria-live="polite" className="data">
             {t(archive.enabled ? 'storage.archive.on' : 'storage.archive.off')} {archived}
           </span>
           <span className="text-label text-secondary-ink">{t('storage.archive.about')}</span>
-          {/* Either way the setting behind it is named: what turns it off, or what turned it off. */}
-          <span className="text-label text-secondary-ink">{t(archive.enabled ? 'storage.archive.stop' : 'storage.archive.start')}</span>
-          <Code>{t(archive.enabled ? 'storage.names.keepRawOff' : 'storage.names.keepRaw')}</Code>
+          {archive.source === 'environment' && (
+            <span className="flex flex-wrap items-baseline gap-x-sm text-label text-secondary-ink">
+              {t('storage.archive.started')} <Code>{t('storage.names.keepRaw')}</Code>
+            </span>
+          )}
+          <span aria-live="polite" className="text-label text-secondary-ink" role="status">
+            {keep.isError ? t('storage.archive.failed') : keep.isSuccess ? t('storage.archive.saved') : ''}
+          </span>
         </Fact>
       </Facts>
     </Section>
   )
 }
 
-function RetentionSection({ retention }: { retention: StorageReport['retention'] }) {
+/** What a limit would remove, said the same way before it is saved and after. */
+function useReach() {
   const { t } = useTranslation()
-  const { days, cutoff, removable_sessions: removable, kept_alive: kept } = retention
-  const before = formatWhen(cutoff)
-  const shown = days ?? EXAMPLE_DAYS
+  return (reach: { cutoff: string | null; removable_sessions: number | null }) => {
+    const before = formatWhen(reach.cutoff)
+    if (reach.removable_sessions === null || !before) return null
+    return reach.removable_sessions === 0
+      ? t('storage.retention.nothing', { before })
+      : t('storage.retention.removable', { count: reach.removable_sessions, shown: formatCount(reach.removable_sessions), before })
+  }
+}
+
+/** The limit, as pills, with what a new one would remove shown before it is saved. */
+function LimitChoice({ retention }: { retention: Retention }) {
+  const { t } = useTranslation()
+  const reach = useReach()
+  const save = useSave()
+  // Undefined while the choice is the saved one; a number or null once another is picked.
+  const [picked, setPicked] = useState<number | null | undefined>(undefined)
+  const chosen = picked === undefined ? retention.days : picked
+  const changed = chosen !== retention.days
+  const limits = [...new Set([...LIMITS, ...(retention.days === null ? [] : [retention.days])])].sort((a, b) => a - b)
+  const trial = useQuery({
+    queryKey: ['storage', 'preview', chosen],
+    queryFn: ({ signal }) => getJson<RetentionPreview>('/api/storage/retention/preview', { days: chosen }, signal),
+    enabled: changed && chosen !== null,
+  })
+  const next = formatWhen(retention.next_removal_at)
+  // "Saved, nothing was removed" stops being true the moment a removal starts.
+  const { running } = retention
+  const { reset } = save
+  useEffect(() => {
+    if (running) reset()
+  }, [running, reset])
+  return (
+    <div className="flex flex-col gap-sm">
+      <Choice
+        label={(option) => (option === EVERYTHING ? t('storage.retention.everything') : t('storage.retention.days', { count: Number(option) }))}
+        legend={t('storage.retention.keep')}
+        options={[EVERYTHING, ...limits.map(String)]}
+        value={chosen === null ? EVERYTHING : String(chosen)}
+        onChange={(option) => {
+          const days = option === EVERYTHING ? null : Number(option)
+          save.reset()
+          setPicked(days === retention.days ? undefined : days)
+        }}
+      />
+      {changed && (
+        <div className="flex max-w-[70ch] flex-col gap-sm rounded-surface border border-strong-rule bg-canvas-mist p-md">
+          {chosen !== null && (
+            <p className="text-label text-secondary-ink">
+              {t('storage.retention.trial', { limit: t('storage.retention.days', { count: chosen }) })}
+            </p>
+          )}
+          <p aria-live="polite" className="data text-body text-primary-ink">
+            {chosen === null
+              ? t('storage.retention.trialEverything')
+              : trial.isPending
+                ? t('storage.retention.trialPending')
+                : trial.isError
+                  ? t('storage.retention.trialFailed')
+                  : reach(trial.data)}
+          </p>
+          <p className="text-label text-secondary-ink">
+            {t(chosen === null ? 'storage.retention.saveEverything' : retention.automatic ? 'storage.retention.saveNote' : 'storage.retention.saveNoteManual')}
+          </p>
+          <div className="flex flex-wrap items-center gap-sm">
+            <button
+              aria-busy={save.isPending}
+              className="button-primary"
+              disabled={save.isPending}
+              type="button"
+              onClick={() => save.mutate({ retention_days: chosen }, { onSuccess: () => setPicked(undefined) })}
+            >
+              {save.isPending ? t('storage.retention.saving') : t('storage.retention.save')}
+            </button>
+            <button className="button-secondary" disabled={save.isPending} type="button" onClick={() => setPicked(undefined)}>
+              {t('storage.retention.cancel')}
+            </button>
+          </div>
+        </div>
+      )}
+      <p aria-live="polite" className="data text-label text-secondary-ink" role="status">
+        {save.isError
+          ? t('storage.retention.saveFailed')
+          : save.isSuccess && !changed
+            ? retention.days !== null && next
+              ? t('storage.retention.savedNext', { when: next })
+              : t('storage.retention.saved')
+            : ''}
+      </p>
+    </div>
+  )
+}
+
+/** Removing what is past the limit now: asked for in two steps, and followed while it runs. */
+function RemoveNow({ retention }: { retention: Retention }) {
+  const { t } = useTranslation()
+  const client = useQueryClient()
+  const [confirming, setConfirming] = useState(false)
+  const opener = useRef<HTMLButtonElement>(null)
+  const keepThem = useRef<HTMLButtonElement>(null)
+  const ask = useMutation({
+    mutationFn: () => sendJson<StorageReport>('POST', '/api/storage/retention/removal'),
+    onSuccess: (answer) => {
+      if (answer) client.setQueryData(STORAGE, answer)
+      setConfirming(false)
+    },
+  })
+  // The safe answer has the focus when the question opens.
+  useEffect(() => {
+    if (confirming) keepThem.current?.focus()
+  }, [confirming])
+  const count = retention.removable_sessions ?? 0
+  const shown = formatCount(count)
+  const before = formatWhen(retention.cutoff)
+  const cancel = () => {
+    setConfirming(false)
+    ask.reset()
+    // Back to where the question was asked from, once it is there again.
+    window.requestAnimationFrame(() => opener.current?.focus())
+  }
+  return (
+    <div className="flex flex-col gap-sm border-t border-hairline pt-md">
+      <h3 className="text-body font-semibold text-primary-ink">{t('storage.retention.now')}</h3>
+      {retention.running ? null : count === 0 ? (
+        <p className="text-label text-secondary-ink">{t('storage.retention.nothingNow')}</p>
+      ) : confirming ? (
+        <div className="flex max-w-[70ch] flex-col gap-sm rounded-surface border border-strong-rule bg-canvas-mist p-md">
+          <p className="flex items-start gap-sm text-body font-semibold text-primary-ink">
+            <TriangleAlert aria-hidden="true" className="mt-[2px] shrink-0 text-feedback-danger" size={16} strokeWidth={1.75} />
+            <span className="data">{t('storage.retention.confirm', { count, shown, before })}</span>
+          </p>
+          <p className="text-label text-secondary-ink">{t('storage.retention.confirmBody')}</p>
+          <div className="flex flex-wrap items-center gap-sm">
+            <button aria-busy={ask.isPending} className="button-primary" disabled={ask.isPending} type="button" onClick={() => ask.mutate()}>
+              <span className="data">{t('storage.retention.remove', { count, shown })}</span>
+            </button>
+            <button ref={keepThem} className="button-secondary" disabled={ask.isPending} type="button" onClick={cancel}>
+              {t('storage.retention.keepThem')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <button ref={opener} className="button-secondary" type="button" onClick={() => setConfirming(true)}>
+            <span className="data">{t('storage.retention.removeNow', { count, shown })}</span>
+          </button>
+        </div>
+      )}
+      <p aria-live="polite" className="text-label text-primary-ink" role="status">
+        {retention.running ? t('storage.retention.removing') : ask.isError ? t('storage.retention.askFailed') : ''}
+      </p>
+    </div>
+  )
+}
+
+function RetentionSection({ retention }: { retention: Retention }) {
+  const { t } = useTranslation()
+  const reach = useReach()
+  const { days, kept_alive: kept, last_removal: last } = retention
+  const next = formatWhen(retention.next_removal_at)
+  const removes = reach(retention)
+  const lastWhen = last ? formatWhen(last.at) : null
   return (
     <Section labelledBy="retention-title" title={t('storage.retention.title')}>
       <p className="max-w-[70ch] text-body text-primary-ink">
-        {days === null ? t('storage.retention.off') : t('storage.retention.on', { count: days })}
+        {days === null
+          ? t('storage.retention.off')
+          : t(retention.automatic ? 'storage.retention.on' : 'storage.retention.onManual', { count: days })}
       </p>
+      <LimitChoice retention={retention} />
       <Facts>
         <Fact term={t('storage.retention.setBy')}>
-          <Code>{days === null ? t('storage.names.retention') : t('storage.names.retentionDays', { days })}</Code>
-          <span className="text-label text-secondary-ink">
-            {t(days === null ? 'storage.retention.unsetWhere' : 'storage.retention.setWhere')}
-          </span>
+          {retention.source === 'environment' ? (
+            <>
+              <Code>{days === null ? t('storage.names.retention') : t('storage.names.retentionDays', { days })}</Code>
+              <span className="text-label text-secondary-ink">{t('storage.retention.setWhere')}</span>
+            </>
+          ) : (
+            t(retention.source === 'page' ? 'storage.retention.setHere' : 'storage.retention.setNowhere')
+          )}
         </Fact>
-        {days !== null && removable !== null && before && (
+        {days !== null && removes && (
           <Fact term={t('storage.retention.wouldRemove')}>
-            <span className="data">
-              {removable === 0
-                ? t('storage.retention.nothing', { before })
-                : t('storage.retention.removable', { count: removable, shown: formatCount(removable), before })}
-            </span>
+            <span className="data">{removes}</span>
           </Fact>
         )}
         {days !== null && kept !== null && kept > 0 && (
@@ -154,15 +355,47 @@ function RetentionSection({ retention }: { retention: StorageReport['retention']
             <span className="data">{t('storage.retention.kept', { count: kept, shown: formatCount(kept) })}</span>
           </Fact>
         )}
+        {days !== null && (
+          <Fact term={t('storage.retention.removed')}>
+            <span className="data">
+              {retention.automatic && next ? t('storage.retention.daily', { when: next }) : t('storage.retention.byCommand')}
+            </span>
+          </Fact>
+        )}
+        {(days !== null || last) && (
+          <Fact term={t('storage.retention.last')}>
+            <span aria-live="polite" className="data">
+              {!last || !lastWhen
+                ? t('storage.retention.never')
+                : last.error
+                  ? t('storage.retention.lastFailed', { when: lastWhen, error: last.error })
+                  : last.sessions === 0
+                    ? t('storage.retention.lastNothing', { when: lastWhen })
+                    : t('storage.retention.lastRemoved', {
+                        when: lastWhen,
+                        sessions: t('storage.retention.sessions', { count: last.sessions, shown: formatCount(last.sessions) }),
+                        events: t('storage.retention.events', { count: last.events, shown: formatCount(last.events) }),
+                      })}
+            </span>
+            <span className="text-label text-secondary-ink">{t('storage.retention.fileStays')}</span>
+          </Fact>
+        )}
       </Facts>
+      {days !== null && retention.automatic && <RemoveNow retention={retention} />}
       <Commands
-        rows={[
-          {
-            command: t('storage.names.preview', { days: shown }),
-            does: days === null ? t('storage.retention.previewExample', { count: shown }) : t('storage.retention.preview'),
-          },
-          { command: t('storage.names.apply', { days: shown }), does: t('storage.retention.apply') },
-        ]}
+        rows={
+          days === null
+            ? [
+                {
+                  command: t('storage.names.preview', { days: EXAMPLE_DAYS }),
+                  does: t('storage.retention.previewExample', { count: EXAMPLE_DAYS }),
+                },
+              ]
+            : [
+                { command: t('storage.names.previewSaved'), does: t('storage.retention.preview') },
+                { command: t('storage.names.applySaved'), does: t('storage.retention.apply') },
+              ]
+        }
         title={t('storage.retention.commands')}
       />
     </Section>
@@ -198,10 +431,22 @@ function ExportSection() {
 /** What agdash keeps and for how long, and how a session leaves it: only by export. */
 export function DataPage() {
   const { t } = useTranslation()
+  const client = useQueryClient()
   const report = useQuery({
-    queryKey: ['storage'],
+    queryKey: STORAGE,
     queryFn: ({ signal }) => getJson<StorageReport>('/api/storage', {}, signal),
+    // While sessions are being removed the page follows it, and stops asking once it is over.
+    refetchInterval: ({ state }) => (state.data?.retention.running ? FOLLOW_MS : false),
   })
+  // Once a removal is over, every list fetched before it holds sessions that are gone.
+  const running = report.data?.retention.running === true
+  const was = useRef(false)
+  useEffect(() => {
+    if (was.current && !running) {
+      void client.invalidateQueries({ predicate: (query) => query.queryKey.length > 1 || query.queryKey[0] !== STORAGE[0] })
+    }
+    was.current = running
+  }, [running, client])
   return (
     <article aria-labelledby="page-title" className="flex flex-col gap-page-gap">
       <PageHeader purposeKey={`${BASE}.purpose`} titleKey={`${BASE}.title`} />

@@ -637,3 +637,20 @@ class RawChunk(Base):
     line_count: Mapped[int] = mapped_column(Integer, nullable=False)
     data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utcnow)
+
+
+class Setting(Base):
+    """A choice made on the Settings pages, kept in agdash's own store.
+
+    One row per thing a person set there, each a small document. A setting with no
+    row takes its value from the service's environment, or its default. The service
+    also notes here when it last removed sessions past the retention limit.
+    """
+
+    __tablename__ = "settings"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(json_document(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow
+    )

@@ -152,12 +152,35 @@ export interface SourcesReport {
   sources: Source[]
 }
 
+/** Where a setting's value comes from: saved on the Data page, the service's environment, or neither. */
+export type SettingSource = 'page' | 'environment' | 'default'
+
 /** What agdash keeps: its store, the archive of original lines, and retention. */
 export interface StorageReport {
   store: { file: string | null; bytes: number | null; sessions: number; first_started_at: string | null }
-  archive: { enabled: boolean; chunks: number }
-  /** The limit the service runs with, and what it would remove now; all null without one. */
-  retention: { days: number | null; cutoff: string | null; removable_sessions: number | null; kept_alive: number | null }
+  archive: { enabled: boolean; source: SettingSource; chunks: number }
+  retention: {
+    /** Null keeps everything. */
+    days: number | null
+    source: SettingSource
+    /** What the limit would remove now; null without one. */
+    cutoff: string | null
+    removable_sessions: number | null
+    kept_alive: number | null
+    /** Whether the service removes by itself, once a day. */
+    automatic: boolean
+    running: boolean
+    next_removal_at: string | null
+    last_removal: { at: string; sessions: number; events: number; automatic: boolean; error: string | null } | null
+  }
+}
+
+/** What a limit would remove, before it is saved. */
+export interface RetentionPreview {
+  days: number
+  cutoff: string
+  removable_sessions: number
+  kept_alive: number
 }
 
 /** How much the archive of original lines holds, compressed as stored. */

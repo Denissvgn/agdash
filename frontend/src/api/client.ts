@@ -1,7 +1,7 @@
 /**
  * The agdash service's API. Every request carries the local token when the
  * desktop app provides one; in development the Vite proxy adds it instead. It
- * reads, except for the WorkChord connector's own settings (see ``sendJson``).
+ * reads, except for settings kept in agdash itself (see ``sendJson``).
  */
 
 declare global {
@@ -154,8 +154,10 @@ async function detailOf(response: Response): Promise<string | null> {
 }
 
 /**
- * The only requests the app sends that change anything: the WorkChord connector's
- * settings in agdash (pairing, rules and pins). Answers 204 as null.
+ * The only requests the app sends that change anything, and only in agdash itself: the
+ * WorkChord connector's settings (pairing, rules and pins), and agdash's own on the Data
+ * page (how long history is kept, whether original lines are, and removing what is
+ * past the limit). Answers 204 as null.
  */
 export async function sendJson<T>(method: 'POST' | 'DELETE', path: string, body?: unknown): Promise<T | null> {
   const config = window.__AGDASH__ ?? {}

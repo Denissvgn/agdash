@@ -22,6 +22,7 @@ import uvicorn
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import sessionmaker
 
+from agdash import saved
 from agdash.api.security import NotLoopback, ensure_loopback
 from agdash.collector.run import Collector
 from agdash.config import Settings, database_url, get_settings
@@ -30,6 +31,7 @@ from agdash.connectors.webhook import create_receiver
 from agdash.db.migrate import sqlite_file, sync_database_url, upgrade
 from agdash.main import create_app
 from agdash.platform import Host, current_host
+from agdash.retention import Keeper
 
 log = logging.getLogger("agdash")
 
@@ -115,7 +117,9 @@ def collector_for(store: Store, host: Host | None = None) -> tuple[Collector, En
         sessionmaker(engine, expire_on_commit=False),
         host or current_host(),
         snapshot_dir=store.data_dir / "snapshots",
-        keep_raw=get_settings().keep_raw,
+        # Asked of the store each time lines are archived, so a change saved on the Data
+        # page holds from the next lines read.
+        keep_raw=lambda db: saved.keep_raw(db)[0],
     )
     return collector, engine
 
@@ -165,6 +169,8 @@ def serve() -> int:
     secrets = current_host().secret_store()
     mirror = MirrorSync(sessions, secrets)
     threads += mirror.run(stop)
+    keeper = Keeper(sessions)
+    threads += keeper.run(stop)
     log.info("collecting; serving on %s:%d", settings.host, settings.port)
     receiver = None
     try:
@@ -172,7 +178,7 @@ def serve() -> int:
         if receiver is not None:
             log.info("receiving WorkChord webhooks on %s:%d", settings.host, settings.webhook_port)
         config = uvicorn.Config(
-            create_app(store.url, port=settings.port, reading=collector.reading),
+            create_app(store.url, port=settings.port, reading=collector.reading, retention=keeper),
             host=settings.host,
             port=settings.port,
             access_log=False,
