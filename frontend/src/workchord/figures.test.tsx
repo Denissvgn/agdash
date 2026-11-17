@@ -199,9 +199,9 @@ describe("a session's mapping", () => {
     first.unmount()
     serve({ session_id: 7, connections: [] })
     const { container } = show(<MappingFigure session={detail} />)
+    // Loading shows the frame; once the answer names no server, the figure is left out.
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled())
-    await act(async () => {})
-    expect(container.querySelector('figure')).toBeNull()
+    await waitFor(() => expect(container.querySelector('figure')).toBeNull())
   })
 })
 
