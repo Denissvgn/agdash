@@ -173,9 +173,26 @@ class Event(Base):
     thoughts_coverage: Mapped[ThoughtsCoverage | None] = mapped_column(
         vocabulary(ThoughtsCoverage), nullable=True
     )
-    source_file: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Where in its file the event's line began; the file is in ``session_files``.
     source_offset: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     recorded_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, default=utcnow)
+
+
+class SessionFile(Base):
+    """A file that events of a session were read from.
+
+    A session's archived lines, and the archived files no session uses any more, are
+    found here by index. Every event used to carry its file's path instead, and
+    finding either meant reading through the events.
+    """
+
+    __tablename__ = "session_files"
+    __table_args__ = (Index(None, "path"),)
+
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True
+    )
+    path: Mapped[str] = mapped_column(Text, primary_key=True)
 
 
 class EventUsage(Base):

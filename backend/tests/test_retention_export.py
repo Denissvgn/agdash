@@ -18,7 +18,7 @@ from agdash.access import ReadOnlyAccess
 from agdash.adapters import claude_code, codex, pi
 from agdash.archive import Archiving, raw_lines
 from agdash.db.migrate import upgrade
-from agdash.db.models import Event, RawChunk, Session, SessionProcess
+from agdash.db.models import Event, RawChunk, Session, SessionFile, SessionProcess
 from agdash.export import ExportRefused, render, write_export
 from agdash.ingest import Ingestor, discover_files
 from agdash.ingest.ledger import SqlLedger
@@ -143,9 +143,9 @@ def add(
             sequence=0,
             kind=EventKind.STATUS,
             payload={"status": "x"},
-            source_file=f"/files/{name}.jsonl",
         )
     )
+    db.add(SessionFile(session_id=session.id, path=f"/files/{name}.jsonl"))
     if process_days_ago is not None:
         seen = NOW - timedelta(days=process_days_ago)
         db.add(
