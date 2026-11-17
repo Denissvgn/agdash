@@ -61,6 +61,9 @@ const SCREENS = [
   { name: 'usage', hash: '#/analytics' },
   { name: 'tools', hash: '#/analytics/tools' },
   { name: 'activity', hash: '#/analytics/activity' },
+  // Settings pages hold lists and facts, no figure: they are checked for layout alone.
+  { name: 'sources', hash: '#/settings', ready: 'ul[aria-label="Harnesses"]', plain: true },
+  { name: 'data', hash: '#/settings/data', ready: '#retention-title', plain: true },
 ]
 
 const failures = new Map()
@@ -74,7 +77,7 @@ async function settle(page, screen) {
   if (screen.ready) await page.waitForSelector(screen.ready, { timeout: 20_000 })
   await page.waitForLoadState(screen.ready ? 'load' : 'networkidle')
   let last = -1
-  for (let tries = 0; tries < 40; tries++) {
+  for (let tries = 0; tries < 40 && !screen.plain; tries++) {
     const state = await page.evaluate(() => ({
       figures: document.querySelectorAll('figure').length,
       busy: document.querySelectorAll('figure [aria-busy="true"]').length,
@@ -88,7 +91,7 @@ async function settle(page, screen) {
 
 /** Sideways scroll, figure text past its figure's edge, text cut off, and any motion. */
 async function layout(page, where, screen) {
-  const found = await page.evaluate((strips) => {
+  const found = await page.evaluate(([strips, plain]) => {
     const problems = []
     const root = document.documentElement
     if (root.scrollWidth > root.clientWidth + 0.5) problems.push(`the page scrolls sideways (${root.scrollWidth} > ${root.clientWidth})`)
@@ -103,7 +106,7 @@ async function layout(page, where, screen) {
         const row = svg.parentElement?.closest('[aria-hidden="true"]')?.parentElement
         if (!row?.querySelector('.sr-only')?.textContent?.trim()) problems.push(`a ${svg.dataset.strip} strip's row does not say it in words`)
       }
-    } else if (!figures.length) problems.push('no figure on the screen')
+    } else if (!figures.length && !plain) problems.push('no figure on the screen')
     figures.forEach((figure, f) => {
       const name = figure.querySelector('h3')?.textContent?.trim() || `figure ${f + 1}`
       const box = figure.getBoundingClientRect()
@@ -129,7 +132,7 @@ async function layout(page, where, screen) {
       }
     })
     return problems
-  }, !!screen.strips)
+  }, [!!screen.strips, !!screen.plain])
   for (const message of found) fail(where, message)
 }
 
@@ -287,7 +290,7 @@ for (const mode of MODES) {
     await settle(page, screen)
     await layout(page, where, screen)
     if (forced) await forcedColours(page, where)
-    if (mode.keyboard && !forced && !screen.strips) trees[screen.name] = await keyboard(page, where)
+    if (mode.keyboard && !forced && !screen.strips && !screen.plain) trees[screen.name] = await keyboard(page, where)
     await page.screenshot({ path: join(out, mode.name, `${screen.name}.png`), fullPage: true })
     console.log(`${where}: checked`)
   }

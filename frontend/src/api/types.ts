@@ -114,6 +114,58 @@ export interface Reading {
   finished: boolean
 }
 
+/** A place a harness is looked for on this machine. */
+export interface SourceLocation {
+  path: string
+  /** records: a folder of session records. settings: a file read only for the sign-in method. */
+  role: 'records' | 'settings'
+  found: boolean
+}
+
+/** One format version of a harness, and what in it was not understood. */
+export interface FormatHealth {
+  /** Null for records that named no version. */
+  version: string | null
+  unknown_records: number
+  unreadable_lines: number
+  first_seen_at: string
+  last_seen_at: string
+  /** Something was not understood and the format was read recently: it may have changed. */
+  recent: boolean
+}
+
+/** What agdash reads of one harness on this machine. */
+export interface Source {
+  harness: string
+  found: boolean
+  locations: SourceLocation[]
+  files: number
+  bytes_read: number
+  last_read_at: string | null
+  sessions: number
+  format_version: string | null
+  /** Most recently read first. */
+  formats: FormatHealth[]
+}
+
+export interface SourcesReport {
+  sources: Source[]
+}
+
+/** What agdash keeps: its store, the archive of original lines, and retention. */
+export interface StorageReport {
+  store: { file: string | null; bytes: number | null; sessions: number; first_started_at: string | null }
+  archive: { enabled: boolean; chunks: number }
+  /** The limit the service runs with, and what it would remove now; all null without one. */
+  retention: { days: number | null; cutoff: string | null; removable_sessions: number | null; kept_alive: number | null }
+}
+
+/** How much the archive of original lines holds, compressed as stored. */
+export interface ArchiveSize {
+  chunks: number
+  bytes: number
+}
+
 /** The last 30 minutes of every live session: events per minute, and its states. */
 export interface LiveActivity {
   minutes: string[]

@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime};
 use agdash_desktop::{http, live, service};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
+use tauri::webview::DownloadEvent;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 const MAIN: &str = "main";
@@ -77,6 +78,12 @@ fn main() {
                 .inner_size(1280.0, 860.0)
                 .min_inner_size(375.0, 480.0)
                 .initialization_script(service::init_script(port, token.as_deref()))
+                // A session export: the page makes the file and the window saves it with
+                // the person's downloads. Nothing else may be saved from here.
+                .on_download(|_webview, event| match event {
+                    DownloadEvent::Requested { url, .. } => service::page_made(url.as_str()),
+                    _ => true,
+                })
                 .build()?;
 
             let open = MenuItem::with_id(app, "open", "Open agdash", true, None::<&str>)?;

@@ -11,7 +11,8 @@ import { CONNECTIONS, reasonOf, useConnections, useProjects } from './hooks'
 
 const POLL_MS = 2000
 
-function Section({ title, children, labelledBy }: { title: string; children: ReactNode; labelledBy: string }) {
+/** A titled working-paper section of a Settings page. */
+export function Section({ title, children, labelledBy }: { title: string; children: ReactNode; labelledBy: string }) {
   return (
     <section
       aria-labelledby={labelledBy}

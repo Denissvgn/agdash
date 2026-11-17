@@ -209,6 +209,13 @@ pub fn init_script(port: u16, token: Option<&str>) -> String {
     format!("window.__AGDASH__ = Object.freeze({config});")
 }
 
+/// Whether the window may save what the page asks it to. Only a file the page itself
+/// made from the service's answer, such as a session export: its address starts with
+/// `blob:`. Anything fetched from elsewhere is refused.
+pub fn page_made(address: &str) -> bool {
+    address.starts_with("blob:")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,6 +329,16 @@ mod tests {
             data_home(Some("relative".into()), home),
             PathBuf::from("/home/someone/.local/share")
         );
+    }
+
+    #[test]
+    fn only_a_file_the_page_made_may_be_saved() {
+        assert!(page_made("blob:tauri://localhost/0f6e4c1a-synthetic"));
+        assert!(page_made("blob:http://localhost:5174/0f6e4c1a-synthetic"));
+        assert!(!page_made("http://127.0.0.1:8765/api/sessions/1/export"));
+        assert!(!page_made("https://example.invalid/file.md"));
+        assert!(!page_made("data:text/plain,synthetic"));
+        assert!(!page_made(""));
     }
 
     #[test]

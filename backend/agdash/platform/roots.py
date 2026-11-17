@@ -66,6 +66,15 @@ def harness_roots(home: Path, env: Mapping[str, str]) -> dict[Harness, tuple[Pat
     }
 
 
+def is_settings_file(root: Path) -> bool:
+    """Whether a harness root is a single settings file rather than a folder of records.
+
+    Such a file holds settings and account details. Nothing ingests it; only the sign-in
+    method is read from it, from allowlisted fields.
+    """
+    return root.suffix == ".json"
+
+
 def all_harness_roots(home: Path, env: Mapping[str, str]) -> tuple[Path, ...]:
     return tuple(root for roots in harness_roots(home, env).values() for root in roots)
 

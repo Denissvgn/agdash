@@ -22,6 +22,18 @@ def sync_database_url(database_url: str) -> str:
     return url.set(drivername=driver).render_as_string(hide_password=False)
 
 
+def sqlite_file(database_url: str) -> Path | None:
+    """The file a SQLite store lives in; None for any other store, or one in memory."""
+    parsed = make_url(sync_database_url(database_url))
+    if (
+        parsed.get_backend_name() != "sqlite"
+        or not parsed.database
+        or parsed.database == ":memory:"
+    ):
+        return None
+    return Path(parsed.database)
+
+
 def alembic_config(database_url: str) -> Config:
     config = Config()
     config.set_main_option("script_location", str(MIGRATIONS_DIR))

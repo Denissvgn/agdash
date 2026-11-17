@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { getJson } from '../api/client'
@@ -7,6 +7,7 @@ import type { EventOut, Page, SessionDetail, SessionSummary, ThoughtsCoverage } 
 import { formatWhen } from '../history/format'
 import { ErrorNotice, LoadingRows, Notice, StateChip } from '../history/SessionList'
 import { useDocumentTitle } from '../shell/useDocumentTitle'
+import { ExportPanel, ExportToggle } from './ExportControl'
 import { MappingFigure } from './MappingFigure'
 import { SessionOverview } from './Overview'
 import { VirtualList, type VirtualListHandle } from './VirtualList'
@@ -190,6 +191,8 @@ function Header({ session }: { session: SessionDetail }) {
   const harness = t(`history.harnesses.${session.harness}`, { defaultValue: session.harness })
   const started = formatWhen(session.started_at)
   const last = formatWhen(session.last_activity_at)
+  const [exporting, setExporting] = useState(false)
+  const exportId = useId()
   return (
     <header className="flex flex-col gap-sm">
       <p>
@@ -202,7 +205,9 @@ function Header({ session }: { session: SessionDetail }) {
         <h1 className="min-w-0 break-words text-display text-primary-ink" id="page-title">
           {title}
         </h1>
+        <ExportToggle controls={exportId} open={exporting} onToggle={() => setExporting(!exporting)} />
       </div>
+      <ExportPanel id={exportId} open={exporting} sessionId={session.id} />
       <p className="flex flex-wrap gap-x-sm text-label text-secondary-ink">
         <span>{harness}</span>
         {session.models.length > 0 && (

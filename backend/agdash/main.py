@@ -12,6 +12,8 @@ from agdash.api import (
     mapping,
     projects,
     series,
+    sources,
+    storage,
     stream,
     timeline,
     workchord,
@@ -21,7 +23,7 @@ from agdash.api.security import LazyToken, LocalAccess, load_or_create_token
 from agdash.api.store import Store
 from agdash.api.ui import mount_ui, ui_directory
 from agdash.config import database_url, get_settings
-from agdash.platform import current_host
+from agdash.platform import Host, current_host
 
 
 def default_database_url() -> str:
@@ -39,11 +41,13 @@ def create_app(
     port: int | None = None,
     ui_dir: str | None = None,
     reading: Callable[[], object] | None = None,
+    host: Host | None = None,
 ) -> FastAPI:
     """The service's API. Nothing touches the database or the keyring until the first request.
 
     ``reading`` reports how far the collector's start-up read has got, when the
-    collector runs in this process.
+    collector runs in this process. ``host`` is the machine whose harness folders are
+    reported; left out, it is this one.
     """
     settings = get_settings()
     store = Store(database_url or settings.database_url or default_database_url())
@@ -64,6 +68,7 @@ def create_app(
     )
     app.state.store = store
     app.state.reading = reading
+    app.state.host = host
     app.include_router(router, prefix=settings.api_prefix)
     app.include_router(stream.router, prefix=settings.api_prefix)
     app.include_router(exports.router, prefix=settings.api_prefix)
@@ -73,6 +78,8 @@ def create_app(
     app.include_router(mapping.router, prefix=settings.api_prefix)
     app.include_router(workchord.router, prefix=settings.api_prefix)
     app.include_router(projects.router, prefix=settings.api_prefix)
+    app.include_router(sources.router, prefix=settings.api_prefix)
+    app.include_router(storage.router, prefix=settings.api_prefix)
 
     @app.get("/health")
     def health() -> dict[str, str]:

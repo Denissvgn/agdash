@@ -9,7 +9,11 @@ Every name, folder and number here is made up. The store holds:
 - one long session across a night, with every kind of event, linked to a WorkChord run,
   for a session's page;
 - a WorkChord connection with two projects, their tasks, agents, assignments and runs,
-  and folder rules, for Projects.
+  and folder rules, for Projects;
+- files read for three of the four harnesses, a format that changed last week, and
+  archived lines, for Settings. Served, the harness folders are looked for in a made-up
+  home beside the store, where Pi has none. Set ``AGDASH_RETENTION_DAYS`` to see a
+  limit in effect.
 
 Run from ``backend/`` to serve it on loopback with the built UI::
 
@@ -37,16 +41,20 @@ from agdash.db.migrate import upgrade
 from agdash.db.models import (
     Connection,
     Event,
+    IngestCursor,
     MappingRule,
+    RawChunk,
     RunLink,
     Session,
     SessionStateChange,
+    SourceHealth,
     WcActor,
     WcAssignment,
     WcProject,
     WcRun,
     WcTask,
 )
+from agdash.ingest.compressed import Compressor
 from agdash.vocab import (
     EventKind,
     ParentBasis,
@@ -70,6 +78,9 @@ HARNESSES = {
 TOOLS = ["read_file", "read_file", "edit_file", "bash", "bash", "grep", "write_file", "web_fetch"]
 ERROR_RATE = {"bash": 0.18, "edit_file": 0.08, "web_fetch": 0.25}
 FOLDERS = ["/work/example/orchard", "/work/example/meadow", "/work/example/harbour"]
+# Files read per harness, and where the made-up home keeps them. Pi has none.
+FILES_READ = {"claude_code": 420, "codex": 96, "antigravity": 31}
+HOME_FOLDERS = (".claude", ".codex", ".gemini/antigravity")
 
 
 def build(
@@ -90,6 +101,7 @@ def build(
             helper = _live(db, now, sequence, crowd)
             long = _long_session(db, now, sequence)
             connection = _workchord(db, now, long.id, helper.id)
+            _sources(db, now)
             db.flush()
             Resolver().run(db, [connection])
             db.commit()
@@ -590,6 +602,59 @@ def _workchord(db: DbSession, now: datetime, long_id: int, live_id: int) -> Conn
     return connection
 
 
+def _sources(db: DbSession, now: datetime) -> None:
+    """Files read, the formats they were in, and archived lines, for Settings."""
+    rng = random.Random(7)
+    for harness, files in FILES_READ.items():
+        for number in range(files):
+            size = rng.randrange(20_000, 2_400_000)
+            db.add(
+                IngestCursor(
+                    harness=harness,
+                    path=f"/home/example/{harness}/synthetic-{number}.jsonl",
+                    device="1",
+                    inode=f"{harness}-{number}",
+                    byte_offset=size,
+                    size=size,
+                    updated_at=now - timedelta(minutes=rng.randrange(2, 60 * 24 * 40)),
+                )
+            )
+
+    def seen(adapter, version, last_days, *, first_days, unknown=0, errors=0) -> SourceHealth:
+        return SourceHealth(
+            adapter=adapter,
+            format_version=version,
+            unknown_record_count=unknown,
+            parse_error_count=errors,
+            first_seen_at=now - timedelta(days=first_days),
+            last_seen_at=now - timedelta(days=last_days),
+        )
+
+    db.add_all(
+        [
+            # A format that changed five days ago, and one whose trouble is long past.
+            seen("claude_code", "2.4.0", 0, first_days=5, unknown=14, errors=2),
+            seen("claude_code", "2.3.1", 6, first_days=58),
+            seen("codex", "0.31", 0, first_days=40),
+            seen("codex", "unknown", 70, first_days=80, unknown=3),
+            seen("antigravity", "1.8", 1, first_days=30),
+        ]
+    )
+    compressor = Compressor()
+    for number in range(6):
+        lines = [f'{{"synthetic": {number}, "line": {line}}}\n'.encode() for line in range(400)]
+        db.add(
+            RawChunk(
+                harness="claude_code",
+                source_file="/home/example/claude_code/synthetic-0.jsonl",
+                first_offset=number * 10_000,
+                end_offset=(number + 1) * 10_000,
+                line_count=len(lines),
+                data=compressor.frame(lines),
+            )
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--port", type=int, default=8790)
@@ -608,6 +673,7 @@ def main() -> None:
 
     from agdash.collector.run import Reading
     from agdash.main import create_app
+    from agdash.platform import Host, current_host
 
     reading = None
     if args.reading:
@@ -618,7 +684,12 @@ def main() -> None:
     url = f"sqlite:///{folder / 'screens.db'}"
     ids = build(url, crowd=args.crowd)
     print(f"long session {ids['long_session']}", flush=True)
-    app = create_app(url, token=TOKEN, port=args.port, ui_dir=args.ui, reading=reading)
+    # A home of its own, so the screens never show this machine's folders.
+    home = folder / "home"
+    for found in HOME_FOLDERS:
+        (home / found).mkdir(parents=True)
+    host = Host(current_host().os, home, {})
+    app = create_app(url, token=TOKEN, port=args.port, ui_dir=args.ui, reading=reading, host=host)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 
 

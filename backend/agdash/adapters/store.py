@@ -7,7 +7,7 @@ again finds the same sequence and adds nothing.
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -22,6 +22,9 @@ from agdash.vocab import AuthBasis, AuthMethod, EventKind, ParentBasis, Surface,
 EVENTS_PER_LINE = 32
 MAX_TEXT = 64 * 1024
 INITIAL_TASK_LIMIT = 2000
+# Unknown records or unreadable lines read this recently point at a format change;
+# older ones are history and are only mentioned.
+RECENT_FORMATS = timedelta(days=14)
 
 
 @dataclass(frozen=True)

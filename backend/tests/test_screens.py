@@ -51,3 +51,10 @@ def test_every_figure_screen_has_data(tmp_path):
             for agent in orchard["agents"]
         }
         assert agents == {"Robin": (2, 0), "Wren": (1, 1)}
+
+        # Settings: files read per harness, a format that changed lately, archived lines.
+        read = {source["harness"]: source for source in get("sources")["sources"]}
+        assert read["claude_code"]["files"] == 420 and read["pi"]["files"] == 0
+        assert [item["recent"] for item in read["claude_code"]["formats"]] == [True, False]
+        assert get("storage")["store"]["sessions"] > 50
+        assert get("storage/archive")["chunks"] == 6

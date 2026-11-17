@@ -1,8 +1,12 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { I18nextProvider } from 'react-i18next'
 import App from '../App'
+import { catalogue, createI18n, LANGUAGE } from '../i18n'
+import { DestinationPage } from '../pages/DestinationPage'
 import { unnamedControls } from '../test/controls'
 import { DESKTOP, PHONE, setWidth } from '../test/viewport'
+import { WORKSPACES } from './navigation'
 
 function open(path: string) {
   window.location.hash = `#${path}`
@@ -62,9 +66,30 @@ describe('pages', () => {
   })
 
   test('a view without its data says what it will show and what it waits on', () => {
-    open('/settings')
+    // Every destination has its page now; one added before its data exists gets this panel.
+    const workspace = WORKSPACES.find((found) => found.id === 'settings')!
+    const waiting = createI18n({
+      [LANGUAGE]: {
+        translation: {
+          ...catalogue,
+          workspaces: {
+            settings: {
+              destinations: {
+                sample: { title: 'Sample', purpose: 'A view to come.', what: 'Sample rows.', waitsOn: 'The agdash service.' },
+              },
+            },
+          },
+        },
+      },
+    })
+    render(
+      <I18nextProvider i18n={waiting}>
+        <DestinationPage destination={{ id: 'sample', path: '/settings/sample' }} workspace={workspace} />
+      </I18nextProvider>,
+    )
     const panel = screen.getByRole('region', { name: 'Not available yet' })
     expect(within(panel).getByText('What will appear here')).toBeInTheDocument()
+    expect(within(panel).getByText('Sample rows.')).toBeInTheDocument()
     expect(within(panel).getByText('The agdash service.')).toBeInTheDocument()
   })
 

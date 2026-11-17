@@ -98,9 +98,7 @@
         "sources": {
           "label": "Sources",
           "title": "Sources",
-          "purpose": "What agdash can see on this machine.",
-          "what": "Each harness agdash found, the files it reads, and any records it could not understand.",
-          "waitsOn": "The agdash service."
+          "purpose": "What agdash can see on this machine."
         },
         "workchord": {
           "label": "WorkChord",
@@ -110,9 +108,7 @@
         "data": {
           "label": "Data",
           "title": "Data",
-          "purpose": "How long agdash keeps history, and exporting it.",
-          "what": "Retention settings and exports of sessions to JSONL or Markdown.",
-          "waitsOn": "The agdash service."
+          "purpose": "What agdash keeps, for how long, and how a session leaves it."
         }
       }
     }
@@ -712,7 +708,23 @@
     "children_one": "Started {{count}} session",
     "children_other": "Started {{count}} sessions",
     "moreChildren_one": "and {{count}} more",
-    "moreChildren_other": "and {{count}} more"
+    "moreChildren_other": "and {{count}} more",
+    "export": {
+      "open": "Export",
+      "label": "Export this session as",
+      "formats": {
+        "markdown": "Markdown",
+        "jsonl": "JSONL",
+        "raw": "Raw lines"
+      },
+      "hint": "The file is saved with your downloads. Secrets were redacted when the session was read.",
+      "preparing": "Preparing the file.",
+      "done": "Exported",
+      "noLines": "No original lines are archived for this session, so there is nothing to export in this format.",
+      "gone": "This session is no longer in the store.",
+      "failed": "The export did not finish. Try again.",
+      "sized": "({{size}})"
+    }
   },
   "board": {
     "loading": "Loading the board",
@@ -874,5 +886,157 @@
     "from_one": "from {{count}} of {{total}}",
     "from_other": "from {{count}} of {{total}}",
     "partial": "Reported by only some sessions"
+  },
+  "units": {
+    "bytes": "{{value}} bytes",
+    "kB": "{{value}} kB",
+    "MB": "{{value}} MB",
+    "GB": "{{value}} GB",
+    "TB": "{{value}} TB"
+  },
+  "sources": {
+    "loading": "Loading what agdash reads",
+    "list": "Harnesses",
+    "summary_one": "{{found}} of {{count}} harness found on this machine.",
+    "summary_other": "{{found}} of {{count}} harnesses found on this machine.",
+    "changed_one": "{{count}} may have changed its format.",
+    "changed_other": "{{count}} may have changed their format.",
+    "found": "Found",
+    "missing": "Not found",
+    "lastRead": "Last read {{when}}",
+    "neverRead": "Nothing read yet",
+    "files_one": "{{shown}} file read",
+    "files_other": "{{shown}} files read",
+    "sessions_one": "{{shown}} session",
+    "sessions_other": "{{shown}} sessions",
+    "format": "Format",
+    "formatUnknown": "Format not recorded",
+    "understood": "Every record understood",
+    "nothingRead": "No session files read yet",
+    "notHere": "Nothing of it on this machine",
+    "places": "Where agdash looks for {{harness}}",
+    "place": {
+      "missing": "not found",
+      "settings": "sign-in method only",
+      "settingsMissing": "not found (sign-in method only)"
+    },
+    "records_one": "{{shown}} record of an unknown kind",
+    "records_other": "{{shown}} records of an unknown kind",
+    "lines_one": "{{shown}} unreadable line",
+    "lines_other": "{{shown}} unreadable lines",
+    "both": "{{first}} and {{second}}",
+    "recent": "Not understood since {{since}}: {{what}}. {{harness}} may have changed its format, so some of its records are not shown.",
+    "older": "Not understood in formats read earlier: {{what}}.",
+    "formats": {
+      "summary": "By format",
+      "caption": "{{harness}}: what was not understood, by format",
+      "version": "Format",
+      "records": "Unknown records",
+      "lines": "Unreadable lines",
+      "first": "First read",
+      "last": "Last read",
+      "noVersion": "No version named"
+    },
+    "notes": {
+      "readOnly": "agdash opens these folders read-only and reads databases from a private copy. It never writes, locks or creates a file inside them.",
+      "signIn": "From a harness's settings it reads only the fields that say how the harness signs in, never a token, key or other credential.",
+      "elsewhere": "A harness kept in another folder is found only when the agdash service runs with the setting that moved it:",
+      "notUnderstood": "A record of an unknown kind is one the harness wrote in a form agdash does not know; an unreadable line could not be parsed at all. Neither appears in a session."
+    },
+    "error": {
+      "unreachableTitle": "Can't reach the agdash service",
+      "unreachableBody": "Make sure the service is running on this machine, then try again.",
+      "refusedTitle": "The service refused this request",
+      "refusedBody": "The page did not present the service's local token. Open agdash from its app, or restart it.",
+      "serverTitle": "The service could not answer",
+      "serverBody": "Something went wrong while reading the sources. Try again.",
+      "retry": "Try again"
+    },
+    "sessionsKept_one": "{{shown}} session kept from earlier",
+    "sessionsKept_other": "{{shown}} sessions kept from earlier",
+    "settings": {
+      "claude_code": "CLAUDE_CONFIG_DIR",
+      "codex": "CODEX_HOME"
+    },
+    "or": "or"
+  },
+  "storage": {
+    "loading": "Loading what agdash keeps",
+    "store": {
+      "title": "Store",
+      "lead": "Everything agdash collected is in one store on this machine. Nothing leaves it unless you export a session.",
+      "location": "Location",
+      "notAFile": "A database server, not a file on this machine",
+      "size": "Size",
+      "holds": "Holds",
+      "sessions_one": "{{shown}} session",
+      "sessions_other": "{{shown}} sessions",
+      "sessionsSince_one": "{{shown}} session, the earliest started {{since}}",
+      "sessionsSince_other": "{{shown}} sessions, the earliest started {{since}}"
+    },
+    "archive": {
+      "term": "Original lines",
+      "on": "Kept, redacted and compressed.",
+      "off": "Not kept for lines read from now on.",
+      "empty": "Nothing is archived yet.",
+      "measuring": "Measuring what is archived.",
+      "unmeasured": "What is archived could not be measured.",
+      "size": "{{size}} archived.",
+      "about": "They let a session be exported as the harness wrote it, after the harness has pruned its own files.",
+      "stop": "To stop keeping them, start the agdash service with:",
+      "start": "Turned off where the agdash service starts. To keep them again, remove this setting there and restart the service:"
+    },
+    "retention": {
+      "title": "Retention",
+      "off": "agdash keeps every session: no limit is set.",
+      "on_one": "agdash is set to keep {{count}} day of history. Nothing is removed until you run the command below.",
+      "on_other": "agdash is set to keep {{count}} days of history. Nothing is removed until you run the command below.",
+      "setBy": "Set by",
+      "setWhere": "In the agdash service's environment. Change the number there and restart the service.",
+      "unsetWhere": "Not set in the agdash service's environment. Set it to a number of days there and restart the service.",
+      "wouldRemove": "Would remove now",
+      "nothing": "No session: none was last active before {{before}} and is free to go.",
+      "removable_one": "{{shown}} session last active before {{before}}",
+      "removable_other": "{{shown}} sessions last active before {{before}}",
+      "keeps": "Keeps although older",
+      "kept_one": "{{shown}} session that may still run, or belongs with one that may",
+      "kept_other": "{{shown}} sessions that may still run, or belong with one that may",
+      "commands": "Commands you run yourself",
+      "preview": "Lists what would be removed. Removes nothing.",
+      "previewExample_one": "Lists what a limit of {{count}} day would remove. Removes nothing.",
+      "previewExample_other": "Lists what a limit of {{count}} days would remove. Removes nothing.",
+      "apply": "Removes those sessions with their events, usage and archived lines. This cannot be undone."
+    },
+    "export": {
+      "title": "Export",
+      "lead": "Save one session as a file, from its page. Exporting is the only way a session's content leaves agdash, and the file goes where you save it.",
+      "formats": {
+        "markdown": "A transcript to read: prompts, replies, thoughts and tool calls in order.",
+        "jsonl": "One event per line, as agdash stores it, for scripts.",
+        "raw": "The harness's own lines as archived: redacted, otherwise unchanged."
+      },
+      "redacted": "Secrets are redacted before anything is stored, so every export is redacted too.",
+      "choose": "Choose a session in History",
+      "commands": "From the command line",
+      "command": "Writes one session to a new file you name. It refuses an existing file and any place inside a harness folder."
+    },
+    "error": {
+      "unreachableTitle": "Can't reach the agdash service",
+      "unreachableBody": "Make sure the service is running on this machine, then try again.",
+      "refusedTitle": "The service refused this request",
+      "refusedBody": "The page did not present the service's local token. Open agdash from its app, or restart it.",
+      "serverTitle": "The service could not answer",
+      "serverBody": "Something went wrong while reading what agdash keeps. Try again.",
+      "retry": "Try again"
+    },
+    "names": {
+      "keepRawOff": "AGDASH_KEEP_RAW=false",
+      "retention": "AGDASH_RETENTION_DAYS",
+      "retentionDays": "AGDASH_RETENTION_DAYS={{days}}",
+      "preview": "agdash retention --days {{days}}",
+      "apply": "agdash retention --days {{days}} --apply",
+      "exportSession": "agdash export SESSION_ID --format markdown --out FILE",
+      "keepRaw": "AGDASH_KEEP_RAW"
+    }
   }
 }
