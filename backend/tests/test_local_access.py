@@ -121,13 +121,74 @@ def test_a_foreign_origin_is_refused_even_with_the_token(client, origin):
         headers={"Origin": origin, "Access-Control-Request-Method": "GET"},
     )
     assert preflight.status_code == 403
+    for refused in (response, preflight):
+        assert not [h for h in refused.headers if h.lower().startswith("access-control-")]
 
 
-@pytest.mark.parametrize("origin", [OWN, f"http://localhost:{PORT}", "tauri://localhost"])
-def test_agdash_origins_are_let_in_without_cors_headers(client, origin):
+def cors(response) -> dict[str, str]:
+    return {k.lower(): v for k, v in response.headers.items() if k.lower().startswith("access-")}
+
+
+APP_ORIGINS = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]
+
+
+@pytest.mark.parametrize("origin", [OWN, f"http://localhost:{PORT}", *APP_ORIGINS])
+def test_agdash_origins_are_let_in_and_named_on_the_response(client, origin):
     response = client.get("/api/sessions", headers={**BEARER, "Origin": origin})
     assert response.status_code == 200
-    assert not [h for h in response.headers if h.lower().startswith("access-control-")]
+    # The asking origin itself, never a wildcard, and never with credentials.
+    assert cors(response) == {"access-control-allow-origin": origin}
+    assert response.headers["vary"] == "Origin"
+
+
+@pytest.mark.parametrize("origin", APP_ORIGINS)
+@pytest.mark.parametrize(
+    "path", ["/api/sessions", "/api/stream", "/api/workchord/connections/1/rules"]
+)
+def test_the_web_views_preflight_is_answered_without_the_token(client, origin, path):
+    # The desktop window sends the token in a header, so its web view asks first; the
+    # question carries no token, and the answer carries no data.
+    preflight = client.options(
+        path,
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization",
+        },
+    )
+    assert preflight.status_code == 204 and preflight.content == b""
+    answer = cors(preflight)
+    assert answer["access-control-allow-origin"] == origin
+    assert "authorization" in answer["access-control-allow-headers"]
+    assert "content-type" in answer["access-control-allow-headers"]
+    assert {"GET", "POST", "DELETE"} <= {
+        method.strip() for method in answer["access-control-allow-methods"].split(",")
+    }
+    assert "access-control-allow-credentials" not in answer
+
+
+def test_a_preflight_still_needs_a_loopback_host(client):
+    preflight = client.options(
+        "/api/sessions",
+        headers={
+            "Origin": "tauri://localhost",
+            "Access-Control-Request-Method": "GET",
+            "Host": "evil.example",
+        },
+    )
+    assert preflight.status_code == 421
+
+
+def test_a_plain_options_request_still_needs_the_token(client):
+    response = client.options("/api/sessions", headers={"Origin": "tauri://localhost"})
+    assert response.status_code == 401
+
+
+def test_the_web_view_can_read_a_refusal(client):
+    # Without the origin named, a missing token would look like an unreachable service.
+    response = client.get("/api/sessions", headers={"Origin": "tauri://localhost"})
+    assert response.status_code == 401
+    assert cors(response) == {"access-control-allow-origin": "tauri://localhost"}
 
 
 def test_extra_origins_come_from_settings(database, monkeypatch):
@@ -141,7 +202,13 @@ def test_extra_origins_come_from_settings(database, monkeypatch):
         get_settings.cache_clear()
     with TestClient(app, base_url=OWN) as dev:
         ok = dev.get("/api/sessions", headers={**BEARER, "Origin": "http://127.0.0.1:5173"})
+        preflight = dev.options(
+            "/api/sessions",
+            headers={"Origin": "http://127.0.0.1:5173", "Access-Control-Request-Method": "GET"},
+        )
     assert ok.status_code == 200
+    assert ok.headers["access-control-allow-origin"] == "http://127.0.0.1:5173"
+    assert preflight.status_code == 204
 
 
 def test_the_stream_is_a_get_route_like_every_data_route():

@@ -18,7 +18,13 @@ reads a harness folder, and it serves on loopback only.
 ```
 
 Open `http://127.0.0.1:8790/#agdash-token=screens-token` in a browser to use it
-by hand: the link hands the tab the store's token, as `agdash open` does.
+by hand: the link hands the tab the store's token, as `agdash open` does. The
+frontend's dev server on 5174 reads the store too when it is started as in the
+desktop section below; started plainly, it sends `/api` to the real service,
+and says it cannot reach it when that is not running.
+
+The live board shows the last 30 minutes, so the store's live sessions are gone
+half an hour after it starts. Start it again for the Live screen.
 
 ## The automated run
 
@@ -52,7 +58,9 @@ and Ubuntu as "Figure screens" and keeps the screenshots.
 ## By hand: VoiceOver
 
 Turn VoiceOver on with Command-F5. In Safari, open the store's link above; in
-the desktop app, see the next section. On each figure screen:
+the desktop app, see the next section. Safari's Tab key moves only between text
+fields and menus until Safari Settings → Advanced → "Press Tab to highlight each
+item on a webpage" is on; without it, use Option-Tab. On each figure screen:
 
 1. Move to the figure with VO-Right Arrow: VoiceOver reads its title and
    caption, then its legend.
@@ -72,11 +80,14 @@ Note anything announced twice, not at all, or differently from
 The desktop app uses the system's web view: WKWebView on macOS, WebKitGTK on
 Ubuntu. Point it at the synthetic store instead of the real service: it uses a
 healthy service on `AGDASH_PORT` as it is, and takes its token from the command
-`AGDASH_BIN` names, so a stand-in that prints the store's token is enough.
+`AGDASH_BIN` names, so a stand-in that prints the store's token is enough. A
+debug build loads the UI from the frontend's dev server, a page on its own
+origin, so the store has to let that origin in:
 
 ```bash
 printf '#!/bin/sh\n[ "$1" = token ] && echo screens-token\n' > /tmp/agdash-screens && chmod +x /tmp/agdash-screens
-(cd frontend && npm run dev)   # a debug build loads the UI from here
+(cd backend && AGDASH_EXTRA_ORIGINS='["http://localhost:5174"]' ../.venv/bin/python tests/screens.py --port 8790 --ui ../frontend/dist)
+(cd frontend && VITE_API_URL=http://127.0.0.1:8790 AGDASH_TOKEN=screens-token npm run dev)   # a debug build loads the UI from here
 (cd desktop && AGDASH_PORT=8790 AGDASH_BIN=/tmp/agdash-screens cargo run)
 ```
 

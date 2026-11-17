@@ -6,8 +6,12 @@ Three checks run on every request before any handler, the live stream included:
   that points its own domain at 127.0.0.1 (DNS rebinding) sends its own name
   and is refused.
 * **Origin**, when a browser sends one, must be agdash's own: the service's
-  loopback address or the desktop app's web view. No CORS headers are ever
-  sent, so other pages cannot read a response either.
+  loopback address or the desktop app's web view. Any other origin is refused
+  outright and gets no CORS headers, so it cannot read a response either. The
+  desktop app's page lives on its own origin and sends the token in a header,
+  so its web view asks first (a preflight): the service answers that for
+  agdash's own origins only, without the token since it carries no data, and
+  names the asking origin on every response to it. No wildcard is ever sent.
 * **The local token**, sent as ``Authorization: Bearer``, must match. It lives
   in agdash's secret store and is created on first use.
 
@@ -32,6 +36,11 @@ LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
 # The desktop shell's web view, on macOS and on Linux.
 APP_ORIGINS = ("tauri://localhost", "http://tauri.localhost", "https://tauri.localhost")
 OPEN_PATHS = frozenset({"/health"})
+# What a preflight from one of agdash's own origins may ask for: the API's methods and
+# the two headers the UI sends that are not simple ones.
+ALLOW_METHODS = b"GET, HEAD, POST, DELETE"
+ALLOW_HEADERS = b"authorization, content-type"
+PREFLIGHT_MAX_AGE = b"600"
 
 
 class NotLoopback(ValueError):
@@ -115,6 +124,13 @@ class LocalAccess:
         if scope["type"] == "websocket":
             return await send({"type": "websocket.close", "code": 1008})
         refusal = self._refusal(scope["path"], headers)
+        origin = headers.get("origin")
+        if origin is not None and origin in self.origins and _is_preflight(scope, headers):
+            # Checked after the Host; a preflight never carries the token, nor any data.
+            if refusal is None or refusal[0] == 401:
+                return await self._preflight(send, origin)
+        if origin is not None and origin in self.origins:
+            send = _naming(send, origin)
         if refusal is not None:
             status, reason = refusal
             return await self._refuse(send, status, reason)
@@ -146,3 +162,38 @@ class LocalAccess:
             headers.append((b"www-authenticate", b"Bearer"))
         await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": body})
+
+    @staticmethod
+    async def _preflight(send, origin: str) -> None:
+        headers = [
+            (b"access-control-allow-origin", origin.encode("latin-1")),
+            (b"access-control-allow-methods", ALLOW_METHODS),
+            (b"access-control-allow-headers", ALLOW_HEADERS),
+            (b"access-control-max-age", PREFLIGHT_MAX_AGE),
+            (b"vary", b"Origin"),
+            (b"content-length", b"0"),
+        ]
+        await send({"type": "http.response.start", "status": 204, "headers": headers})
+        await send({"type": "http.response.body", "body": b""})
+
+
+def _is_preflight(scope, headers: dict[str, str]) -> bool:
+    return scope["method"] == "OPTIONS" and "access-control-request-method" in headers
+
+
+def _naming(send, origin: str):
+    """Add the asking origin, one of agdash's own, to the response's headers."""
+
+    async def named(message):
+        if message["type"] == "http.response.start":
+            message = {
+                **message,
+                "headers": [
+                    *message.get("headers", []),
+                    (b"access-control-allow-origin", origin.encode("latin-1")),
+                    (b"vary", b"Origin"),
+                ],
+            }
+        await send(message)
+
+    return named

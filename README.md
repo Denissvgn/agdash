@@ -63,10 +63,13 @@ The desktop app (`desktop/`, Tauri 2) is a window on the UI and a tray item with
 the number of live sessions. It attaches to the service on `127.0.0.1:8765`, or
 starts it (through the LaunchAgent or systemd unit when installed, otherwise
 `agdash serve` in its own process group), and takes the local token from
-`agdash token`. Quitting it leaves the service running. Build the UI first, then:
+`agdash token`. Quitting it leaves the service running. A debug build loads the
+UI from the frontend's dev server, a page on its own origin, so start the service
+letting that origin in:
 
 ```bash
-(cd frontend && npm run build)
+(cd frontend && npm run dev)
+AGDASH_EXTRA_ORIGINS='["http://localhost:5174"]' .venv/bin/agdash serve
 (cd desktop && cargo run)
 ```
 

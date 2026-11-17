@@ -74,6 +74,8 @@ function kindFor(status: number): ApiErrorKind {
   if (status === 401 || status === 403 || status === 421) return 'refused'
   if (status === 404) return 'missing'
   if (status === 400 || status === 422) return 'invalid'
+  // A gateway in between, such as the dev server's proxy, could not reach the service.
+  if (status === 502 || status === 503 || status === 504) return 'unreachable'
   return 'server'
 }
 

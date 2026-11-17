@@ -147,11 +147,19 @@ async function sliders(page, where) {
     if (!reached) fail(where, `Tab never reached the "${name}" handle`)
     await handle.focus()
     const before = await handle.getAttribute('aria-valuenow')
-    await page.keyboard.press(i % 2 ? 'ArrowLeft' : 'ArrowRight')
-    // A window that scrolls a list follows the scroll, a frame or two later.
-    await page.waitForTimeout(300)
-    const after = await handle.getAttribute('aria-valuenow')
-    if (before === after) fail(where, `the arrow keys left the "${name}" handle where it was`)
+    // A window that scrolls a list follows the scroll some frames later, and later still on a
+    // busy machine, so the value is waited for rather than read after a fixed pause. A handle
+    // already at one end cannot go further that way, so the other arrow is tried before failing.
+    let moved = false
+    for (const key of i % 2 ? ['ArrowLeft', 'ArrowRight'] : ['ArrowRight', 'ArrowLeft']) {
+      await page.keyboard.press(key)
+      for (let waited = 0; waited < 3000 && !moved; waited += 100) {
+        await page.waitForTimeout(100)
+        moved = (await handle.getAttribute('aria-valuenow')) !== before
+      }
+      if (moved) break
+    }
+    if (!moved) fail(where, `the arrow keys left the "${name}" handle where it was`)
     if (!(await handle.getAttribute('aria-valuetext'))) fail(where, `the "${name}" handle does not say its value in words`)
   }
   return count
@@ -260,7 +268,13 @@ for (const mode of MODES) {
     ...(forced ? { forcedColors: 'active' } : {}),
   })
   const page = await context.newPage()
-  page.on('pageerror', (error) => fail(`${engine} ${mode.name}`, `page error: ${error.message}`))
+  page.on('pageerror', (error) => {
+    // WebKit words a request that leaving the page cancelled as failing "access control
+    // checks". These pages only ask their own service, where no such check can fail, so
+    // that is the check's own next step cutting a request short, not an error of the page.
+    const cancelled = error.message.includes('due to access control checks') && error.message.includes(new URL(values.base).host)
+    if (!cancelled) fail(`${engine} ${mode.name}`, `page error: ${error.message}`)
+  })
   // The way `agdash open` hands a browser tab its token: the tab keeps it for later pages.
   await page.goto(`${values.base}/#agdash-token=${encodeURIComponent(values.token)}`)
   await page.waitForFunction(() => !window.location.hash.startsWith('#agdash-token='))
