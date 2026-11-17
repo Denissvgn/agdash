@@ -4,6 +4,7 @@ import App from '../App'
 import { newQueryClient } from '../api/queryClient'
 import type { ArchiveSize, Source, SourcesReport, StorageReport } from '../api/types'
 import { unnamedControls } from '../test/controls'
+import { DESKTOP, PHONE, setWidth } from '../test/viewport'
 import { sizeParts } from './format'
 
 // Synthetic folders, versions and counts: nothing here comes from a real machine.
@@ -261,15 +262,19 @@ describe('Settings · Sources', () => {
       ['3', '0', 'Aug 2, 2026', 'Aug 9, 2026'],
     ])
     expect(body.map((row) => within(row).getByRole('rowheader').textContent)).toEqual(['2.1.14', 'No version named'])
+    // A harness whose records were all understood has no such table.
+    const codex = within(within(list).getByRole('heading', { name: 'Codex' }).closest('li') as HTMLElement)
+    expect(codex.queryByRole('table')).toBeNull()
+
     // On a phone the same formats are a list of terms and values in place of the table.
+    // In a browser only one of the two is shown at a time, so the page is narrowed first.
+    await setWidth(PHONE)
     const stacked = claude.getByRole('list', { name: 'Claude Code: what was not understood, by format' })
     expect(within(stacked).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
       '2.1.14Unknown records14Unreadable lines2First readNov 12, 2026Last readNov 16, 2026',
       'No version namedUnknown records3Unreadable lines0First readAug 2, 2026Last readAug 9, 2026',
     ])
-    // A harness whose records were all understood has no such table.
-    const codex = within(within(list).getByRole('heading', { name: 'Codex' }).closest('li') as HTMLElement)
-    expect(codex.queryByRole('table')).toBeNull()
+    await setWidth(DESKTOP)
   })
 
   test('a service that cannot be reached is said in the page’s own words', async () => {
