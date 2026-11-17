@@ -15,11 +15,16 @@ const STATE_DOT: Record<SessionState, string> = {
 }
 
 /** A session's state as WorkChord's canonical status colours show it, always with its word. */
+/** A state's dot alone, for where its word stands beside it in other ink. */
+export function StateDot({ state }: { state: SessionState }) {
+  return <span aria-hidden="true" className={`size-[6px] shrink-0 rounded-full ${STATE_DOT[state] ?? STATE_DOT.unknown}`} />
+}
+
 export function StateChip({ state }: { state: SessionState }) {
   const { t } = useTranslation()
   return (
     <span className="inline-flex h-[22px] shrink-0 items-center gap-xs rounded-full border border-hairline bg-working-paper px-sm text-label text-secondary-ink">
-      <span aria-hidden="true" className={`size-[6px] rounded-full ${STATE_DOT[state] ?? STATE_DOT.unknown}`} />
+      <StateDot state={state} />
       {t(`history.states.${state}`)}
     </span>
   )

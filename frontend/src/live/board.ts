@@ -9,6 +9,13 @@ export const LIVE_GROUPS: LiveGroup[] = ['folder', 'harness']
 export const UNKNOWN_WINDOW_MS = 30 * 60_000
 /** Ended sessions stay on the board, under "Just ended", for this long. */
 export const ENDED_WINDOW_MS = 15 * 60_000
+/** A session left open with nothing happening for this long is folded away as long quiet. */
+export const QUIET_AFTER_MS = 24 * 60 * 60_000
+/** Past this many rows the board tightens its rows. */
+export const DENSE_ABOVE = 20
+
+export type LiveView = 'timeline' | 'agents'
+export const LIVE_VIEWS: LiveView[] = ['timeline', 'agents']
 
 export const LIVE_STATES: SessionState[] = ['active', 'waiting', 'idle', 'unknown']
 const STATE_ORDER: Record<SessionState, number> = { active: 0, waiting: 1, idle: 2, unknown: 3, ended: 4 }
@@ -102,8 +109,13 @@ function newest(node: Node): number {
 
 /** Root trees grouped by the root's folder or harness; most recently active group first. */
 export function groups(sessions: SessionSummary[], by: LiveGroup): Group[] {
+  return groupNodes(forest(sessions), by)
+}
+
+/** The same grouping for trees already arranged, such as those a filter kept. */
+export function groupNodes(roots: Node[], by: LiveGroup): Group[] {
   const found = new Map<string | null, Node[]>()
-  for (const node of forest(sessions)) {
+  for (const node of roots) {
     const key = by === 'folder' ? node.session.cwd : node.session.harness
     found.set(key, [...(found.get(key) ?? []), node])
   }
@@ -125,4 +137,34 @@ export function stateCounts(sessions: SessionSummary[]): [SessionState, number][
     SessionState,
     number,
   ]).filter(([, count]) => count > 0)
+}
+
+/**
+ * Whether a tree is only left open: none of it working or waiting, and nothing written
+ * for a day. Such sessions are true but not news, so the board folds them into one line.
+ */
+export function isLongQuiet(node: Node, now: number): boolean {
+  const all = members(node)
+  return all.every((session) => session.state === 'idle' || session.state === 'unknown') && now - newest(node) > QUIET_AFTER_MS
+}
+
+/** The trees with a session in one of ``states``, each cut down to those sessions and the ones above them. */
+export function keep(roots: Node[], states: ReadonlySet<SessionState>): Node[] {
+  if (states.size === 0) return roots
+  return roots.flatMap((node) => {
+    const children = keep(node.children, states)
+    return states.has(node.session.state) || children.length ? [{ ...node, children }] : []
+  })
+}
+
+export interface Placed {
+  node: Node
+  depth: number
+  /** The session this one sits under on the board. */
+  parent?: SessionSummary
+}
+
+/** Every session of the trees in the order the board lists them, with how deep it sits. */
+export function flatten(roots: Node[], depth = 0, parent?: SessionSummary): Placed[] {
+  return roots.flatMap((node) => [{ node, depth, parent }, ...flatten(node.children, depth + 1, node.session)])
 }

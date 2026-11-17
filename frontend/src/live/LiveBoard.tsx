@@ -4,36 +4,42 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { getJson } from '../api/client'
-import type { LiveActivity, Page, SessionSummary } from '../api/types'
-import { heatScale, type HeatScale } from '../charts/heat'
+import type { LiveActivity, Page, SessionState, SessionSummary } from '../api/types'
+import { STRIP_STATES } from '../charts/states'
+import { heatScale } from '../charts/heat'
 import { PageHeader } from '../history/PageHeader'
-import { ErrorNotice, LoadingRows, Notice, StateChip } from '../history/SessionList'
+import { ErrorNotice, LoadingRows, Notice, StateDot } from '../history/SessionList'
+import { ReadingLine } from '../shell/ReadingLine'
+import { AgentGraph } from './AgentGraph'
 import {
+  DENSE_ABOVE,
   ENDED_WINDOW_MS,
   LIVE_GROUPS,
+  LIVE_STATES,
+  LIVE_VIEWS,
+  QUIET_AFTER_MS,
   UNKNOWN_WINDOW_MS,
-  endedAt,
-  groups,
-  lastActive,
+  flatten,
+  forest,
+  groupNodes,
+  isLongQuiet,
+  keep,
   split,
   stateCounts,
   type LiveGroup,
-  type Node,
+  type LiveView,
+  type Placed,
 } from './board'
-import { formatAgo } from './format'
+import type { LinkTo, Strips } from './parts'
+import { Roster } from './Roster'
+import { SessionPanel } from './SessionPanel'
 import { useLiveStream, type StreamMessage, type StreamStatus } from './stream'
-import { RowStrips, StripsKey, type LiveRow } from './Strips'
-import { ReadingLine } from '../shell/ReadingLine'
+import { StripsKey } from './Strips'
 
 const TICK_MS = 30_000
 const REFETCH_DELAY_MS = 300
 /** How far back to look for sessions that ended recently, whatever their last activity. */
 const ENDED_LOOKBACK_MS = 12 * 60 * 60_000
-
-interface LatestPrompt {
-  kind: string
-  payload: { text?: string }
-}
 
 function useNow(): number {
   const [now, setNow] = useState(() => Date.now())
@@ -63,191 +69,57 @@ async function liveSessions(signal: AbortSignal): Promise<SessionSummary[]> {
   return pages.flatMap((page) => page.items)
 }
 
-function useLatestPrompt(sessionId: number) {
-  return useQuery({
-    queryKey: ['live', 'prompt', sessionId],
-    queryFn: ({ signal }) =>
-      getJson<Page<LatestPrompt>>(
-        `/api/sessions/${sessionId}/events`,
-        { kind: 'user_prompt', order: 'desc', limit: 1 },
-        signal,
-      ),
-    staleTime: Infinity,
-  })
-}
+const CHOSEN =
+  'toggle-chip relative cursor-pointer has-[:checked]:border-planning-thread has-[:checked]:bg-planning-thread-soft has-[:checked]:text-planning-thread has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-planning-thread'
 
-function GroupSwitch({ group, onChange }: { group: LiveGroup; onChange: (group: LiveGroup) => void }) {
-  const { t } = useTranslation()
+/** One of a few ways to see the board, as a row of pills: how it is grouped, or drawn. */
+function Choice<T extends string>({
+  legend,
+  options,
+  value,
+  label,
+  onChange,
+}: {
+  legend: string
+  options: T[]
+  value: T
+  label: (option: T) => string
+  onChange: (option: T) => void
+}) {
   const name = useId()
   return (
-    <fieldset className="flex flex-wrap items-center gap-sm">
-      <legend className="float-left mr-sm text-label text-secondary-ink">{t('live.groupBy')}</legend>
-      {LIVE_GROUPS.map((value) => (
-        <label
-          key={value}
-          className="toggle-chip relative cursor-pointer has-[:checked]:border-planning-thread has-[:checked]:bg-planning-thread-soft has-[:checked]:text-planning-thread has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-planning-thread"
-        >
-          <input
-            checked={group === value}
-            className="sr-only"
-            name={name}
-            type="radio"
-            value={value}
-            onChange={() => onChange(value)}
-          />
-          {t(`live.groups.${value}`)}
+    // A labelled radio group on one line: a fieldset's legend would take a line of its own.
+    <div aria-labelledby={`${name}-legend`} className="flex flex-wrap items-center gap-sm" role="radiogroup">
+      <span className="text-label text-secondary-ink" id={`${name}-legend`}>
+        {legend}
+      </span>
+      {options.map((option) => (
+        <label key={option} className={CHOSEN}>
+          <input checked={value === option} className="sr-only" name={name} type="radio" value={option} onChange={() => onChange(option)} />
+          {label(option)}
         </label>
       ))}
-    </fieldset>
+    </div>
   )
 }
 
-function Folder({ path }: { path: string }) {
-  // Cut from the start: the last folders are what tell sessions apart.
-  return (
-    <span className="data block min-w-0 truncate text-left font-mono text-[0.75rem] [direction:rtl]">
-      <bdi>{path}</bdi>
-    </span>
-  )
-}
-
-function Prompt({ sessionId }: { sessionId: number }) {
-  const { t } = useTranslation()
-  const { data, isPending } = useLatestPrompt(sessionId)
-  const text = data?.items[0]?.payload.text?.trim()
-  return (
-    // The clamp sits on the paragraph so the label and the prompt share its two lines.
-    <p className="line-clamp-2 max-w-[90ch] break-words text-body text-secondary-ink">
-      <span className="mr-sm text-label">{t('live.row.latestPrompt')}</span>
-      {isPending ? (
-        // A still placeholder holds the line, so the row does not grow when the prompt arrives.
-        <span aria-hidden="true" className="inline-block h-[10px] w-2/5 rounded-compact bg-canvas-mist align-middle" />
-      ) : text ? (
-        <span className="text-primary-ink">{text}</span>
-      ) : (
-        <span>{t('live.row.noPrompt')}</span>
-      )}
-    </p>
-  )
-}
-
-// A nested row draws a hairline elbow from its parent's column, one step in.
-const NESTED =
-  'border-t border-hairline before:absolute before:-left-[12px] before:top-0 before:h-[23px] before:w-[26px] before:rounded-bl-compact before:border-b before:border-l before:border-hairline after:absolute after:-left-[12px] after:bottom-0 after:top-0 after:border-l after:border-hairline last:after:hidden'
-
-/** The last 30 minutes of the board's sessions, for the rows' strips. */
-type Strips = { rows: Map<number, LiveRow>; scale: HeatScale; from: number; until: number }
-
-function Row({
-  node,
-  now,
-  showFolder,
-  strips,
-  parent,
-  ended = false,
-  nested = false,
+/** The live count as one line: said for assistive technology, and shown as pills that filter the board by state. */
+function Counts({
+  live,
+  quiet,
+  shown,
+  onToggle,
 }: {
-  node: Node
-  now: number
-  showFolder: boolean
-  strips?: Strips
-  /** The session this one was started by, when it is on the board. */
-  parent?: SessionSummary
-  ended?: boolean
-  nested?: boolean
+  live: SessionSummary[]
+  quiet: boolean
+  shown: ReadonlySet<SessionState>
+  onToggle: (state: SessionState) => void
 }) {
-  const { t } = useTranslation()
-  const { session } = node
-  const harness = t(`history.harnesses.${session.harness}`, { defaultValue: session.harness })
-  const surface = session.surface ? t(`history.surfaces.${session.surface}`) : null
-  const model = session.models.at(-1)
-  const basis = session.state_basis ? t(`live.basis.${session.state_basis}`, { defaultValue: '' }) : ''
-  const when = ended ? endedAt(session) : lastActive(session)
-  const row = strips?.rows.get(session.id)
-  // An edge from a session of another harness names how the link is known.
-  const across = parent && parent.harness !== session.harness
-  return (
-    <li className={nested ? `relative ${NESTED}` : 'relative'}>
-      <div className="flex flex-col gap-xs px-md py-[12px]">
-        {across ? (
-          <p className="text-[0.75rem] text-secondary-ink" data-edge={session.parent_basis ?? 'unknown'}>
-            {t('live.row.edge', {
-              harness: t(`history.harnesses.${parent.harness}`, { defaultValue: parent.harness }),
-              basis: t(`live.parentBasis.${session.parent_basis ?? 'unknown'}`, {
-                defaultValue: t('live.parentBasis.unknown'),
-              }),
-            })}
-          </p>
-        ) : null}
-        {/* Aligned to the title's first line, so a nested row's elbow meets the chip. */}
-        <div className="flex flex-wrap items-start gap-x-sm gap-y-xs">
-          <StateChip state={session.state} />
-          <h3 className="line-clamp-2 min-w-[min(100%,12rem)] flex-1 break-words text-body font-semibold text-primary-ink roomy:line-clamp-none roomy:truncate">
-            {session.title || t('history.list.untitled')}
-          </h3>
-          <span className="data shrink-0 pt-[2px] text-label text-secondary-ink">
-            {when
-              ? t(ended ? 'live.row.ended' : 'live.row.lastActive', { when: formatAgo(when, now) })
-              : t('history.list.noActivity')}
-          </span>
-        </div>
-        <p className="flex flex-wrap gap-x-sm text-label text-secondary-ink">
-          <span>{surface ? t('history.list.harnessSurface', { harness, surface }) : harness}</span>
-          <span aria-hidden="true">·</span>
-          <span className="min-w-0 truncate">{model ?? t('history.list.noModel')}</span>
-          {session.effort && (
-            <>
-              <span aria-hidden="true">·</span>
-              <span>{t('live.row.effort', { effort: session.effort })}</span>
-            </>
-          )}
-          {basis && (
-            <>
-              <span aria-hidden="true">·</span>
-              <span>{basis}</span>
-            </>
-          )}
-          {node.orphan && (
-            <>
-              <span aria-hidden="true">·</span>
-              <span>{t('live.row.parentNotLive')}</span>
-            </>
-          )}
-        </p>
-        {!ended && row && strips ? <RowStrips from={strips.from} row={row} scale={strips.scale} until={strips.until} /> : null}
-        <Prompt sessionId={session.id} />
-        {showFolder && session.cwd && (
-          <p className="text-secondary-ink">
-            <Folder path={session.cwd} />
-          </p>
-        )}
-      </div>
-      {node.children.length > 0 && (
-        <ul aria-label={t('live.row.startedBy', { title: session.title || t('history.list.untitled') })} className="ml-lg">
-          {node.children.map((child) => (
-            <Row
-              key={child.session.id}
-              nested
-              node={child}
-              now={now}
-              parent={session}
-              showFolder={showFolder}
-              strips={strips}
-            />
-          ))}
-        </ul>
-      )}
-    </li>
-  )
-}
-
-function Summary({ live, status, quiet }: { live: SessionSummary[]; status: StreamStatus; quiet: boolean }) {
   const { t } = useTranslation()
   const counts = stateCounts(live)
   return (
-    <div className="flex flex-col gap-xs">
-      {/* With nothing on the board the notice below says it; the sentence stays for screen readers. */}
-      <p aria-live="polite" className={quiet ? 'sr-only' : 'text-body text-primary-ink'} role="status">
+    <>
+      <p aria-live="polite" className="sr-only" role="status">
         {live.length === 0
           ? t('live.summary.none')
           : t('live.summary.live', {
@@ -255,50 +127,37 @@ function Summary({ live, status, quiet }: { live: SessionSummary[]; status: Stre
               states: counts.map(([state, count]) => t(`live.summary.state.${state}`, { count })).join(' · '),
             })}
       </p>
-      {status === 'retrying' ? (
-        <p className="flex items-center gap-xs text-label text-secondary-ink">
-          <CircleAlert aria-hidden="true" className="text-feedback-warning" size={14} strokeWidth={1.75} />
-          {t('live.stream.retrying')}
-        </p>
-      ) : (
-        <p className="text-label text-secondary-ink">{t(`live.stream.${status}`)}</p>
+      {quiet ? null : (
+        <div aria-label={t('live.filter.label')} className="flex flex-wrap items-center gap-sm" role="group">
+          <span aria-hidden="true" className="mr-xs text-body text-primary-ink">
+            {t('live.filter.count', { count: live.length })}
+          </span>
+          {counts.map(([state, count]) => (
+            <button key={state} aria-pressed={shown.has(state)} className="toggle-chip" type="button" onClick={() => onToggle(state)}>
+              <StateDot state={state} />
+              {t(`live.summary.state.${state}`, { count })}
+            </button>
+          ))}
+        </div>
       )}
-      <p className="text-label text-secondary-ink">
-        {t('live.unknownWindow', { minutes: UNKNOWN_WINDOW_MS / 60_000 })}
-      </p>
-    </div>
+    </>
   )
 }
 
-function GroupHeading({
-  group,
-  by,
-  count,
-  others,
-  id,
-}: {
-  group: string | null
-  by: LiveGroup
-  count: number
-  others: number
-  id: string
-}) {
+/** What the board is and how to read it: said once, out of the way of the rows. */
+function About({ status }: { status: StreamStatus }) {
   const { t } = useTranslation()
   return (
-    <h2 className="flex min-w-0 items-baseline gap-sm text-label text-secondary-ink" id={id}>
-      <span className="min-w-0 text-primary-ink">
-        {group === null ? (
-          t(`live.notRecorded.${by}`)
-        ) : by === 'folder' ? (
-          <Folder path={group} />
-        ) : (
-          t(`history.harnesses.${group}`, { defaultValue: group })
-        )}
-      </span>
-      <span className="data shrink-0">
-        {others ? t('live.sessionsWithOthers', { count, others }) : t('live.sessions', { count })}
-      </span>
-    </h2>
+    <details className="text-label text-secondary-ink">
+      <summary className="cursor-pointer">{t('live.about.summary')}</summary>
+      <div className="mt-xs flex max-w-[90ch] flex-col gap-xs">
+        <p>{t(`live.stream.${status}`)}</p>
+        <p>{t('live.strips.key')}</p>
+        <p>{t('live.unknownWindow', { minutes: UNKNOWN_WINDOW_MS / 60_000 })}</p>
+        <p>{t('live.quiet.about', { hours: QUIET_AFTER_MS / 3_600_000 })}</p>
+        <p>{t('live.ended.body', { minutes: ENDED_WINDOW_MS / 60_000 })}</p>
+      </div>
+    </details>
   )
 }
 
@@ -307,6 +166,13 @@ export function LiveBoardPage() {
   const client = useQueryClient()
   const [search, setSearch] = useSearchParams()
   const by: LiveGroup = search.get('group') === 'harness' ? 'harness' : 'folder'
+  const view: LiveView = search.get('view') === 'agents' ? 'agents' : 'timeline'
+  const picked = Number(search.get('session')) || null
+  const shownText = search.get('show') ?? ''
+  const shown = useMemo(
+    () => new Set(shownText.split(',').filter((state): state is SessionState => LIVE_STATES.includes(state as SessionState))),
+    [shownText],
+  )
   const now = useNow()
   const baseId = useId()
 
@@ -358,7 +224,16 @@ export function LiveBoardPage() {
   const status = useLiveStream(onMessage)
 
   const { live, ended } = useMemo(() => split(query.data ?? [], now), [query.data, now])
-  const arranged = useMemo(() => groups(live, by), [live, by])
+  const { arranged, quiet, placed } = useMemo(() => {
+    const roots = keep(forest(live), shown)
+    const quiet = roots.filter((node) => isLongQuiet(node, now))
+    const current = roots.filter((node) => !quiet.includes(node))
+    const arranged = groupNodes(current, by)
+    const endedNodes = ended.map((session) => ({ session, children: [], orphan: false }))
+    // The order the rows are in on the page, which the keys and the first pick follow.
+    const placed: Placed[] = [...flatten(arranged.flatMap((group) => group.nodes)), ...flatten(quiet), ...flatten(endedNodes)]
+    return { arranged, quiet, placed }
+  }, [live, ended, shown, by, now])
   const strips = useMemo((): Strips | undefined => {
     const data = activity.data
     if (!data?.minutes.length) return undefined
@@ -371,12 +246,50 @@ export function LiveBoardPage() {
     }
   }, [activity.data])
 
-  const changeGroup = (next: LiveGroup) => {
+  const change = (patch: Record<string, string | null>) => {
     const params = new URLSearchParams(search)
-    if (next === 'folder') params.delete('group')
-    else params.set('group', next)
-    setSearch(params)
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null) params.delete(key)
+      else params.set(key, value)
+    }
+    return params
   }
+  const to: LinkTo = (sessionId) => {
+    const text = change({ session: sessionId === null ? null : String(sessionId) }).toString()
+    return text ? `?${text}` : '.'
+  }
+  const toggle = (state: SessionState) => {
+    const next = new Set(shown)
+    if (next.has(state)) next.delete(state)
+    else next.add(state)
+    setSearch(change({ show: next.size ? LIVE_STATES.filter((value) => next.has(value)).join(',') : null }), { replace: true })
+  }
+
+  // Beside the rows the panel always shows a session: the one picked, or else the first.
+  // Below 1024px it takes the rows' place, so there it shows only what was picked.
+  const chosen = placed.find((row) => row.node.session.id === picked) ?? null
+  const inPanel = chosen ?? placed[0] ?? null
+  const dense = placed.length > DENSE_ABOVE
+  // The states some lane on the board draws, for its key.
+  const drawn = useMemo(() => {
+    const found = new Set<string>()
+    for (const row of activity.data?.sessions ?? []) for (const span of row.states) found.add(span.state)
+    return STRIP_STATES.filter((state) => found.has(state))
+  }, [activity.data])
+
+  // Below 1024px the panel and the rows take each other's place, so focus goes with them.
+  const before = useRef(picked)
+  useEffect(() => {
+    const was = before.current
+    before.current = picked
+    if (was === picked || !window.matchMedia?.('(max-width: 1023px)').matches) return
+    const target =
+      picked !== null
+        ? document.querySelector<HTMLElement>('[data-panel-title]')
+        : document.querySelector<HTMLElement>(`[data-roster] [data-session="${was}"] a[data-row], [data-roster] a[data-row][data-session="${was}"]`)
+    target?.focus()
+  }, [picked])
+  const empty = live.length === 0 && ended.length === 0
 
   return (
     <article aria-labelledby="page-title" className="flex flex-col gap-page-gap">
@@ -387,50 +300,76 @@ export function LiveBoardPage() {
       ) : query.isError ? (
         <ErrorNotice error={query.error} scope="live.error" onRetry={() => void query.refetch()} />
       ) : (
-        <>
-          <Summary live={live} quiet={live.length === 0 && ended.length === 0} status={status} />
-          {live.length > 0 && <GroupSwitch group={by} onChange={changeGroup} />}
-          {live.length > 0 && strips ? <StripsKey scale={strips.scale} /> : null}
-          {live.length === 0 && ended.length === 0 && (
-            <Notice body={t('live.empty.body')} title={t('live.empty.title')} />
-          )}
-          {arranged.map((group, index) => {
-            const id = `${baseId}-group-${index}`
-            return (
-              <section key={String(group.key)} aria-labelledby={id} className="flex flex-col gap-sm">
-                <GroupHeading by={by} count={group.count} group={group.key} id={id} others={group.others} />
-                <ul className="divide-y divide-hairline overflow-hidden rounded-surface border border-hairline bg-working-paper shadow-resting">
-                  {group.nodes.map((node) => (
-                    <Row key={node.session.id} node={node} now={now} showFolder={by === 'harness'} strips={strips} />
-                  ))}
-                </ul>
-              </section>
-            )
-          })}
-          {ended.length > 0 && (
-            <section aria-labelledby={`${baseId}-ended`} className="flex flex-col gap-sm">
-              <div className="flex flex-col gap-xs">
-                <h2 className="text-title text-primary-ink" id={`${baseId}-ended`}>
-                  {t('live.ended.title')}
-                </h2>
-                <p className="text-body text-secondary-ink">
-                  {t('live.ended.body', { minutes: ENDED_WINDOW_MS / 60_000 })}
-                </p>
+        <div className="flex flex-col gap-md">
+          {/* With a session picked below 1024px only its panel shows, and these would do nothing. */}
+          <div className={`flex flex-wrap items-center gap-x-lg gap-y-sm ${chosen ? 'max-[1023px]:hidden' : ''}`}>
+            <Counts live={live} quiet={empty} shown={shown} onToggle={toggle} />
+            {live.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-lg gap-y-sm min-[1024px]:ml-auto">
+                <Choice
+                  label={(option) => t(`live.views.${option}`)}
+                  legend={t('live.view')}
+                  options={LIVE_VIEWS}
+                  value={view}
+                  onChange={(next) => setSearch(change({ view: next === 'timeline' ? null : next }), { replace: true })}
+                />
+                <Choice
+                  label={(option) => t(`live.groups.${option}`)}
+                  legend={t('live.groupBy')}
+                  options={LIVE_GROUPS}
+                  value={by}
+                  onChange={(next) => setSearch(change({ group: next === 'folder' ? null : next }))}
+                />
               </div>
-              <ul className="divide-y divide-hairline overflow-hidden rounded-surface border border-hairline bg-working-paper shadow-resting">
-                {ended.map((session) => (
-                  <Row
-                    key={session.id}
-                    ended
-                    node={{ session, children: [], orphan: false }}
-                    now={now}
-                    showFolder
-                  />
-                ))}
-              </ul>
-            </section>
+            )}
+          </div>
+          {status === 'retrying' && (
+            <p className="flex items-center gap-xs text-label text-secondary-ink">
+              <CircleAlert aria-hidden="true" className="text-feedback-warning" size={14} strokeWidth={1.75} />
+              {t('live.stream.retrying')}
+            </p>
           )}
-        </>
+          {empty ? (
+            <Notice body={t('live.empty.body')} title={t('live.empty.title')} />
+          ) : placed.length === 0 ? (
+            <Notice body={t('live.filter.noneBody')} title={t('live.filter.noneTitle')} />
+          ) : (
+            <div className="grid items-start gap-lg min-[1024px]:grid-cols-[minmax(0,1fr)_18rem] min-[1340px]:grid-cols-[minmax(0,1fr)_20rem]">
+              <div className={`flex min-w-0 flex-col gap-sm ${chosen ? 'max-[1023px]:hidden' : ''}`}>
+                <Roster
+                  baseId={baseId}
+                  by={by}
+                  dense={dense}
+                  ended={ended}
+                  groups={arranged}
+                  now={now}
+                  quiet={quiet}
+                  selected={inPanel?.node.session.id ?? null}
+                  strips={strips}
+                  to={to}
+                >
+                  {view === 'agents' ? (
+                    <AgentGraph baseId={baseId} by={by} groups={arranged} selected={inPanel?.node.session.id ?? null} to={to} />
+                  ) : undefined}
+                </Roster>
+                {strips && view === 'timeline' ? <StripsKey scale={strips.scale} states={drawn} /> : null}
+              </div>
+              {inPanel ? (
+                <div className={chosen ? '' : 'max-[1023px]:hidden'}>
+                  <SessionPanel
+                    ended={inPanel.node.session.state === 'ended'}
+                    node={inPanel.node}
+                    now={now}
+                    parent={inPanel.parent}
+                    strips={strips}
+                    to={to}
+                  />
+                </div>
+              ) : null}
+            </div>
+          )}
+          <About status={status} />
+        </div>
       )}
     </article>
   )
