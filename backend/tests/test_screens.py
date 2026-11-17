@@ -58,3 +58,15 @@ def test_every_figure_screen_has_data(tmp_path):
         assert [item["recent"] for item in read["claude_code"]["formats"]] == [True, False]
         assert get("storage")["store"]["sessions"] > 50
         assert get("storage/archive")["chunks"] == 6
+        parts = get("storage/parts")
+        assert parts["archive_bytes"] > 0 and parts["rest_bytes"] > parts["archive_bytes"]
+
+        # Settings: what a made-up service used, with a night it was not running.
+        for chosen, steps in (("hour", 60), ("day", 288), ("quarter", 360)):
+            usage = get("service/usage", range=chosen)
+            measured = [point for point in usage["points"] if point["cpu_percent"] is not None]
+            assert len(usage["points"]) == steps and len(measured) > steps // 2, chosen
+            assert usage["known"] is False and usage["now"]["footprint_bytes"] > 100_000_000
+            assert [part["part"] for part in usage["parts"]][:2] == ["probe", "ingest"]
+        quarter = get("service/usage", range="quarter")["points"]
+        assert any(point["cpu_percent"] is None for point in quarter[-20:]), "the night off"

@@ -189,6 +189,50 @@ export interface ArchiveSize {
   bytes: number
 }
 
+/** What the store's file is made of. A part that cannot be told is null. */
+export interface StoreParts {
+  bytes: number | null
+  archive_bytes: number
+  search_bytes: number | null
+  free_bytes: number | null
+  rest_bytes: number | null
+}
+
+export type ServiceRange = 'hour' | 'day' | 'quarter'
+
+/** What the service itself used over one step; null where nothing was measured. */
+export interface ServicePoint {
+  at: string
+  cpu_percent: number | null
+  footprint_bytes: number | null
+  read_bytes_per_second: number | null
+  written_bytes_per_second: number | null
+  store_bytes: number | null
+}
+
+/** What the service itself uses: its own CPU, memory, storage traffic and store size. */
+export interface ServiceUsageReport {
+  /** Whether this process samples itself; if not, only what was kept is shown. */
+  known: boolean
+  since: string | null
+  cpus: number | null
+  range: ServiceRange
+  step_seconds: number
+  measured_seconds: number
+  now: {
+    at: string
+    cpu_percent: number | null
+    footprint_bytes: number | null
+    resident_bytes: number | null
+    read_bytes_per_second: number | null
+    written_bytes_per_second: number | null
+    store_bytes: number | null
+    free_bytes: number | null
+  } | null
+  points: ServicePoint[]
+  parts: { part: string; cpu_seconds: number; cpu_percent: number }[]
+}
+
 /** The last 30 minutes of every live session: events per minute, and its states. */
 export interface LiveActivity {
   minutes: string[]

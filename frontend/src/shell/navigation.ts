@@ -69,6 +69,7 @@ export const WORKSPACES: Workspace[] = [
       { id: 'sources', path: '/settings' },
       { id: 'workchord', path: '/settings/workchord' },
       { id: 'data', path: '/settings/data' },
+      { id: 'service', path: '/settings/service' },
     ],
   },
 ]

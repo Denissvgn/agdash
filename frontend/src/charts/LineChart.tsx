@@ -48,6 +48,7 @@ export function LineChart({
   onRetry,
   rowHeader,
   formatValue = formatWhole,
+  formatAxis = formatCompact,
   variant = 'line',
   height = 220,
 }: {
@@ -58,6 +59,8 @@ export function LineChart({
   onRetry?: () => void
   rowHeader: string
   formatValue?: (value: number) => string
+  /** The value axis's labels, short: a unit other than a count needs its own. */
+  formatAxis?: (value: number) => string
   variant?: 'line' | 'step'
   height?: number
 }) {
@@ -132,7 +135,7 @@ export function LineChart({
         >
           {({ active, mark, hatch }) => (
             <>
-              <HorizontalGrid format={formatCompact} left={frame.left} right={frame.right} ticks={frame.ticks} y={frame.y} />
+              <HorizontalGrid format={formatAxis} left={frame.left} right={frame.right} ticks={frame.ticks} y={frame.y} />
               {runs.map(([first, last]) => (
                 <NotReportedBand
                   key={first}

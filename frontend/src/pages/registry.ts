@@ -4,6 +4,7 @@ import { ToolsPage, UsagePage } from '../analytics/pages'
 import { SearchPage, SessionsPage } from '../history/pages'
 import { LiveAgentsPage, LiveBoardPage } from '../live/LiveBoard'
 import { DataPage } from '../settings/DataPage'
+import { ServicePage } from '../settings/ServicePage'
 import { SourcesPage } from '../settings/SourcesPage'
 import { ProjectBoardPage } from '../workchord/ProjectBoardPage'
 import { UnmappedPage } from '../workchord/UnmappedPage'
@@ -26,4 +27,5 @@ export const PAGES: Record<string, ComponentType> = {
   'settings:sources': SourcesPage,
   'settings:workchord': WorkChordPage,
   'settings:data': DataPage,
+  'settings:service': ServicePage,
 }

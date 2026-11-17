@@ -64,6 +64,9 @@ const SCREENS = [
   // Settings pages hold lists and facts, no figure: they are checked for layout alone.
   { name: 'sources', hash: '#/settings', ready: 'ul[aria-label="Harnesses"]', plain: true },
   { name: 'data', hash: '#/settings/data', ready: '#retention-title', plain: true },
+  // What the service uses: four figures over time and one of its parts.
+  { name: 'service', hash: '#/settings/service', ready: '#parts-title' },
+  { name: 'service-90', hash: '#/settings/service?range=quarter', ready: '#parts-title' },
 ]
 
 const failures = new Map()

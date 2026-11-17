@@ -2,8 +2,9 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../App'
 import { newQueryClient } from '../api/queryClient'
-import type { ArchiveSize, RetentionPreview, Source, SourcesReport, StorageReport } from '../api/types'
+import type { ArchiveSize, RetentionPreview, ServiceUsageReport, Source, SourcesReport, StorageReport, StoreParts } from '../api/types'
 import { unnamedControls } from '../test/controls'
+import { openTwin } from '../test/twin'
 import { DESKTOP, PHONE, setWidth } from '../test/viewport'
 import { sizeParts } from './format'
 
@@ -124,8 +125,50 @@ const LIMITED: StorageReport = {
   },
 }
 
+// Six ten-second steps of a synthetic service; in the third nothing was measured.
+const USAGE: ServiceUsageReport = {
+  known: true,
+  since: '2026-11-17T09:00:00Z',
+  cpus: 12,
+  range: 'hour',
+  step_seconds: 10,
+  measured_seconds: 50,
+  now: {
+    at: '2026-11-17T12:00:00Z',
+    cpu_percent: 5.72,
+    footprint_bytes: 157_000_000,
+    resident_bytes: 48_000_000,
+    read_bytes_per_second: 1_040_000,
+    written_bytes_per_second: null,
+    store_bytes: 7_720_000_000,
+    free_bytes: 312_000_000_000,
+  },
+  points: [4, 6, null, 5, 8, 5.72].map((cpu, i) => ({
+    at: `2026-11-17T11:59:${String(i * 10).padStart(2, '0')}Z`,
+    cpu_percent: cpu,
+    footprint_bytes: cpu === null ? null : 150_000_000 + i * 1_000_000,
+    read_bytes_per_second: cpu === null ? null : 1_000_000,
+    written_bytes_per_second: cpu === null ? null : 3_000,
+    store_bytes: cpu === null ? null : 7_720_000_000,
+  })),
+  parts: [
+    { part: 'probe', cpu_seconds: 1.55, cpu_percent: 3.1 },
+    { part: 'ingest', cpu_seconds: 1.1, cpu_percent: 2.2 },
+    { part: 'api', cpu_seconds: 0.2, cpu_percent: 0.4 },
+  ],
+}
+const PARTS: StoreParts = {
+  bytes: 7_720_000_000,
+  archive_bytes: 2_260_000_000,
+  search_bytes: 550_000_000,
+  free_bytes: 1_970_000_000,
+  rest_bytes: 2_940_000_000,
+}
+
 type Served = {
   sources?: SourcesReport | number
+  usage?: ServiceUsageReport | number
+  parts?: StoreParts | number
   storage?: StorageReport | number
   archive?: ArchiveSize | number | 'never'
   exports?: Record<string, string | number>
@@ -178,6 +221,11 @@ function serve(served: Served) {
       if (url.pathname === '/api/storage/retention/preview' && served.preview) {
         return json(served.preview(Number(url.searchParams.get('days'))))
       }
+      if (url.pathname === '/api/service/usage' && served.usage !== undefined) {
+        const range = url.searchParams.get('range') as ServiceUsageReport['range']
+        return json(typeof served.usage === 'number' ? served.usage : { ...served.usage, range })
+      }
+      if (url.pathname === '/api/storage/parts' && served.parts !== undefined) return json(served.parts)
       if (url.pathname === '/api/storage/archive' && served.archive !== undefined) {
         if (served.archive === 'never') return new Promise<Response>(() => {})
         return json(served.archive)
@@ -656,5 +704,146 @@ describe('sizes', () => {
     expect(sizeParts(412_300_000)).toEqual({ unit: 'MB', value: '412.3' })
     expect(sizeParts(7_707_283_456)).toEqual({ unit: 'GB', value: '7.7' })
     expect(sizeParts(5e15)).toEqual({ unit: 'TB', value: '5,000' })
+  })
+})
+
+describe('Settings · Service', () => {
+  const rowsOf = (figure: HTMLElement) =>
+    within(figure)
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => within(row).getAllByRole('cell').map((cell) => cell.textContent))
+
+  test('says what the service uses now, as facts and never as tiles', async () => {
+    serve({ usage: USAGE })
+    open('/settings/service')
+    const now = within(await screen.findByRole('region', { name: 'Now' }))
+    expect(now.getByText('5.7% of one core')).toBeInTheDocument()
+    expect(now.getByText('This machine has 12 cores.')).toBeInTheDocument()
+    expect(now.getByText('157 MB')).toBeInTheDocument()
+    expect(now.getByText(/^48 MB of it is resident\./)).toBeInTheDocument()
+    expect(now.getByText('1 MB a second')).toBeInTheDocument()
+    // A number the system did not give is said to be missing, never shown as nothing written.
+    expect(now.getByText('Not reported')).toBeInTheDocument()
+    expect(now.getByText('7.7 GB')).toBeInTheDocument()
+    expect(now.getByText('312 GB free on its volume.')).toBeInTheDocument()
+    expect(unnamedControls(document.body)).toEqual([])
+  })
+
+  test('draws each measure over time with a table of the same values', async () => {
+    serve({ usage: USAGE })
+    open('/settings/service')
+    const over = await screen.findByRole('region', { name: 'Over time' })
+    const figures = within(over).getAllByRole('figure')
+    expect(figures.map((figure) => within(figure).getByRole('heading').textContent)).toEqual([
+      'Processor, % of one core',
+      'Memory',
+      'Read from disk, each second',
+      'Written to disk, each second',
+      'Store size',
+    ])
+    openTwin(over)
+    const cpu = rowsOf(figures[0])
+    expect(cpu.map((cells) => cells[0])).toEqual([
+      '4% of one core',
+      '6% of one core',
+      '–not reported',
+      '5% of one core',
+      '8% of one core',
+      '5.7% of one core',
+    ])
+    expect(rowsOf(figures[1])[0]).toEqual(['150 MB'])
+    expect(rowsOf(figures[2])[0]).toEqual(['1 MB a second'])
+    expect(rowsOf(figures[3])[0]).toEqual(['3 kB a second'])
+  })
+
+  test('ranks the parts of the service by the processor time they took', async () => {
+    serve({ usage: USAGE })
+    open('/settings/service')
+    const parts = await screen.findByRole('region', { name: 'By part' })
+    openTwin(parts)
+    const rows = within(parts).getAllByRole('row').slice(1)
+    expect(rows.map((row) => row.textContent)).toEqual([
+      'Watching the process table3.1% of one core',
+      'Reading harness files2.2% of one core',
+      'Answering pages0.4% of one core',
+    ])
+  })
+
+  test('keeps the range in the address, and the hour out of it', async () => {
+    const { asked } = serve({ usage: USAGE })
+    open('/settings/service')
+    const range = within(await screen.findByRole('radiogroup', { name: 'Show' }))
+    expect(range.getByRole('radio', { name: 'The last hour' })).toBeChecked()
+    expect(asked).toContain('/api/service/usage?range=hour')
+    fireEvent.click(range.getByRole('radio', { name: 'The last 90 days' }))
+    await waitFor(() => expect(asked).toContain('/api/service/usage?range=quarter'))
+    expect(window.location.hash).toBe('#/settings/service?range=quarter')
+    fireEvent.click(range.getByRole('radio', { name: 'The last hour' }))
+    await waitFor(() => expect(window.location.hash).toBe('#/settings/service'))
+  })
+
+  test('a copy that does not measure itself says so', async () => {
+    serve({ usage: { ...USAGE, known: false, since: null } })
+    open('/settings/service')
+    const now = within(await screen.findByRole('region', { name: 'Now' }))
+    expect(now.getByText(/^This copy of the service does not measure itself\. These are the last figures kept/)).toBeInTheDocument()
+    expect(now.queryByText('Measuring since')).toBeNull()
+  })
+
+  test('before the first sample it says nothing is measured yet', async () => {
+    serve({ usage: { ...USAGE, now: null, parts: [], points: USAGE.points.map((point) => ({ ...point, cpu_percent: null })) } })
+    open('/settings/service')
+    const now = within(await screen.findByRole('region', { name: 'Now' }))
+    expect(now.getByText(/^Nothing is measured yet\./)).toBeInTheDocument()
+  })
+
+  test('says so in its own words when the service cannot be reached', async () => {
+    serve({ usage: 503 })
+    open('/settings/service')
+    // The page asks once more before it gives up.
+    expect(await screen.findByText("Can't reach the agdash service", undefined, { timeout: 4000 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+  })
+})
+
+describe('Settings · Data: what the store holds', () => {
+  test('lists the parts of the file, the largest first, with their share', async () => {
+    const { asked } = serve({ storage: STORAGE, archive: { chunks: 10_841, bytes: 2_260_000_000 }, parts: PARTS })
+    open('/settings/data')
+    const store = await screen.findByRole('region', { name: 'Store' })
+    const table = within(await within(store).findByRole('region', { name: 'What the store holds' })).getByRole('table')
+    expect(
+      within(table)
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => [within(row).getByRole('rowheader').textContent, ...within(row).getAllByRole('cell').map((cell) => cell.textContent)]),
+    ).toEqual([
+      ['Events and everything else', '2.9 GB', '38%'],
+      ['Original lines', '2.3 GB', '29%'],
+      ['Free inside the file', '2 GB', '26%'],
+      ['Search index', '550 MB', '7%'],
+    ])
+    expect(asked).toContain('/api/storage/parts')
+    expect(unnamedControls(document.body)).toEqual([])
+  })
+
+  test('says so when the parts could not be measured', async () => {
+    serve({ storage: STORAGE, parts: 500 })
+    open('/settings/data')
+    const store = await screen.findByRole('region', { name: 'Store' })
+    // The page asks once more before it gives up.
+    expect(await within(store).findByText('What the store holds could not be measured.', {}, { timeout: 4000 })).toBeInTheDocument()
+  })
+
+  test('leaves out a part that cannot be told, rather than calling it nothing', async () => {
+    serve({ storage: STORAGE, parts: { ...PARTS, search_bytes: null } })
+    open('/settings/data')
+    const table = within(await screen.findByRole('region', { name: 'What the store holds' })).getByRole('table')
+    expect(within(table).getAllByRole('rowheader').map((header) => header.textContent)).toEqual([
+      'Events and everything else',
+      'Original lines',
+      'Free inside the file',
+    ])
   })
 })

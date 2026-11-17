@@ -46,6 +46,7 @@ from agdash.db.models import (
     MappingRule,
     RawChunk,
     RunLink,
+    ServiceUsage,
     Session,
     SessionStateChange,
     SourceHealth,
@@ -103,6 +104,7 @@ def build(
             long = _long_session(db, now, sequence)
             connection = _workchord(db, now, long.id, helper.id)
             _sources(db, now)
+            _service(db, now)
             db.flush()
             Resolver().run(db, [connection])
             db.commit()
@@ -654,6 +656,55 @@ def _sources(db: DbSession, now: datetime) -> None:
                 data=compressor.frame(lines),
             )
         )
+
+
+def _service(db: DbSession, now: datetime) -> None:
+    """What a made-up service used: a day of minutes and sixty days of hours.
+
+    Its processor rises through each working day, its store grows a little each hour,
+    and it was not running for one night, which the figures show as not reported.
+    """
+    rng = random.Random(11)
+    hour = now.replace(minute=0, second=0, microsecond=0)
+
+    def row(period: str, started_at: datetime, seconds: float, store: int) -> ServiceUsage:
+        busy = 0.5 + 0.5 * abs(12 - started_at.hour) / 12
+        cpu = seconds * (0.02 + 0.06 * (1 - busy)) * rng.uniform(0.8, 1.2)
+        return ServiceUsage(
+            period=period,
+            started_at=started_at,
+            seconds=seconds,
+            cpu_seconds=cpu,
+            parts={
+                "probe": cpu * 0.5,
+                "ingest": cpu * 0.3,
+                "api": cpu * 0.12,
+                "mirror": cpu * 0.05,
+                "monitor": cpu * 0.01,
+                "other": cpu * 0.02,
+            },
+            footprint_bytes=int(150_000_000 * rng.uniform(0.95, 1.1)),
+            resident_bytes=int(50_000_000 * rng.uniform(0.9, 1.1)),
+            read_bytes=int(seconds * 900_000 * rng.uniform(0.6, 1.4)),
+            written_bytes=int(seconds * 4_000 * rng.uniform(0.5, 1.5)),
+            store_bytes=store,
+            free_bytes=310_000_000_000 - store,
+        )
+
+    hours = 24 * 60
+    for back in range(hours, 0, -1):
+        started_at = hour - timedelta(hours=back)
+        # One night, three days back, the service was not running.
+        if 62 <= back <= 70:
+            continue
+        db.add(row("hour", started_at, 3600.0, 2_000_000_000 + (hours - back) * 3_000_000))
+    minutes = int((now - (hour - timedelta(hours=26))).total_seconds() // 60)
+    for back in range(minutes, 1, -1):
+        started_at = now.replace(second=0, microsecond=0) - timedelta(minutes=back)
+        # And for a quarter of an hour this morning.
+        if 200 <= back <= 215:
+            continue
+        db.add(row("minute", started_at, 60.0, 2_000_000_000 + hours * 3_000_000 - back * 50_000))
 
 
 def main() -> None:
