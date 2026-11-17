@@ -216,7 +216,8 @@ describe('the Unmapped queue', () => {
     serve({ connections: [SERVER], queue })
     open('/projects/unmapped')
     const list = await screen.findByRole('list', { name: 'Unmapped sessions' })
-    expect(within(list).getByText('No evidence points at a project.')).toBeInTheDocument()
+    // The page says once why sessions are here; a row adds only evidence that disagrees.
+    expect(within(list).queryByText('No evidence points at a project.')).not.toBeInTheDocument()
     const evidence = within(list).getByRole('list', { name: 'Evidence for Synthetic session 12' })
     expect(within(evidence).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
       'Its task: Orchard',

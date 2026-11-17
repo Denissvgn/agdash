@@ -108,16 +108,67 @@ describe('filters in the address', () => {
 
 describe('the sessions list', () => {
   test('shows recorded sessions', async () => {
-    serve(() => ({ body: page([session(1), session(2, { title: null, state: 'active', child_count: 2 })]) }))
+    const calls = serve(() => ({
+      body: page([
+        session(1, { state: 'ended' }),
+        session(2, { title: null, initial_task: null, state: 'active', child_count: 2 }),
+        session(3, { title: null, initial_task: '<note kind="synthetic">\n\n  Prune   the orchard rows\nand then the hedge', state: 'unknown' }),
+      ]),
+    }))
     open('#/history')
     const list = await screen.findByRole('list', { name: 'Sessions' })
     expect(within(list).getByText('Synthetic session 1')).toBeInTheDocument()
     expect(within(list).getByText('Untitled session')).toBeInTheDocument()
-    expect(within(list).getAllByText(/Last active/)).toHaveLength(2)
+    // With no title, a session is called by how its first prompt began, without markup.
+    expect(within(list).getByRole('link', { name: 'Prune the orchard rows' })).toBeInTheDocument()
+    expect(within(list).getAllByText(/Last active/)).toHaveLength(3)
+    // A state that says something is shown; "Unknown" on a past session is not.
     expect(within(list).getByText('Active')).toBeInTheDocument()
+    expect(within(list).getByText('Ended')).toBeInTheDocument()
+    expect(within(list).queryByText('Unknown')).not.toBeInTheDocument()
     expect(within(list).getByText('2 subagents')).toBeInTheDocument()
-    expect(within(list).getAllByText('Codex · CLI')).toHaveLength(2)
+    expect(within(list).getAllByText('Codex · CLI')).toHaveLength(3)
     expect(unnamedControls(document.body)).toEqual([])
+    // Top-level sessions with something recorded: subagents are counted on their parent's row.
+    const asked = calls.find((url) => url.pathname === '/api/sessions')!
+    expect(asked.searchParams.get('roots_only')).toBe('true')
+    expect(asked.searchParams.get('recorded')).toBe('true')
+  })
+
+  test('the harness and the period are always in view; the rest sits behind More filters', async () => {
+    serve(() => ({ body: page([session(1)]) }))
+    open('#/history')
+    await screen.findByRole('list', { name: 'Sessions' })
+    const filters = within(screen.getByRole('region', { name: 'Filters' }))
+    expect(within(filters.getByRole('radiogroup', { name: 'Started' })).getAllByRole('radio')).toHaveLength(4)
+    const more = filters.getByRole('button', { name: 'More filters' })
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+    const panel = document.getElementById(more.getAttribute('aria-controls')!)!
+    expect(panel).toHaveAttribute('hidden')
+    await act(async () => fireEvent.click(more))
+    expect(more).toHaveAttribute('aria-expanded', 'true')
+    expect(panel).not.toHaveAttribute('hidden')
+    // The button says how many filters are set behind it, open or closed, and always toggles.
+    await act(async () => fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'model-b' } }))
+    await act(async () =>
+      fireEvent.change(screen.getByLabelText('Started on or after'), { target: { value: '2026-11-02' } }),
+    )
+    await act(async () =>
+      fireEvent.change(screen.getByLabelText('Started on or before'), { target: { value: '2026-11-09' } }),
+    )
+    // The two dates are one filter.
+    const set = filters.getByRole('button', { name: 'More filters (2 set)' })
+    expect(set).toHaveAttribute('aria-expanded', 'true')
+    await act(async () => fireEvent.click(set))
+    expect(set).toHaveAttribute('aria-expanded', 'false')
+    expect(panel).toHaveAttribute('hidden')
+  })
+
+  test('a filter already in the address opens More filters by itself', async () => {
+    serve(() => ({ body: page([session(1)]) }))
+    open('#/history?model=model-b')
+    await screen.findByRole('list', { name: 'Sessions' })
+    expect(screen.getByRole('button', { name: 'More filters (1 set)' })).toHaveAttribute('aria-expanded', 'true')
   })
 
   test('filters combine, are written to the address and sent to the service', async () => {

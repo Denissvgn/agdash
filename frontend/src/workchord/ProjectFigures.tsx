@@ -1,11 +1,11 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getJson } from '../api/client'
 import type { ProjectActivity, ProjectGroup } from '../api/types'
 import { Dumbbell, Lanes, type FigureStatus, type Lane } from '../charts'
 import { formatValue } from '../charts/format'
 import { RANGES, type Range } from './ranges'
+import { Choice } from '../shell/Choice'
 
 const HOUR = 3_600_000
 /**
@@ -17,20 +17,14 @@ const THRESHOLD: Record<Range, number> = { '7': 2 * HOUR, '30': Number.POSITIVE_
 /** The last 7 or 30 days as pills over native radios; the choice lives in the address. */
 export function RangeSwitch({ value, onChange }: { value: Range; onChange: (range: Range) => void }) {
   const { t } = useTranslation()
-  const name = useId()
   return (
-    <fieldset className="flex flex-wrap items-center gap-sm">
-      <legend className="float-left mr-sm text-label text-secondary-ink">{t('board.activity.range')}</legend>
-      {RANGES.map((option) => (
-        <label
-          key={option}
-          className="toggle-chip relative cursor-pointer has-[:checked]:border-planning-thread has-[:checked]:bg-planning-thread-soft has-[:checked]:text-planning-thread has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-planning-thread"
-        >
-          <input checked={value === option} className="sr-only" name={name} type="radio" value={option} onChange={() => onChange(option)} />
-          {t('history.filters.lastDays', { count: Number(option) })}
-        </label>
-      ))}
-    </fieldset>
+    <Choice
+      label={(option) => t('history.filters.lastDays', { count: Number(option) })}
+      legend={t('board.activity.range')}
+      options={RANGES}
+      value={value}
+      onChange={onChange}
+    />
   )
 }
 

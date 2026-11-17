@@ -150,6 +150,19 @@ def test_the_start_up_read_is_reported_when_the_collector_runs_here(filled):
         assert beside.get("/api/reading", headers={"Authorization": ""}).status_code == 401
 
 
+def test_sessions_known_only_by_name_can_be_left_out(client):
+    # A harness's index can name a session whose transcript is gone: a title and nothing else.
+    everything = every(client, "/api/sessions")
+    recorded = every(client, "/api/sessions", recorded=True)
+    left_out = {item["id"] for item in everything} - {item["id"] for item in recorded}
+    assert left_out, "the fixtures hold a session that is only a name"
+    for item in everything:
+        nothing = item["started_at"] is None and item["last_activity_at"] is None
+        assert (item["id"] in left_out) == nothing
+        if nothing:
+            assert item["event_count"] == 0
+
+
 def test_the_api_connection_refuses_to_write(client):
     engine = client.app.state.store.engine
     with engine.connect() as connection, pytest.raises(OperationalError, match="readonly"):

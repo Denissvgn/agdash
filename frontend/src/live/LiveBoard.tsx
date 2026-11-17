@@ -9,6 +9,7 @@ import { STRIP_STATES } from '../charts/states'
 import { heatScale } from '../charts/heat'
 import { PageHeader } from '../history/PageHeader'
 import { ErrorNotice, LoadingRows, Notice, StateDot } from '../history/SessionList'
+import { Choice } from '../shell/Choice'
 import { ReadingLine } from '../shell/ReadingLine'
 import { AgentGraph } from './AgentGraph'
 import {
@@ -16,7 +17,6 @@ import {
   ENDED_WINDOW_MS,
   LIVE_GROUPS,
   LIVE_STATES,
-  LIVE_VIEWS,
   QUIET_AFTER_MS,
   UNKNOWN_WINDOW_MS,
   flatten,
@@ -67,40 +67,6 @@ async function liveSessions(signal: AbortSignal): Promise<SessionSummary[]> {
     ),
   ])
   return pages.flatMap((page) => page.items)
-}
-
-const CHOSEN =
-  'toggle-chip relative cursor-pointer has-[:checked]:border-planning-thread has-[:checked]:bg-planning-thread-soft has-[:checked]:text-planning-thread has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-planning-thread'
-
-/** One of a few ways to see the board, as a row of pills: how it is grouped, or drawn. */
-function Choice<T extends string>({
-  legend,
-  options,
-  value,
-  label,
-  onChange,
-}: {
-  legend: string
-  options: T[]
-  value: T
-  label: (option: T) => string
-  onChange: (option: T) => void
-}) {
-  const name = useId()
-  return (
-    // A labelled radio group on one line: a fieldset's legend would take a line of its own.
-    <div aria-labelledby={`${name}-legend`} className="flex flex-wrap items-center gap-sm" role="radiogroup">
-      <span className="text-label text-secondary-ink" id={`${name}-legend`}>
-        {legend}
-      </span>
-      {options.map((option) => (
-        <label key={option} className={CHOSEN}>
-          <input checked={value === option} className="sr-only" name={name} type="radio" value={option} onChange={() => onChange(option)} />
-          {label(option)}
-        </label>
-      ))}
-    </div>
-  )
 }
 
 /** The live count as one line: said for assistive technology, and shown as pills that filter the board by state. */
@@ -161,12 +127,21 @@ function About({ status }: { status: StreamStatus }) {
   )
 }
 
+/** The live sessions as rows on one clock. */
 export function LiveBoardPage() {
+  return <LiveBoard view="timeline" />
+}
+
+/** The same sessions as a graph of which started which. */
+export function LiveAgentsPage() {
+  return <LiveBoard view="agents" />
+}
+
+function LiveBoard({ view }: { view: LiveView }) {
   const { t } = useTranslation()
   const client = useQueryClient()
   const [search, setSearch] = useSearchParams()
   const by: LiveGroup = search.get('group') === 'harness' ? 'harness' : 'folder'
-  const view: LiveView = search.get('view') === 'agents' ? 'agents' : 'timeline'
   const picked = Number(search.get('session')) || null
   const shownText = search.get('show') ?? ''
   const shown = useMemo(
@@ -293,7 +268,10 @@ export function LiveBoardPage() {
 
   return (
     <article aria-labelledby="page-title" className="flex flex-col gap-page-gap">
-      <PageHeader purposeKey="workspaces.live.destinations.board.purpose" titleKey="workspaces.live.destinations.board.title" />
+      <PageHeader
+        purposeKey={`workspaces.live.destinations.${view === 'agents' ? 'agents' : 'board'}.purpose`}
+        titleKey={`workspaces.live.destinations.${view === 'agents' ? 'agents' : 'board'}.title`}
+      />
       <ReadingLine />
       {query.isPending ? (
         <LoadingRows label={t('live.loading')} />
@@ -306,13 +284,6 @@ export function LiveBoardPage() {
             <Counts live={live} quiet={empty} shown={shown} onToggle={toggle} />
             {live.length > 0 && (
               <div className="flex flex-wrap items-center gap-x-lg gap-y-sm min-[1024px]:ml-auto">
-                <Choice
-                  label={(option) => t(`live.views.${option}`)}
-                  legend={t('live.view')}
-                  options={LIVE_VIEWS}
-                  value={view}
-                  onChange={(next) => setSearch(change({ view: next === 'timeline' ? null : next }), { replace: true })}
-                />
                 <Choice
                   label={(option) => t(`live.groups.${option}`)}
                   legend={t('live.groupBy')}

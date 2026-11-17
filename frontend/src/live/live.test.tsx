@@ -413,9 +413,14 @@ describe('the live board', () => {
       ],
       prompts: {},
     })
-    open()
-    fireEvent.click(await screen.findByRole('radio', { name: 'Agents' }))
-    expect(window.location.hash).toContain('view=agents')
+    // Its own destination under Live, so the graph is found by name in the navigation.
+    open('#/live/agents')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Live agent graph' })).toBeInTheDocument()
+    expect(within(screen.getByRole('navigation', { name: 'Live sections' })).getByRole('link', { name: 'Agent graph' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    await waitFor(() => expect(document.querySelector('[data-agents] a[data-row]')).not.toBeNull())
     const graph = document.querySelector('[data-agents]')!
     await waitFor(() => expect(graph.querySelectorAll('a[data-row]')).toHaveLength(3))
     expect([...graph.querySelectorAll('a[data-row]')].map((node) => node.getAttribute('data-session'))).toEqual(['1', '3', '2'])
@@ -428,7 +433,7 @@ describe('the live board', () => {
     // A node is the same link as a row: picking it fills the panel.
     fireEvent.click(within(graph as HTMLElement).getByRole('link', { name: /Sub-agent/ }))
     expect(await within(panel()).findByRole('heading', { level: 2, name: 'Sub-agent' })).toBeInTheDocument()
-    expect(window.location.hash).toContain('view=agents')
+    expect(window.location.hash).toMatch(/^#\/live\/agents\?session=3$/)
   })
 
   test('a row\'s link is named by its title and described by its state and times', async () => {

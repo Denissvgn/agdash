@@ -171,6 +171,22 @@ describe('the board by project', () => {
     expect(within(panel).getByRole('link', { name: 'Synthetic session 1' })).toHaveAttribute('href', '#/history/sessions/1')
   })
 
+  test('signals that say the same of several sessions are one line, with a link a session', async () => {
+    const noTask = (session_id: number) => ({ ...BOARD.flags[1], code: 'no_task' as const, session_id, run_id: null })
+    serve({ ...BOARD, flags: [BOARD.flags[0], noTask(1), noTask(2), noTask(1)] })
+    window.location.hash = '#/projects'
+    render(<App queryClient={newQueryClient()} />)
+    // Still counted one by one in the heading.
+    const panel = await screen.findByRole('region', { name: '4 things need a look' })
+    const items = within(panel).getAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    expect(items[1]).toHaveTextContent(/^No task: 2 sessions work in a mapped project but are linked to no task: /)
+    expect(within(items[1]).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
+      '#/history/sessions/1',
+      '#/history/sessions/2',
+    ])
+  })
+
   test('without a server or live sessions it says so', async () => {
     serve({ ...BOARD, connection: null, connections: [], flags: [], groups: [] })
     window.location.hash = '#/projects'

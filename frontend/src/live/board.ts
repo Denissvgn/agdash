@@ -14,8 +14,8 @@ export const QUIET_AFTER_MS = 24 * 60 * 60_000
 /** Past this many rows the board tightens its rows. */
 export const DENSE_ABOVE = 20
 
+/** The board's two pages: rows on one clock, or a graph of which session started which. */
 export type LiveView = 'timeline' | 'agents'
-export const LIVE_VIEWS: LiveView[] = ['timeline', 'agents']
 
 export const LIVE_STATES: SessionState[] = ['active', 'waiting', 'idle', 'unknown']
 const STATE_ORDER: Record<SessionState, number> = { active: 0, waiting: 1, idle: 2, unknown: 3, ended: 4 }

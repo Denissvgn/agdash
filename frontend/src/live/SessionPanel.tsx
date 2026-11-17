@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { getJson } from '../api/client'
 import type { Page, SessionSummary } from '../api/types'
+import { useSessionName } from '../history/names'
 import { StateChip } from '../history/SessionList'
 import { endedAt, lastActive, type Node } from './board'
 import { formatAgo } from './format'
@@ -63,7 +64,7 @@ export function SessionPanel({
 }) {
   const { t } = useTranslation()
   const { session } = node
-  const name = (of: SessionSummary) => of.title || t('history.list.untitled')
+  const name = useSessionName()
   const harnessOf = (of: SessionSummary) => t(`history.harnesses.${of.harness}`, { defaultValue: of.harness })
   const surface = session.surface ? t(`history.surfaces.${session.surface}`) : null
   const basis = session.state_basis ? t(`live.basis.${session.state_basis}`, { defaultValue: '' }) : ''

@@ -124,11 +124,12 @@ describe('the navigation drawer', () => {
     expect(drawer).not.toHaveAttribute('open')
   })
 
-  test('a workspace with one destination shows no section list', async () => {
+  test('the drawer lists the current workspace\'s destinations', async () => {
     open('/live')
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Menu' })))
     const drawer = screen.getByRole('dialog', { name: 'Navigation' })
-    expect(within(drawer).queryByRole('navigation', { name: 'Live sections' })).toBeNull()
+    const sections = within(drawer).getByRole('navigation', { name: 'Live sections' })
+    expect(within(sections).getAllByRole('link').map((link) => link.textContent)).toEqual(['Board', 'Agent graph'])
   })
 })
 
