@@ -694,8 +694,9 @@ def _service(db: DbSession, now: datetime) -> None:
     hours = 24 * 60
     for back in range(hours, 0, -1):
         started_at = hour - timedelta(hours=back)
-        # One night, three days back, the service was not running.
-        if 62 <= back <= 70:
+        # One night, three days back, the service was not running: long enough that a whole
+        # six-hour step of the 90-day figure falls inside it at any hour of the day.
+        if 58 <= back <= 72:
             continue
         db.add(row("hour", started_at, 3600.0, 2_000_000_000 + (hours - back) * 3_000_000))
     minutes = int((now - (hour - timedelta(hours=26))).total_seconds() // 60)
