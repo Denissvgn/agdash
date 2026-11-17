@@ -21,7 +21,7 @@ import shutil
 import sqlite3
 import stat
 import tempfile
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import IO
@@ -128,6 +128,19 @@ class ReadOnlyAccess:
         Linked directories are not entered. A linked file is yielded only if
         its target is inside the allowlisted roots.
         """
+        for found, _state in self.walk_states(path):
+            yield found
+
+    def walk_states(
+        self, path: str | os.PathLike[str], wanted: Callable[[str], bool] | None = None
+    ) -> Iterator[tuple[Path, os.stat_result]]:
+        """``walk``, with each file's state as the listing saw it.
+
+        For telling which of thousands of files changed without asking about each
+        of them again, which would resolve every path against every root. With
+        ``wanted``, only files whose real path it accepts are asked about and given:
+        a harness keeps many files beside its sessions, and each costs a call.
+        """
         # Below a resolved folder, entered without following links, a plain file's path
         # is already its real one, inside the roots. Only a link has to be resolved.
         waiting = [str(self.resolve(path))]
@@ -143,12 +156,16 @@ class ReadOnlyAccess:
                 try:
                     if entry.is_symlink():
                         real_path = self.resolve(entry.path)
-                        if real_path.is_file():
-                            yield real_path
+                        if wanted is not None and not wanted(str(real_path)):
+                            continue
+                        state = os.stat(real_path)
+                        if stat.S_ISREG(state.st_mode):
+                            yield real_path, state
                     elif entry.is_dir(follow_symlinks=False):
                         folders.append(entry.path)
                     elif entry.is_file(follow_symlinks=False):
-                        yield Path(entry.path)
+                        if wanted is None or wanted(entry.path):
+                            yield Path(entry.path), entry.stat(follow_symlinks=False)
                 except (OutsideAllowedRoots, OSError):
                     continue
             waiting.extend(reversed(folders))

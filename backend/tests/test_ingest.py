@@ -383,8 +383,10 @@ def test_only_the_folders_patterns_begin_with_are_listed(home, monkeypatch):
     (home / "worktrees/checkout/sessions/2026/01/02" / NAME).write_bytes(record(1))
     access = ReadOnlyAccess([home], snapshot_dir=home.parent)
     walked = []
-    walk = access.walk
-    monkeypatch.setattr(access, "walk", lambda path: walked.append(Path(path)) or walk(path))
+    walk = access.walk_states
+    monkeypatch.setattr(
+        access, "walk_states", lambda path, wanted: walked.append(Path(path)) or walk(path, wanted)
+    )
     found = discover_files(access, [home], [*PATTERNS, "session_index.jsonl"])
     real = home.resolve()
     assert found == [real / "session_index.jsonl", real / "sessions/2026/01/02" / NAME]
@@ -412,7 +414,7 @@ def test_changed_paths_are_matched_without_listing_a_folder(home, tmp_path, monk
     (tmp_path / "outside.jsonl").write_bytes(record(1))
     (home / "archived_sessions/rollout-link.jsonl").symlink_to(tmp_path / "outside.jsonl")
     access = ReadOnlyAccess([home], snapshot_dir=home.parent)
-    monkeypatch.setattr(access, "walk", lambda path: pytest.fail("a folder was listed"))
+    monkeypatch.setattr(access, "walk_states", lambda *_: pytest.fail("a folder was listed"))
     changed = [
         session_file,
         home / "sessions/2026/01/02/notes.txt",
@@ -691,6 +693,48 @@ def test_a_full_poll_reads_only_what_changed_since_it_was_last_read(home):
     assert seen.calls[:2] == [[quiet], [busy]], "the first read takes every file"
     later = [call for call in seen.calls[2:] if call]
     assert later == [[busy]], "after it, only the file that was written to"
+
+
+def test_a_full_poll_tells_what_changed_from_the_listing_alone(home):
+    from agdash.ingest import discover_states
+
+    quiet = home / "archived_sessions" / "rollout-quiet.jsonl"
+    busy = home / "sessions/2026/01/02" / NAME
+    for path in (quiet, busy):
+        path.write_bytes(record(1))
+    access = ReadOnlyAccess([home], snapshot_dir=home.parent)
+    seen = Recorder()
+    asked: list[Path] = []
+
+    def listed() -> dict[Path, object]:
+        seen.discovered += 1
+        return dict(discover_states(access, [home], PATTERNS))
+
+    def signature(path: Path) -> tuple[int, int, int]:
+        asked.append(path)
+        found = path.stat()
+        return found.st_size, found.st_mtime_ns, found.st_ino
+
+    def polled_then_written() -> bool:
+        if seen.discovered == 3 and busy.stat().st_size == len(record(1)):
+            with open(busy, "ab") as target:
+                target.write(record(2))
+        return seen.discovered >= 7
+
+    run_until(
+        polled_then_written,
+        directories=[],
+        discover=lambda: sorted(discover_states(access, [home], PATTERNS)),
+        scan=seen.scan,
+        signature=signature,
+        discover_signed=listed,
+        poll_seconds=0.05,
+    )
+    real = [quiet.resolve(), busy.resolve()]
+    assert seen.calls[:2] == [[real[0]], [real[1]]], "the first read takes every file"
+    assert [call for call in seen.calls[2:] if call] == [[real[1]]]
+    # Each file was asked about once, when first read; the polls never asked again.
+    assert sorted(asked) == sorted(real)
 
 
 def test_a_scan_that_failed_is_tried_again_at_the_next_full_poll(home):

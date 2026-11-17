@@ -101,6 +101,7 @@ def run(
     order: Callable[[list[Path]], list[Path]] | None = None,
     progress: Callable[[int, int], object] | None = None,
     signature: Callable[[Path], object] | None = None,
+    discover_signed: Callable[[], dict[Path, object]] | None = None,
     slice_seconds: float = DEFAULT_SLICE_SECONDS,
     watcher_type: Callable[..., "_Watcher"] | None = None,
 ) -> None:
@@ -118,6 +119,10 @@ def run(
     differs from the one they had when last scanned, so its cost follows what
     changed and not how much there is. A scan that returns False counts as not
     done, and its files are scanned again at the next full poll.
+
+    ``discover_signed`` is ``discover`` with each file's signature from the listing
+    itself. With it a full poll asks about no file a second time, which matters with
+    thousands of them every half minute.
 
     ``watcher_type`` is what gathers the file events, by default from the operating
     system; a test puts its own in, to say exactly which files changed and when.
@@ -173,9 +178,18 @@ def run(
 
     def full_poll() -> None:
         nonlocal scanned, polls
-        found = discover()
         polls += 1
-        if signature is None or polls % _TRUST_POLLS == 0:
+        trusting = polls % _TRUST_POLLS != 0
+        if discover_signed is not None and trusting:
+            marks = discover_signed()
+            scanned = {path: scanned[path] for path in marks if path in scanned}
+            fresh = [path for path, seen in marks.items() if scanned.get(path, marks) != seen]
+            # The signatures are the listing's, taken before the scan, as in ``read``.
+            if scan(fresh) is not False:
+                scanned.update((path, marks[path]) for path in fresh)
+            return
+        found = discover()
+        if signature is None or not trusting:
             scanned = {}
             return read(found)
         scanned = {path: scanned[path] for path in found if path in scanned}

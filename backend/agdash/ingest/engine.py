@@ -23,7 +23,9 @@ Every read goes through the read-only access layer.
 """
 
 import fnmatch
+import functools
 import os
+import re
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -124,8 +126,18 @@ def pattern_folders(patterns: Sequence[str]) -> list[str]:
     )
 
 
+@functools.cache
+def _compiled(patterns: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
+    return tuple(re.compile(fnmatch.translate(pattern)) for pattern in patterns)
+
+
 def _matches(relative: str, patterns: Sequence[str]) -> bool:
-    return any(fnmatch.fnmatch(relative, pattern) for pattern in patterns)
+    return any(pattern.match(relative) for pattern in _compiled(tuple(patterns)))
+
+
+def signature_of(state: os.stat_result) -> tuple[int, int, int]:
+    """What changes when a file does: its size, when it was written, and which file it is."""
+    return state.st_size, state.st_mtime_ns, state.st_ino
 
 
 def session_folders(
@@ -181,16 +193,32 @@ def discover_files(
 
     Only the folders the patterns begin with are walked.
     """
-    found = single_files(access, roots, patterns)
+    return sorted(discover_states(access, roots, patterns))
+
+
+def discover_states(
+    access: ReadOnlyAccess, roots: Iterable[Path], patterns: Sequence[str]
+) -> dict[Path, tuple[int, int, int]]:
+    """``discover_files``, with each file's signature as the listing saw it.
+
+    A pass over everything can then tell what changed from the listing alone.
+    """
+    found: dict[Path, tuple[int, int, int]] = {}
+    for path in single_files(access, roots, patterns):
+        try:
+            found[path] = signature_of(access.stat(path))
+        except (OutsideAllowedRoots, OSError):
+            continue
     for root in roots:
         if not access.exists(root):
             continue
-        real_root = access.resolve(root)
+        below = len(str(access.resolve(root))) + 1
         for start in session_folders(access, [root], patterns):
-            for path in access.walk(start):
-                if _matches(os.path.relpath(path, real_root), patterns):
-                    found.append(path)
-    return sorted(set(found))
+            for path, state in access.walk_states(
+                start, lambda real, below=below: _matches(real[below:], patterns)
+            ):
+                found[path] = signature_of(state)
+    return found
 
 
 def match_files(

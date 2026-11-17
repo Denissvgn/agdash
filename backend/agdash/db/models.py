@@ -65,6 +65,8 @@ class Session(Base):
     __table_args__ = (
         UniqueConstraint("harness", "native_id"),
         Index(None, "state", "last_activity_at"),
+        # The live stream asks twice a second which sessions changed since its last look.
+        Index(None, "updated_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

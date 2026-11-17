@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import sessionmaker
 
@@ -53,8 +53,10 @@ from agdash.db.models import Event, Session, SessionProcess, SessionStateChange
 from agdash.ingest import (
     Ingestor,
     discover_files,
+    discover_states,
     match_files,
     session_folders,
+    signature_of,
     single_files,
 )
 from agdash.ingest.engine import ScanReport
@@ -171,6 +173,7 @@ class Collector:
         self._ran_by: dict[ProcessIdentity, set[int]] = {}
         self._harness_status: dict[str, tuple[HarnessStatus, datetime, bool]] = {}
         self._summaries_at = 0.0
+        self._summaries_seen: dict[Path, tuple | None] = {}
         self._lock = threading.Lock()
         # Its own access: unlike ingest, it may open the harnesses' single settings files,
         # and reads only the allowlisted fields of them.
@@ -189,6 +192,13 @@ class Collector:
         found: list[Path] = []
         for source in self._sources:
             found += discover_files(self._access, source.roots, source.patterns)
+        return found
+
+    def discover_signed(self) -> dict[Path, object]:
+        """Every session file with its signature, from the listing alone."""
+        found: dict[Path, object] = {}
+        for source in self._sources:
+            found.update(discover_states(self._access, source.roots, source.patterns))
         return found
 
     def watched(self) -> list[Path]:
@@ -279,6 +289,7 @@ class Collector:
     def backfill(self) -> Totals:
         """Read everything there is now, once."""
         self._summaries_at = 0.0
+        self._summaries_seen.clear()
         totals = self.scan(self.discover())
         self.refresh_auth()
         return totals
@@ -291,17 +302,37 @@ class Collector:
             db.commit()
         return changed
 
+    def _summaries_state(self, base: Path) -> tuple | None:
+        """The size and time of a base's summaries store and its write-ahead log, if readable."""
+        found = []
+        for name in (antigravity.SUMMARIES, f"{antigravity.SUMMARIES}-wal"):
+            try:
+                state = self._access.stat(base / name)
+            except OSError:
+                found.append(None)
+            except Exception:  # outside the roots, or refused: read it the slow way
+                return None
+            else:
+                found.append((state.st_size, state.st_mtime_ns))
+        return tuple(found)
+
     def refresh_summaries(self) -> int:
         """Antigravity's own view of its conversations: titles, parents and status."""
         self._summaries_at = time.monotonic()
         count = 0
         with self._sessions() as db:
             for base in self._antigravity_bases:
+                # Its summaries are read whole and stored one by one, a thousand of them on
+                # a long-used machine, so only when their file has changed since last time.
+                state = self._summaries_state(base)
+                if state is not None and state == self._summaries_seen.get(base):
+                    continue
                 try:
                     summaries = antigravity.read_summaries(self._access, base)
                 except Exception:  # a locked or changing store: try again next time
                     log.warning("could not read the Antigravity summaries in one base")
                     continue
+                self._summaries_seen[base] = state
                 antigravity.store_summaries(db, summaries, antigravity.SURFACES[base.name])
                 for summary in summaries:
                     status = antigravity.harness_status(summary)
@@ -427,21 +458,35 @@ class Collector:
 
     def _candidates(self, db: DbSession, now: datetime, touched: set[int]) -> list[Session]:
         alive = (SessionState.ACTIVE, SessionState.WAITING, SessionState.IDLE)
-        conversations = list(self._harness_status)
-        return list(
-            db.scalars(
-                select(Session).where(
-                    or_(
-                        Session.id.in_(touched),
-                        Session.state.in_(alive),
-                        Session.last_activity_at >= now - RECENT,
-                        (Session.harness == Harness.ANTIGRAVITY.value)
-                        & Session.native_id.in_(conversations)
-                        & (Session.state != SessionState.ENDED),
-                    )
-                )
+        # Antigravity says a conversation's status itself, so one is looked at while that
+        # is news: recently modified, or archived and not yet marked ended. Every other
+        # conversation it ever kept can no longer change, and looking at each of them on
+        # every pass cost a query apiece, every two seconds, for good.
+        conversations = [
+            conversation
+            for conversation, (_status, modified, archived) in self._harness_status.items()
+            if archived or modified >= now - RECENT
+        ]
+        # Asked as one question these make the store read every session it holds, every
+        # pass. Each is answered from an index when asked on its own.
+        wanted = [
+            Session.state.in_(alive),
+            # Every state is named so the index on state and last activity serves this.
+            Session.state.in_(tuple(SessionState)) & (Session.last_activity_at >= now - RECENT),
+        ]
+        if touched:
+            wanted.append(Session.id.in_(touched))
+        if conversations:
+            wanted.append(
+                (Session.harness == Harness.ANTIGRAVITY.value)
+                & Session.native_id.in_(conversations)
+                & (Session.state != SessionState.ENDED)
             )
-        )
+        found: dict[int, Session] = {}
+        for condition in wanted:
+            for session in db.scalars(select(Session).where(condition)):
+                found[session.id] = session
+        return [found[key] for key in sorted(found)]
 
     def _observe(self, db, session: Session, now, running, status_at, exited) -> Observation:
         process = None
@@ -501,8 +546,7 @@ class Collector:
                     return False
 
             def signature(path: Path) -> tuple[int, int, int]:
-                found = self._access.stat(path)
-                return found.st_size, found.st_mtime_ns, found.st_ino
+                return signature_of(self._access.stat(path))
 
             watch(
                 directories=self.watched,
@@ -514,6 +558,7 @@ class Collector:
                 order=self.urgent_first,
                 progress=self._read_so_far,
                 signature=signature,
+                discover_signed=self.discover_signed,
             )
 
         def probe_loop() -> None:

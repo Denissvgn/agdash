@@ -128,6 +128,7 @@ def test_the_class_offers_reads_only():
         "stat",
         "list_dir",
         "walk",
+        "walk_states",
         "open",
         "sqlite_snapshot",
     }
@@ -232,6 +233,45 @@ def test_walk_keeps_a_stable_order_and_enters_no_linked_folder(tmp_path):
         "b/2.txt",
         "b/deep/x.txt",
     ]
+
+
+def test_walk_states_gives_each_file_with_what_the_listing_saw_of_it(tmp_path):
+    root = tmp_path / "root"
+    (root / "a").mkdir(parents=True)
+    (root / "a" / "plain.txt").write_text("four")
+    (root / "linked.txt").symlink_to(root / "a" / "plain.txt")
+    (root / "a" / "folder-link").symlink_to(root)
+    access = ReadOnlyAccess([root], snapshot_dir=tmp_path / "snapshots")
+    found = list(access.walk_states(root))
+    assert [path for path, _ in found] == list(access.walk(root))
+    real = (root / "a" / "plain.txt").resolve()
+    # A link gives the file it points at, with that file's own state.
+    assert [path for path, _ in found] == [real, real]
+    for path, state in found:
+        assert (state.st_size, state.st_ino) == (4, os.stat(path).st_ino)
+        assert state.st_mtime_ns == os.stat(path).st_mtime_ns
+
+
+def test_walk_states_gives_only_the_files_wanted(tmp_path):
+    root = tmp_path / "root"
+    (root / "a").mkdir(parents=True)
+    (root / "a" / "session.jsonl").write_text("{}")
+    (root / "a" / "notes.txt").write_text("beside")
+    (root / "kept.jsonl").symlink_to(root / "a" / "session.jsonl")
+    (root / "other.jsonl").symlink_to(root / "a" / "notes.txt")
+    access = ReadOnlyAccess([root], snapshot_dir=tmp_path / "snapshots")
+    judged = []
+
+    def wanted(real: str) -> bool:
+        judged.append(real)
+        return real.endswith(".jsonl")
+
+    found = [path for path, _ in access.walk_states(root, wanted)]
+    session = (root / "a" / "session.jsonl").resolve()
+    notes = (root / "a" / "notes.txt").resolve()
+    assert found == [session, session]
+    # A link is judged by the file it points at, the path it would be given by.
+    assert sorted(judged) == sorted(map(str, [notes, session, session, notes]))
 
 
 def test_snapshots_may_not_be_kept_inside_a_harness_root(harness, monkeypatch):

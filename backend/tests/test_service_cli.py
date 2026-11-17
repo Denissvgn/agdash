@@ -221,6 +221,102 @@ def test_the_start_up_read_reports_how_far_it_is_and_when_it_is_done(setup):
     assert harnesses == {"claude_code", "codex", "pi", "antigravity"}
 
 
+def test_a_conversation_that_can_no_longer_change_is_not_looked_at_on_every_pass(setup):
+    from agdash.collector.state import HarnessStatus
+
+    collector, sessions, _, _, _ = setup
+    collector.backfill()
+    with sessions() as db:
+        kept = db.scalars(
+            select(Session).where(Session.harness == "antigravity").order_by(Session.id)
+        ).all()
+        assert len(kept) >= 4
+        old, recent, archived, ended = kept[:4]
+        for session in kept:
+            session.state = SessionState.UNKNOWN
+            session.last_activity_at = NOW - timedelta(days=30)
+        ended.state = SessionState.ENDED
+        db.commit()
+        # What Antigravity's own summaries say of each: its status, when, and whether archived.
+        collector._harness_status = {
+            old.native_id: (HarnessStatus.IDLE, NOW - timedelta(days=3), False),
+            recent.native_id: (HarnessStatus.BUSY, NOW - timedelta(minutes=5), False),
+            archived.native_id: (HarnessStatus.IDLE, NOW - timedelta(days=3), True),
+            ended.native_id: (HarnessStatus.IDLE, NOW - timedelta(days=3), True),
+        }
+        looked_at = {session.id for session in collector._candidates(db, NOW, set())}
+        # The one that changed lately, and the one archived but not yet marked ended.
+        assert looked_at & {s.id for s in kept} == {recent.id, archived.id}
+    collector.probe()
+    with sessions() as db:
+        assert db.get(Session, archived.id).state is SessionState.ENDED
+        # Once marked ended it is left alone too.
+        assert not {s.id for s in collector._candidates(db, NOW, set())} & {archived.id, old.id}
+
+
+def test_a_pass_finds_the_sessions_to_look_at_without_reading_all_of_them(setup):
+    from sqlalchemy import event
+
+    collector, sessions, _, _, _ = setup
+    collector.backfill()
+    asked: list[tuple[str, tuple]] = []
+    with sessions() as db:
+        engine = db.get_bind()
+
+        def note(_conn, _cursor, statement, parameters, _context, _many):
+            asked.append((statement, parameters))
+
+        event.listen(engine, "before_cursor_execute", note)
+        try:
+            some = db.scalars(select(Session.id).limit(2)).all()
+            asked.clear()
+            collector._harness_status = {"synthetic-conversation": (None, NOW, False)}
+            collector._candidates(db, NOW, set(some))
+        finally:
+            event.remove(engine, "before_cursor_execute", note)
+        assert len(asked) == 4
+        for statement, parameters in asked:
+            plan = db.connection().exec_driver_sql(f"EXPLAIN QUERY PLAN {statement}", parameters)
+            steps = [row[3] for row in plan]
+            # Each question is answered from an index: none goes through every session.
+            assert steps and all(step.startswith("SEARCH sessions") for step in steps), steps
+
+
+def test_antigravity_summaries_are_stored_again_only_when_their_file_changed(setup, monkeypatch):
+    from agdash.adapters import antigravity
+
+    collector, _, _, home, _ = setup
+    reads: list[str] = []
+    read = antigravity.read_summaries
+
+    def counted(access, base):
+        reads.append(base.name)
+        return read(access, base)
+
+    monkeypatch.setattr(antigravity, "read_summaries", counted)
+    assert collector.refresh_summaries() > 0
+    assert sorted(reads) == ["antigravity", "antigravity-cli"]
+    statuses = dict(collector._harness_status)
+    assert statuses
+
+    # Nothing changed: nothing is read or stored, and what was learnt is kept.
+    reads.clear()
+    assert collector.refresh_summaries() == 0
+    assert reads == [] and collector._harness_status == statuses
+
+    # One base's store is written to: that one is read again, the other is not.
+    store = home / ".gemini" / "antigravity-cli" / antigravity.SUMMARIES
+    state = store.stat()
+    os.utime(store, ns=(state.st_atime_ns, state.st_mtime_ns + 1_000_000_000))
+    assert collector.refresh_summaries() > 0
+    assert reads == ["antigravity-cli"]
+
+    # A backfill reads everything, whatever was seen before.
+    reads.clear()
+    collector.backfill()
+    assert sorted(reads) == ["antigravity", "antigravity-cli"]
+
+
 def test_a_running_codex_process_makes_its_session_live_and_its_exit_ends_it(setup):
     collector, sessions, probe, home, clock = setup
     collector.backfill()

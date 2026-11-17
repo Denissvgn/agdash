@@ -4,6 +4,7 @@ Process trees here are synthetic, except where a test starts its own short-lived
 child process to read it. No real agent process is read or touched.
 """
 
+import contextlib
 import os
 import shutil
 import signal
@@ -30,7 +31,7 @@ from agdash.collector.processes import (
 )
 from agdash.db.models import SessionProcess
 from agdash.platform import OperatingSystem, current_host
-from agdash.platform.probes import ProcessGone, ProcessIdentity, ProcessRow
+from agdash.platform.probes import ProcessGone, ProcessIdentity, ProcessProbe, ProcessRow
 from agdash.vocab import Harness, Surface
 
 T0 = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
@@ -431,3 +432,109 @@ def test_a_real_child_is_linked_to_the_agent_process_above_it(tmp_path, stand_in
     finally:
         os.killpg(parent.pid, signal.SIGKILL)
         parent.wait(timeout=10)
+
+
+# -- the process table asks for what a process runs once, not on every pass ---------
+
+
+class FakeSystem:
+    """A psutil stand-in whose processes count how often their arguments are asked for."""
+
+    class NoSuchProcess(Exception):
+        pass
+
+    class ZombieProcess(Exception):
+        pass
+
+    class AccessDenied(Exception):
+        pass
+
+    class Entry:
+        def __init__(self, system, pid: int, name: str, created: float, argv: tuple[str, ...]):
+            self._system = system
+            self.pid, self.name, self.created, self.argv = pid, name, created, argv
+
+        @property
+        def _proc(self):
+            # The table's own entry: a name of at most fifteen characters, and no more asked.
+            return type("TableEntry", (), {"name": lambda _: self.name[:15]})()
+
+        @contextlib.contextmanager
+        def oneshot(self):
+            yield
+
+        def uids(self):
+            return type("Uids", (), {"real": os.getuid()})()
+
+        def create_time(self) -> float:
+            return self.created
+
+        def ppid(self) -> int:
+            return 1
+
+        def exe(self) -> str:
+            return f"/usr/bin/{self.name}"
+
+        def cmdline(self) -> list[str]:
+            self._system.asked.append(self.pid)
+            return list(self.argv)
+
+    def __init__(self) -> None:
+        self.entries: list[FakeSystem.Entry] = []
+        self.asked: list[int] = []
+
+    def add(self, pid: int, name: str, age: float, *argv: str) -> "FakeSystem.Entry":
+        entry = self.Entry(self, pid, name, time.time() - age, argv)
+        self.entries.append(entry)
+        return entry
+
+    def process_iter(self):
+        return iter(list(self.entries))
+
+
+def test_a_long_name_is_completed_from_the_arguments_already_known():
+    system = FakeSystem()
+    system.add(200, "Synthetic Helper (Renderer)", 3600, "/Apps/Synthetic Helper (Renderer)", "--x")
+    system.add(201, "a-fifteen-chars", 3600, "/usr/bin/other", "a-fifteen-chars-and-more")
+    probe = ProcessProbe(lsof_fallback=False, psutil_module=system)
+    for _ in range(3):
+        names = {row.identity.pid: row.name for row in probe.table()}
+    # The table cuts the first short; the second's program is not named like it, so it stays.
+    assert names == {200: "Synthetic Helper (Renderer)", 201: "a-fifteen-chars"}
+    # Each was asked for its arguments once, not on every pass.
+    assert sorted(system.asked) == [200, 201]
+
+
+def test_a_process_is_asked_what_it_runs_once_and_again_only_now_and_then():
+    from agdash.platform import probes
+
+    system = FakeSystem()
+    old = system.add(100, "claude", 3600, "claude", "--resume")
+    system.add(101, "codex", 3600, "codex")
+    probe = ProcessProbe(lsof_fallback=False, psutil_module=system)
+
+    first = {row.identity.pid: row for row in probe.table()}
+    assert first[100].argv == ("claude", "--resume") and first[100].exe == "/usr/bin/claude"
+    assert sorted(system.asked) == [100, 101]
+
+    # Over the next passes each is asked again once in turn, not on every pass.
+    system.asked.clear()
+    for _ in range(probes.ASK_AGAIN_PASSES):
+        rows = probe.table()
+    assert [row.argv for row in rows] == [("claude", "--resume"), ("codex",)]
+    assert sorted(system.asked) == [100, 101]
+
+    # One that has just started may still be its parent's copy, so it is asked on each pass.
+    system.asked.clear()
+    young = system.add(102, "zsh", 1, "zsh")
+    probe.table()
+    young.name, young.argv = "claude", ("claude",)
+    assert {row.identity.pid: row.argv for row in probe.table()}[102] == ("claude",)
+    assert system.asked.count(102) == 2
+
+    # A process that became another program is asked again at once, whatever its age.
+    system.entries.remove(young)
+    system.asked.clear()
+    old.name, old.argv = "node", ("node", "server.js")
+    assert {row.identity.pid: row for row in probe.table()}[100].argv == ("node", "server.js")
+    assert 100 in system.asked

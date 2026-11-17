@@ -8,6 +8,8 @@ system reports about it.
 
 import os
 import subprocess
+import threading
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -21,6 +23,10 @@ LSOF_TIMEOUT_SECONDS = 10
 START_TIME_TOLERANCE_SECONDS = 0.01
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
+# A process's program and arguments are asked for again while it is this new, and
+# otherwise once in this many passes of the table.
+FRESH_SECONDS = 10.0
+ASK_AGAIN_PASSES = 60
 
 
 @dataclass(frozen=True)
@@ -34,6 +40,31 @@ class ProcessIdentity:
 def _instant(created: float) -> datetime:
     """A process start time, rounded to the millisecond so repeated reads agree."""
     return datetime.fromtimestamp(round(created, 3), UTC)
+
+
+# The process table holds a name of at most this many characters.
+SHORT_NAME = 15
+
+
+def _short_name(process: Any) -> str:
+    """A process's name as the process table holds it, cut short if it is long.
+
+    psutil's own ``name()`` completes a long name from the arguments, which it asks
+    for each time: on a desktop, for hundreds of processes on every pass.
+    """
+    table_entry = getattr(process, "_proc", None)
+    if table_entry is not None and hasattr(table_entry, "name"):
+        return table_entry.name() or ""
+    return process.name() or ""
+
+
+def _full_name(short: str, argv: Sequence[str]) -> str:
+    """The whole name, completed from the arguments already known, as psutil does it."""
+    if len(short) >= SHORT_NAME and argv:
+        whole = os.path.basename(argv[0])
+        if whole.startswith(short):
+            return whole
+    return short
 
 
 @dataclass(frozen=True)
@@ -68,6 +99,10 @@ class ProcessProbe:
         self._lsof_fallback = lsof_fallback
         self._psutil = psutil_module
         self._run = run
+        # What each process runs, by (pid, start): asked for once and kept, see ``table``.
+        self._programs: dict[tuple[int, float], tuple[str, str | None, tuple[str, ...]]] = {}
+        self._passes = 0
+        self._lock = threading.Lock()
 
     def identity(self, pid: int) -> ProcessIdentity | None:
         """The identity of whatever process has ``pid`` now, or ``None``."""
@@ -87,23 +122,67 @@ class ProcessProbe:
         """
         me = os.getuid()
         rows = []
-        attributes = ["pid", "ppid", "name", "exe", "cmdline", "create_time", "uids"]
-        for process in self._psutil.process_iter(attributes):
-            info = process.info
-            uids = info.get("uids")
-            created = info.get("create_time")
-            if uids is None or uids.real != me or created is None:
-                continue
-            rows.append(
-                ProcessRow(
-                    identity=ProcessIdentity(info["pid"], _instant(created)),
-                    ppid=info.get("ppid"),
-                    name=info.get("name") or "",
-                    exe=info.get("exe") or None,
-                    argv=tuple(info.get("cmdline") or ()),
-                )
+        with self._lock:
+            self._passes += 1
+            now = time.time()
+            programs: dict[tuple[int, float], tuple[str, str | None, tuple[str, ...]]] = {}
+            refused = (
+                self._psutil.AccessDenied,
+                self._psutil.NoSuchProcess,
+                self._psutil.ZombieProcess,
             )
+            for process in self._psutil.process_iter():
+                # These come from one cheap read per process. Its program and arguments cost a
+                # further call each, which for hundreds of processes every pass adds up.
+                try:
+                    with process.oneshot():
+                        if process.uids().real != me:
+                            continue
+                        created = process.create_time()
+                        ppid = process.ppid()
+                        short = _short_name(process)
+                except refused:
+                    continue
+                pid = process.pid
+                known = self._programs.get((pid, created))
+                if (
+                    known is None
+                    or known[0] != short
+                    # A new process is often still its parent's copy, about to run its own program.
+                    or now - created < FRESH_SECONDS
+                    # A process can replace its program at any age, so each is asked again in turn.
+                    or (pid + self._passes) % ASK_AGAIN_PASSES == 0
+                ):
+                    known = (short, *self._program(process))
+                programs[(pid, created)] = known
+                rows.append(
+                    ProcessRow(
+                        identity=ProcessIdentity(pid, _instant(created)),
+                        ppid=ppid,
+                        name=_full_name(short, known[2]),
+                        exe=known[1],
+                        argv=known[2],
+                    )
+                )
+            self._programs = programs
         return rows
+
+    def _program(self, process: Any) -> tuple[str | None, tuple[str, ...]]:
+        """What a process runs and with which arguments; empty where the system will not say."""
+        refused = (
+            self._psutil.AccessDenied,
+            self._psutil.NoSuchProcess,
+            self._psutil.ZombieProcess,
+        )
+        try:
+            exe = process.exe() or None
+        except refused:
+            exe = None
+        try:
+            argv = tuple(process.cmdline() or ())
+        except refused:
+            argv = ()
+        return exe, argv
 
     def _process(self, identity: ProcessIdentity) -> Any:
         try:
