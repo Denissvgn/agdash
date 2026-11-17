@@ -72,8 +72,14 @@ ERROR_RATE = {"bash": 0.18, "edit_file": 0.08, "web_fetch": 0.25}
 FOLDERS = ["/work/example/orchard", "/work/example/meadow", "/work/example/harbour"]
 
 
-def build(url: str, now: datetime | None = None, *, days: int = 60) -> dict[str, int]:
-    """Create the schema at ``url`` and fill it; return the ids the screens open."""
+def build(
+    url: str, now: datetime | None = None, *, days: int = 60, crowd: bool = False
+) -> dict[str, int]:
+    """Create the schema at ``url`` and fill it; return the ids the screens open.
+
+    ``crowd`` adds a busy day to the live board: a dozen more live sessions, some left
+    open for days, and some that just ended.
+    """
     now = now or datetime.now(UTC)
     upgrade(url)
     engine = create_engine(url)
@@ -81,7 +87,7 @@ def build(url: str, now: datetime | None = None, *, days: int = 60) -> dict[str,
     try:
         with sessionmaker(engine)() as db:
             _history(db, now, days, sequence)
-            helper = _live(db, now, sequence)
+            helper = _live(db, now, sequence, crowd)
             long = _long_session(db, now, sequence)
             connection = _workchord(db, now, long.id, helper.id)
             db.flush()
@@ -194,7 +200,7 @@ def _history(db: DbSession, now: datetime, days: int, sequence: count) -> None:
                         )
 
 
-def _live(db: DbSession, now: datetime, sequence: count) -> Session:
+def _live(db: DbSession, now: datetime, sequence: count, crowd: bool = False) -> Session:
     rng = random.Random(5)
 
     def live(title, harness, state, cwd, *, parent=None, basis=None, model="model-a"):
@@ -287,7 +293,61 @@ def _live(db: DbSession, now: datetime, sequence: count) -> Session:
     )
     export.last_activity_at = now - timedelta(minutes=44)
     changes(export, [(SessionState.ACTIVE, 50), (SessionState.IDLE, 44)])
+    if crowd:
+        _crowd(now, live, busy, changes)
     return helper
+
+
+CROWD = [
+    # title, harness, model, state, folder, minutes since it last wrote
+    ("Migrate the settings page", "claude_code", "model-a", SessionState.ACTIVE, 1, 1),
+    ("Fix the flaky export test", "codex", "model-mini", SessionState.WAITING, 0, 6),
+    ("Tune the search index", "antigravity", "model-gemini", SessionState.IDLE, 1, 17),
+    ("Profile the import job", "codex", "model-gpt", SessionState.IDLE, 2, 21),
+    ("Write the upgrade guide", "claude_code", "model-a", SessionState.WAITING, 2, 2),
+    ("Answer the review comments", "claude_code", "model-a", SessionState.UNKNOWN, 2, 9),
+    ("Sort the changelog entries", "pi", "model-local", SessionState.ACTIVE, 1, 1),
+    ("Rename the report columns", "codex", "model-gpt", SessionState.ACTIVE, 0, 1),
+]
+STARTED_BY_THE_FIRST = [
+    ("Search for dead routes", SessionState.ACTIVE, 1),
+    ("Check the translation keys", SessionState.IDLE, 12),
+    ("List the unused styles", SessionState.WAITING, 3),
+]
+LEFT_OPEN = ["Compare two parsers", "Sketch the archive layout", "Read the old migration"]
+JUST_ENDED = ["Summarise the test run", "Tidy the fixtures"]
+
+
+def _crowd(now: datetime, live, busy, changes) -> None:
+    first = None
+    for title, harness, model, state, folder, quiet in CROWD:
+        found = live(title, harness, state, FOLDERS[folder], model=model)
+        found.last_activity_at = now - timedelta(minutes=quiet)
+        if state is not SessionState.UNKNOWN:
+            busy(found, 4 if state is SessionState.ACTIVE else 2, quiet_from=quiet)
+            changes(found, [(SessionState.ACTIVE, 40), (state, max(quiet, 1))])
+        first = first or found
+    for title, state, quiet in STARTED_BY_THE_FIRST:
+        found = live(
+            title,
+            "claude_code",
+            state,
+            first.cwd,
+            parent=first,
+            basis=ParentBasis.HARNESS_RECORD,
+            model="model-b",
+        )
+        found.last_activity_at = now - timedelta(minutes=quiet)
+        busy(found, 3, quiet_from=quiet)
+        changes(found, [(SessionState.ACTIVE, 25), (state, max(quiet, 1))])
+    for days, title in enumerate(LEFT_OPEN, start=2):
+        found = live(title, "claude_code", SessionState.IDLE, FOLDERS[days % 3])
+        found.started_at = now - timedelta(days=days, hours=3)
+        found.last_activity_at = now - timedelta(days=days)
+    for minutes, title in enumerate(JUST_ENDED, start=4):
+        found = live(title, "codex", SessionState.ENDED, FOLDERS[0], model="model-mini")
+        found.last_activity_at = now - timedelta(minutes=minutes + 1)
+        found.ended_at = now - timedelta(minutes=minutes)
 
 
 def _long_session(db: DbSession, now: datetime, sequence: count) -> Session:
@@ -531,6 +591,9 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8790)
     parser.add_argument("--ui", required=True, help="the built UI, frontend/dist")
     parser.add_argument(
+        "--crowd", action="store_true", help="a busy live board: many sessions at once"
+    )
+    parser.add_argument(
         "--reading",
         metavar="DONE/TOTAL",
         help="answer as a service still on its start-up read, this many files in",
@@ -549,7 +612,7 @@ def main() -> None:
 
     folder = Path(tempfile.mkdtemp(prefix="agdash-screens-"))
     url = f"sqlite:///{folder / 'screens.db'}"
-    ids = build(url)
+    ids = build(url, crowd=args.crowd)
     print(f"long session {ids['long_session']}", flush=True)
     app = create_app(url, token=TOKEN, port=args.port, ui_dir=args.ui, reading=reading)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")

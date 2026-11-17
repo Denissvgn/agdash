@@ -368,8 +368,6 @@
       "noPrompt": "No prompt recorded yet",
       "ended": "Ended {{when}}",
       "effort": "{{effort}} effort",
-      "parentNotLive": "Started by a session that is not live",
-      "startedBy": "Sessions started by {{title}}",
       "lastActive": "Last active {{when}}",
       "edge": "Started from {{harness}}, known from {{basis}}"
     },
@@ -425,8 +423,65 @@
       "span": "{{state}} for {{duration}}",
       "then": ", then ",
       "noStates": "no state recorded",
-      "key": "Each live session's strips cover the last 30 minutes, oldest on the left, and change as the session writes.",
+      "key": "Each session's lane covers the last 30 minutes, oldest on the left: events per minute above, its state below. Lanes change as sessions write.",
       "eventsKey": "Events per minute, darker for more"
+    },
+    "view": "View",
+    "views": {
+      "timeline": "Timeline",
+      "agents": "Agents"
+    },
+    "filter": {
+      "label": "Show sessions by state",
+      "count_one": "{{count}} session live",
+      "count_other": "{{count}} sessions live",
+      "noneTitle": "No live session is in the states picked",
+      "noneBody": "Press a state again to show its sessions, or clear them all to see the whole board."
+    },
+    "columns": {
+      "state": "State",
+      "session": "Session",
+      "harness": "Harness",
+      "from": "30 min ago",
+      "now": "now",
+      "active": "Last active"
+    },
+    "ago": {
+      "now": "now",
+      "minutes_one": "{{count}}m",
+      "minutes_other": "{{count}}m",
+      "hours_one": "{{count}}h",
+      "hours_other": "{{count}}h",
+      "days_one": "{{count}}d",
+      "days_other": "{{count}}d"
+    },
+    "quiet": {
+      "summary_one": "{{count}} session open but quiet for over a day",
+      "summary_other": "{{count}} sessions open but quiet for over a day",
+      "about": "A session left open with nothing written for {{hours}} hours is folded into one line under the others."
+    },
+    "about": {
+      "summary": "About this board"
+    },
+    "panel": {
+      "label": "Session details",
+      "back": "All live sessions",
+      "why": "Why this state",
+      "window": "Last 30 minutes",
+      "harness": "Harness and model",
+      "folder": "Folder",
+      "startedBy": "Started by",
+      "knownFrom": "Known from {{basis}}",
+      "parentNotLive": "A session that is not live",
+      "started_one": "Started {{count}} session",
+      "started_other": "Started {{count}} sessions",
+      "open": "Open session"
+    },
+    "agents": {
+      "startedBy": "Started by {{title}}, known from {{basis}}",
+      "harnessRecord": "Recorded by the harness",
+      "processTree": "Known from the process tree",
+      "none": "No session here started another; each stands alone."
     }
   },
   "reading": {

@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../App'
 import { unnamedControls } from '../test/controls'
+import { DESKTOP, PHONE, setWidth } from '../test/viewport'
 import { newQueryClient } from '../api/queryClient'
 import type { LiveActivity, Page, SessionSummary } from '../api/types'
 import { ENDED_WINDOW_MS, UNKNOWN_WINDOW_MS, forest, groups, split, stateCounts } from './board'
@@ -190,6 +191,11 @@ afterEach(() => {
 
 /** The board's own count of live sessions; the catching-up announcement comes before it. */
 const summary = () => screen.getAllByRole('status').at(-1)!
+/** A session's row on the board, found by its link. */
+const rowOf = async (title: string) => (await screen.findByRole('link', { name: title })).closest('li')!
+const panel = () => screen.getByRole('complementary', { name: 'Session details' })
+const titles = () =>
+  [...document.querySelectorAll('[data-roster] a[data-row]')].map((link) => link.textContent)
 
 describe('the live board', () => {
   test('a stream that falls silent past the keep-alive is reconnected, and says so', async () => {
@@ -201,7 +207,9 @@ describe('the live board', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(SILENCE_MS + 6000)
     })
-    expect(await screen.findByText(/Live updates stopped; reconnecting/)).toBeInTheDocument()
+    // Said beside the rows, not only under "About this board".
+    const warning = (await screen.findAllByText(/Live updates stopped; reconnecting/)).find((line) => !line.closest('details'))
+    expect(warning).toBeDefined()
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000)
     })
@@ -213,8 +221,9 @@ describe('the live board', () => {
     const { stream } = serve(state)
     open()
 
-    expect(await screen.findByRole('heading', { level: 3, name: 'Prune the trees' })).toBeInTheDocument()
-    expect(await screen.findByText('Sharpen the shears first')).toBeInTheDocument()
+    await rowOf('Prune the trees')
+    // The panel shows the first session until another is picked.
+    expect(await within(panel()).findByText('Sharpen the shears first')).toBeInTheDocument()
     expect(summary()).toHaveTextContent('1 session live: 1 active.')
     act(() => stream.send('hello', { from: {} }))
     expect(await screen.findByText('Updates as sessions start, change and end.')).toBeInTheDocument()
@@ -222,7 +231,7 @@ describe('the live board', () => {
     // A new session starts.
     state.sessions = [...state.sessions, session(2, { title: 'Plan next season', last_activity_at: ago(0) })]
     act(() => stream.send('sessions', { sessions: [{ id: 2 }] }))
-    expect(await screen.findByRole('heading', { level: 3, name: 'Plan next season' })).toBeInTheDocument()
+    await rowOf('Plan next season')
     expect(summary()).toHaveTextContent('2 sessions live: 2 active.')
 
     // The first one ends: it moves to "Just ended".
@@ -231,13 +240,13 @@ describe('the live board', () => {
       state.sessions[1],
     ]
     act(() => stream.send('sessions', { sessions: [{ id: 1 }] }))
-    const ended = await screen.findByRole('region', { name: 'Just ended' })
-    expect(within(ended).getByRole('heading', { level: 3, name: 'Prune the trees' })).toBeInTheDocument()
-    expect(within(ended).getByText('Process exited')).toBeInTheDocument()
+    const ended = await screen.findByRole('region', { name: /Just ended/ })
+    fireEvent.click(within(ended).getByRole('link', { name: 'Prune the trees' }))
+    expect(await within(panel()).findByText('Process exited')).toBeInTheDocument()
     await waitFor(() => expect(summary()).toHaveTextContent('1 session live: 1 active.'))
   })
 
-  test('a new prompt refreshes the latest-prompt line', async () => {
+  test('a new prompt refreshes the latest prompt in the panel', async () => {
     const state = { sessions: [session(1)], prompts: { 1: 'First ask' } as Record<number, string> }
     const { stream } = serve(state)
     open()
@@ -247,18 +256,75 @@ describe('the live board', () => {
     expect(await screen.findByText('Second ask')).toBeInTheDocument()
   })
 
-  test('sessions started by another are nested under it', async () => {
+  test('only the session in the panel has its latest prompt fetched', async () => {
+    const { calls } = serve({ sessions: [session(1), session(2), session(3)], prompts: { 1: 'One', 2: 'Two', 3: 'Three' } })
+    open()
+    await rowOf('Synthetic session 1')
+    await within(panel()).findByText(/One|Two|Three/)
+    expect(calls.filter((url) => url.pathname.endsWith('/events'))).toHaveLength(1)
+  })
+
+  test('a row is one line: state, title, harness, and how long ago in short and in words', async () => {
+    serve({ sessions: [session(1, { title: 'Prune the trees', last_activity_at: ago(12) })], prompts: {} })
+    open()
+    const row = await rowOf('Prune the trees')
+    expect(row).toHaveTextContent('Active')
+    expect(row).toHaveTextContent('Claude Code')
+    expect(within(row).getByText('12m')).toHaveAttribute('aria-hidden', 'true')
+    expect(within(row).getByText(/Last active 12 minutes ago/)).toHaveClass('sr-only')
+    expect(unnamedControls(document.body)).toEqual([])
+  })
+
+  test('picking a row puts the session in the address, and the panel follows', async () => {
+    serve({
+      sessions: [session(1, { title: 'First one', last_activity_at: ago(0) }), session(2, { title: 'Second one', cwd: '/work/meadow' })],
+      prompts: {},
+    })
+    open()
+    const first = await rowOf('First one')
+    expect(first).toHaveAttribute('data-selected', 'true')
+    expect(within(panel()).getByRole('heading', { level: 2, name: 'First one' })).toBeInTheDocument()
+    expect(window.location.hash).not.toContain('session=')
+
+    fireEvent.click(screen.getByRole('link', { name: 'Second one' }))
+    expect(window.location.hash).toContain('session=2')
+    expect(await within(panel()).findByRole('heading', { level: 2, name: 'Second one' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Second one' })).toHaveAttribute('aria-current', 'true')
+    expect(within(panel()).getByText('/work/meadow')).toBeInTheDocument()
+    expect(within(panel()).getByRole('link', { name: 'Open session' })).toHaveAttribute('href', '#/history/sessions/2')
+
+    // Up and down move through the rows and take the panel along.
+    const second = screen.getByRole('link', { name: 'Second one' })
+    second.focus()
+    fireEvent.keyDown(second, { key: 'ArrowUp' })
+    expect(screen.getByRole('link', { name: 'First one' })).toHaveFocus()
+    await waitFor(() => expect(window.location.hash).toContain('session=1'))
+    expect(within(panel()).getByRole('heading', { level: 2, name: 'First one' })).toBeInTheDocument()
+  })
+
+  test('sessions started by another sit under it, and the panel names both ways', async () => {
     serve({
       sessions: [
         session(1, { title: 'Lead session' }),
-        session(2, { title: 'Helper session', harness: 'codex', parent_session_id: 1, cwd: '/elsewhere' }),
+        session(2, { title: 'Helper session', harness: 'codex', parent_session_id: 1, parent_basis: 'process_tree', cwd: '/elsewhere' }),
+        session(3, { title: 'Sub-agent', parent_session_id: 1, parent_basis: 'harness_record' }),
+        session(4, { title: 'Alone', last_activity_at: ago(20) }),
       ],
       prompts: {},
     })
     open()
-    const nested = await screen.findByRole('list', { name: 'Sessions started by Lead session' })
-    expect(within(nested).getByRole('heading', { level: 3, name: 'Helper session' })).toBeInTheDocument()
-    expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(2)
+    await rowOf('Lead session')
+    // Each under the session that started it, before the next session standing alone.
+    expect(titles()).toEqual(['Lead session', 'Sub-agent', 'Helper session', 'Alone'])
+    const lead = within(panel())
+    expect(lead.getByText('Started 2 sessions')).toBeInTheDocument()
+
+    // An edge between harnesses names the harness and its basis; one within a harness, its basis.
+    fireEvent.click(lead.getByRole('link', { name: 'Helper session' }))
+    expect(await within(panel()).findByText('Started from Claude Code, known from the process tree')).toBeInTheDocument()
+    expect(within(panel()).getByRole('link', { name: 'Lead session' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'Sub-agent' }))
+    expect(await within(panel()).findByText("Known from the harness's record")).toBeInTheDocument()
     expect(unnamedControls(document.body)).toEqual([])
   })
 
@@ -268,31 +334,78 @@ describe('the live board', () => {
       prompts: {},
     })
     open()
-    const row = (await screen.findByRole('heading', { level: 3, name: 'Quiet one' })).closest('li')!
+    const row = await rowOf('Quiet one')
     expect(within(row).getByText('Unknown')).toBeInTheDocument()
     expect(within(row).queryByText('Ended')).not.toBeInTheDocument()
-    expect(within(row).getByText('No evidence of its state')).toBeInTheDocument()
-    expect(within(row).getByText('Last active 12 minutes ago')).toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: 'Just ended' })).not.toBeInTheDocument()
+    expect(within(panel()).getByText('No evidence of its state')).toBeInTheDocument()
+    expect(within(panel()).getByText('Last active 12 minutes ago')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: /Just ended/ })).not.toBeInTheDocument()
   })
 
-  test('grouping by harness lives in the address and shows each folder on its row', async () => {
+  test('grouping by harness lives in the address', async () => {
     serve({ sessions: [session(1), session(2, { harness: 'pi', cwd: '/work/meadow' })], prompts: {} })
     open()
     fireEvent.click(await screen.findByRole('radio', { name: 'Harness' }))
     expect(window.location.hash).toContain('group=harness')
     expect(await screen.findByRole('region', { name: /Pi/ })).toBeInTheDocument()
-    expect(screen.getByText('/work/meadow')).toBeInTheDocument()
+    expect(screen.getByRole('radiogroup', { name: 'Group by' })).toBeInTheDocument()
   })
 
-  test('nothing running says so', async () => {
-    serve({ sessions: [], prompts: {} })
+  test('the counts filter the board by state, and the choice lives in the address', async () => {
+    serve({
+      sessions: [
+        session(1, { title: 'Lead session' }),
+        session(2, { title: 'Its idle helper', state: 'idle', parent_session_id: 1 }),
+        session(3, { title: 'Waiting one', state: 'waiting' }),
+      ],
+      prompts: {},
+    })
     open()
-    expect(await screen.findByRole('heading', { name: 'Nothing is running' })).toBeInTheDocument()
-    expect(screen.queryByRole('radio')).not.toBeInTheDocument()
+    await rowOf('Lead session')
+    const filters = within(screen.getByRole('group', { name: 'Show sessions by state' }))
+    expect(filters.getByText('3 sessions live')).toBeInTheDocument()
+    fireEvent.click(filters.getByRole('button', { name: '1 idle' }))
+    expect(window.location.hash).toContain('show=idle')
+    // The session it sits under stays, so the row still says where it belongs.
+    await waitFor(() => expect(titles()).toEqual(['Lead session', 'Its idle helper']))
+    expect(filters.getByRole('button', { name: '1 idle' })).toHaveAttribute('aria-pressed', 'true')
+    expect(summary()).toHaveTextContent('3 sessions live')
+    fireEvent.click(filters.getByRole('button', { name: '1 idle' }))
+    await waitFor(() => expect(titles()).toHaveLength(3))
+    expect(window.location.hash).not.toContain('show=')
   })
 
-  test('an edge between harnesses names its basis; one within a harness needs no label', async () => {
+  test('sessions left open for over a day are folded into one line', async () => {
+    serve({
+      sessions: [
+        session(1, { title: 'Working now' }),
+        session(2, { title: 'Left open', state: 'idle', last_activity_at: ago(60 * 30) }),
+        session(3, { title: 'Idle today', state: 'idle', last_activity_at: ago(60 * 3) }),
+      ],
+      prompts: {},
+    })
+    open()
+    await rowOf('Working now')
+    const fold = document.querySelector('details[data-quiet]')!
+    expect(fold).not.toHaveAttribute('open')
+    expect(within(fold as HTMLElement).getByText('1 session open but quiet for over a day')).toBeInTheDocument()
+    expect((await rowOf('Left open')).closest('details')).toBe(fold)
+    expect((await rowOf('Idle today')).closest('details')).toBeNull()
+    // Still counted: it is open.
+    expect(summary()).toHaveTextContent('3 sessions live: 1 active · 2 idle.')
+  })
+
+  test('past twenty rows the board tightens them', async () => {
+    serve({ sessions: Array.from({ length: 21 }, (_, i) => session(i + 1, { title: `Session ${i + 1}` })), prompts: {} })
+    open()
+    expect((await rowOf('Session 1')).className).toContain('h-[24px]')
+    cleanup()
+    serve({ sessions: [session(1, { title: 'Only one' })], prompts: {} })
+    open()
+    expect((await rowOf('Only one')).className).toContain('h-[28px]')
+  })
+
+  test('the agents view draws the same sessions as a graph, with how each link is known', async () => {
     serve({
       sessions: [
         session(1, { title: 'Lead session' }),
@@ -302,14 +415,60 @@ describe('the live board', () => {
       prompts: {},
     })
     open()
-    const helper = (await screen.findByRole('heading', { level: 3, name: 'Helper session' })).closest('li')!
-    expect(within(helper).getByText('Started from Claude Code, known from the process tree')).toBeInTheDocument()
-    const sub = screen.getByRole('heading', { level: 3, name: 'Sub-agent' }).closest('li')!
-    expect(sub.querySelector('[data-edge]')).toBeNull()
+    fireEvent.click(await screen.findByRole('radio', { name: 'Agents' }))
+    expect(window.location.hash).toContain('view=agents')
+    const graph = document.querySelector('[data-agents]')!
+    await waitFor(() => expect(graph.querySelectorAll('a[data-row]')).toHaveLength(3))
+    expect([...graph.querySelectorAll('a[data-row]')].map((node) => node.getAttribute('data-session'))).toEqual(['1', '3', '2'])
+    expect(graph.querySelector('path[data-edge="process_tree"]')).toHaveAttribute('stroke-dasharray')
+    expect(graph.querySelector('path[data-edge="harness_record"]')).not.toHaveAttribute('stroke-dasharray')
+    expect(within(graph as HTMLElement).getByRole('link', { name: /Helper session/ })).toHaveTextContent(
+      'Started by Lead session, known from the process tree',
+    )
+    expect(graph.querySelector('[data-agents-key]')).toHaveTextContent('Recorded by the harnessKnown from the process tree')
+    // A node is the same link as a row: picking it fills the panel.
+    fireEvent.click(within(graph as HTMLElement).getByRole('link', { name: /Sub-agent/ }))
+    expect(await within(panel()).findByRole('heading', { level: 2, name: 'Sub-agent' })).toBeInTheDocument()
+    expect(window.location.hash).toContain('view=agents')
+  })
+
+  test('a row\'s link is named by its title and described by its state and times', async () => {
+    serve({ sessions: [session(1, { title: 'Prune the trees', state: 'waiting', last_activity_at: ago(3) })], prompts: {} })
+    open()
+    const link = await screen.findByRole('link', { name: 'Prune the trees' })
+    expect(link).toHaveAccessibleDescription(/^Waiting Last active 3 minutes ago/)
+  })
+
+  test('where the panel takes the rows\' place, focus goes to it and comes back', async () => {
+    // A real browser is given a phone's width; jsdom has no layout, so there the width is
+    // only what matchMedia says it is.
+    if (navigator.userAgent.includes('jsdom')) {
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('max-width: 1023px') }))
+    }
+    await setWidth(PHONE)
+    try {
+      serve({ sessions: [session(1, { title: 'First one', last_activity_at: ago(0) }), session(2, { title: 'Second one' })], prompts: {} })
+      open()
+      fireEvent.click(await screen.findByRole('link', { name: 'Second one' }))
+      await waitFor(() => expect(within(panel()).getByRole('heading', { level: 2, name: 'Second one' })).toHaveFocus())
+      fireEvent.click(within(panel()).getByRole('link', { name: 'All live sessions' }))
+      await waitFor(() => expect(screen.getByRole('link', { name: 'Second one' })).toHaveFocus())
+      expect(window.location.hash).not.toContain('session=')
+    } finally {
+      await setWidth(DESKTOP)
+    }
+  })
+
+  test('nothing running says so', async () => {
+    serve({ sessions: [], prompts: {} })
+    open()
+    expect(await screen.findByRole('heading', { name: 'Nothing is running' })).toBeInTheDocument()
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'Session details' })).not.toBeInTheDocument()
   })
 })
 
-describe('the rows\' last 30 minutes', () => {
+describe('the last 30 minutes', () => {
   const minutes = Array.from({ length: 30 }, (_, i) => new Date(NOW - (30 - i) * 60_000).toISOString())
   const activity = (busy: number[], states: LiveActivity['sessions'][number]['states']): LiveActivity => ({
     minutes,
@@ -332,8 +491,10 @@ describe('the rows\' last 30 minutes', () => {
     start: minutes[from],
     end: to >= 30 ? new Date(NOW).toISOString() : minutes[to],
   })
+  const states = (within: Element, strip: string) =>
+    [...within.querySelectorAll(`[data-strip="${strip}"] [data-state]`)].map((r) => r.getAttribute('data-state'))
 
-  test('show events per minute and the states, and change with the stream without a reload or motion', async () => {
+  test('each row draws them as one lane, and they change with the stream without a reload or motion', async () => {
     const busy = Array(30).fill(0)
     busy[28] = 3
     busy[29] = 2
@@ -344,18 +505,26 @@ describe('the rows\' last 30 minutes', () => {
     }
     const { stream, calls } = serve(state)
     open()
-    const row = (await screen.findByRole('heading', { level: 3, name: 'Busy one' })).closest('li')!
-    await waitFor(() => expect(row.querySelector('[data-strip="events"]')).not.toBeNull())
-    expect(row.querySelectorAll('[data-strip="events"] rect')).toHaveLength(30)
-    expect(within(row).getByText('5 in 30 min')).toBeInTheDocument()
-    expect([...row.querySelectorAll('[data-strip="states"] [data-state]')].map((r) => r.getAttribute('data-state'))).toEqual([
-      'waiting',
-      'active',
-    ])
+    const row = await rowOf('Busy one')
+    await waitFor(() => expect(row.querySelector('[data-strip="lane"]')).not.toBeNull())
+    // Hidden from assistive technology, and said in words in the row.
+    expect(row.querySelector('[data-strip="lane"]')!.closest('[aria-hidden="true"]')).not.toBeNull()
+    expect(row.querySelectorAll('[data-strip="lane"] > rect')).toHaveLength(30)
+    expect(states(row, 'lane')).toEqual(['waiting', 'active'])
     expect(row).toHaveTextContent('Last 30 minutes: 5 events; Waiting for 20 min, then Active for 10 min.')
     expect(screen.getByRole('list', { name: 'Legend' })).toHaveTextContent('Events per minute, darker for more')
+    // Every lane is on the same clock: the same width, under one pair of labels.
+    const lanes = [...document.querySelectorAll('[data-strip="lane"]')]
+    expect(new Set(lanes.map((lane) => lane.getAttribute('width'))).size).toBe(1)
+    expect(document.querySelector('[data-roster-head]')).toHaveTextContent('30 min agonow')
+    // The panel has them at full size, with the count.
+    expect(within(panel()).getByText('5 in 30 min')).toBeInTheDocument()
+    expect(states(panel(), 'states')).toEqual(['waiting', 'active'])
+    expect(panel().querySelector('[data-strip-words]')).toHaveTextContent('Waiting for 20 min, then Active for 10 min')
+    // The key names only the states some lane draws.
+    expect(screen.getByRole('list', { name: 'Legend' })).not.toHaveTextContent('Ended')
 
-    // The stream says a minute passed and the session wrote: the strips change in place.
+    // The stream says a minute passed and the session wrote: the lane changes in place.
     const reloads = calls.filter((url) => url.pathname === '/api/sessions').length
     busy[29] = 6
     state.activity = activity(busy, [span('waiting', 0, 20), span('active', 20, 25), span('idle', 25, 30)])
@@ -363,29 +532,28 @@ describe('the rows\' last 30 minutes', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400)
     })
-    await waitFor(() => expect(within(row).getByText('9 in 30 min')).toBeInTheDocument())
-    expect([...row.querySelectorAll('[data-strip="states"] [data-state]')].map((r) => r.getAttribute('data-state'))).toEqual([
-      'waiting',
-      'active',
-      'idle',
-    ])
+    await waitFor(() => expect(within(panel()).getByText('9 in 30 min')).toBeInTheDocument())
+    expect(states(row, 'lane')).toEqual(['waiting', 'active', 'idle'])
     expect(calls.filter((url) => url.pathname === '/api/sessions').length).toBe(reloads)
-    for (const element of row.querySelectorAll('[data-strip] , [data-strip] *')) {
+    for (const element of document.querySelectorAll('[data-strip] , [data-strip] *')) {
       expect(element.getAttribute('class') ?? '').not.toMatch(/\b(transition|animate-|duration-)/)
     }
-    expect(row.querySelectorAll('animate, animateTransform, set')).toHaveLength(0)
+    expect(document.querySelectorAll('[data-roster] animate, [data-roster] animateTransform, [data-roster] set')).toHaveLength(0)
   })
 
-  test('a session that wrote nothing in the window says so instead of drawing empty cells', async () => {
+  test('a session that wrote nothing in the window says so in the panel instead of drawing empty cells', async () => {
     serve({
       sessions: [session(1, { title: 'Busy one' }), session(2, { title: 'Quiet one', harness: 'pi', state: 'idle' })],
       prompts: {},
       activity: activity(Array(30).fill(1), [span('active', 0, 30)]),
     })
     open()
-    const quiet = (await screen.findByRole('heading', { level: 3, name: 'Quiet one' })).closest('li')!
-    await waitFor(() => expect(within(quiet).getByText('No events in the last 30 minutes')).toBeInTheDocument())
-    expect(quiet.querySelector('[data-strip="events"]')).toBeNull()
-    expect(quiet.querySelector('[data-strip="states"] [data-state="idle"]')).not.toBeNull()
+    const quiet = await rowOf('Quiet one')
+    await waitFor(() => expect(states(quiet, 'lane')).toEqual(['idle']))
+    expect(quiet).toHaveTextContent('Last 30 minutes: 0 events; Idle for 30 min.')
+    fireEvent.click(screen.getByRole('link', { name: 'Quiet one' }))
+    expect(await within(panel()).findByText('No events in the last 30 minutes')).toBeInTheDocument()
+    expect(panel().querySelector('[data-strip="events"]')).toBeNull()
+    expect(panel().querySelector('[data-strip="states"] [data-state="idle"]')).not.toBeNull()
   })
 })

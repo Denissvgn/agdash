@@ -50,8 +50,10 @@ async function longSession() {
 }
 
 const SCREENS = [
-  // The live board's strips sit in list rows and are not figures: each row says the same in words.
-  { name: 'live', hash: '#/live', ready: '[data-strip]', strips: true },
+  // The live board's lanes sit in list rows and are not figures: each row says the same in words.
+  // At 320px the rows drop their lanes, so the board itself is what to wait for.
+  { name: 'live', hash: '#/live', ready: '[data-roster]', strips: true },
+  { name: 'live-agents', hash: '#/live?view=agents', ready: '[data-agents] a[data-row]', strips: true },
   { name: 'history', hash: '#/history' },
   { name: 'session', hash: `#/history/sessions/${await longSession()}` },
   { name: 'projects', hash: '#/projects' },

@@ -107,4 +107,10 @@
     border-color: Highlight !important;
     color: HighlightText !important;
   }
+  /* The live board's picked session: its tint and bar are fills, which forced colours
+     drop, so it is outlined in the system's selection colour instead. */
+  [data-roster] [data-selected='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 }
