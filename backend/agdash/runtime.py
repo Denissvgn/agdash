@@ -24,6 +24,7 @@ from sqlalchemy.orm import sessionmaker
 
 from agdash import saved
 from agdash.api.security import NotLoopback, ensure_loopback
+from agdash.archive import Trimmer
 from agdash.collector.run import Collector
 from agdash.config import Settings, database_url, get_settings
 from agdash.connectors.mirror import MirrorSync
@@ -121,6 +122,7 @@ def collector_for(store: Store, host: Host | None = None) -> tuple[Collector, En
         # Asked of the store each time lines are archived, so a change saved on the Data
         # page holds from the next lines read.
         keep_raw=lambda db: saved.keep_raw(db)[0],
+        keep_encoded=lambda db: saved.keep_encoded(db)[0],
     )
     return collector, engine
 
@@ -172,6 +174,8 @@ def serve() -> int:
     threads += mirror.run(stop)
     keeper = Keeper(sessions)
     threads += keeper.run(stop)
+    trimmer = Trimmer(sessions)
+    threads += trimmer.run(stop)
     sampler = Sampler(sessions, current_host().usage_reader(), store_file=store.database_file)
     threads += sampler.run(stop)
     log.info("collecting; serving on %s:%d", settings.host, settings.port)
@@ -187,6 +191,7 @@ def serve() -> int:
                 reading=collector.reading,
                 retention=keeper,
                 usage=sampler,
+                trimmer=trimmer,
             ),
             host=settings.host,
             port=settings.port,

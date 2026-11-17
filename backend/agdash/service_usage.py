@@ -43,6 +43,7 @@ PARTS = {
     "agdash-watch": "watch",
     "agdash-mirror": "mirror",
     "agdash-retention": "retention",
+    "agdash-archive": "retention",
     "agdash-usage": "monitor",
     "agdash-webhook": "api",
     "MainThread": "api",

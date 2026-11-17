@@ -204,7 +204,16 @@ def test_storage_says_where_the_store_is_and_how_much_it_holds(url, store, tmp_p
     assert found["store"]["sessions"] == 2
     first = datetime.fromisoformat(found["store"]["first_started_at"])
     assert timedelta(days=399) < datetime.now(UTC) - first < timedelta(days=401)
-    assert found["archive"] == {"enabled": True, "source": "default", "chunks": 0}
+    assert found["archive"] == {
+        "enabled": True,
+        "source": "default",
+        "chunks": 0,
+        "keep_encoded": False,
+        "keep_encoded_source": "default",
+        "untrimmed_chunks": 0,
+        "trimming": False,
+        "last_trim": None,
+    }
     # Off unless a limit is set: nothing is worked out, and nothing is named as removable.
     # This process has no keeper, so it says it removes nothing by itself.
     assert found["retention"] == {
