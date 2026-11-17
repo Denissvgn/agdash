@@ -35,6 +35,8 @@ router = APIRouter()
 TICK_SECONDS = 0.5
 KEEPALIVE_SECONDS = 15.0
 PAGE = 200
+# New events read in one look; with more than these, the next look carries on from there.
+EVENT_PAGE = 5000
 
 
 class Watermark:
@@ -108,13 +110,21 @@ def changes(
     if changed:
         found.append(("sessions", {"sessions": [_session(s) for s in changed]}))
         mark.changed_at, mark.session_id = changed[-1].updated_at, changed[-1].id
-    grown = db.execute(
-        select(Event.session_id, func.max(Event.id), func.max(Event.sequence), func.count())
+    # The new events themselves, by id, and counted here: grouped in SQL, the database
+    # walks an index of every event to group by session, on every look, however few are new.
+    newest: dict[int, list[int]] = {}
+    for event_id, session_id, sequence in db.execute(
+        select(Event.id, Event.session_id, Event.sequence)
         .where(Event.id > mark.event_id)
-        .group_by(Event.session_id)
-        .order_by(func.max(Event.id))
-        .limit(PAGE)
-    ).all()
+        .order_by(Event.id)
+        .limit(EVENT_PAGE)
+    ):
+        seen = newest.setdefault(session_id, [event_id, sequence, 0])
+        seen[0], seen[1], seen[2] = event_id, max(seen[1], sequence), seen[2] + 1
+    grown = sorted(
+        ((sid, last, sequence, count) for sid, (last, sequence, count) in newest.items()),
+        key=lambda row: row[1],
+    )
     if grown:
         found.append(
             (

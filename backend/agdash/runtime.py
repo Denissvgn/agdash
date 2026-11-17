@@ -96,6 +96,9 @@ def prepare(host: Host | None = None) -> Store:
     return Store(url=url, data_dir=data_dir, database_file=path)
 
 
+WAL_LIMIT_BYTES = 64 * 1024 * 1024
+
+
 def writer_engine(url: str) -> Engine:
     """The collector's connection: write-ahead log, a wait instead of a lock error."""
     url = sync_database_url(url)
@@ -110,6 +113,9 @@ def writer_engine(url: str) -> Engine:
             cursor.execute("PRAGMA synchronous = NORMAL")
             cursor.execute("PRAGMA busy_timeout = 5000")
             cursor.execute("PRAGMA foreign_keys = ON")
+            # The write-ahead log is cut back to this once its pages are copied into the
+            # store; without a limit it keeps the size of the largest burst ever written.
+            cursor.execute(f"PRAGMA journal_size_limit = {WAL_LIMIT_BYTES}")
             cursor.close()
 
     return engine

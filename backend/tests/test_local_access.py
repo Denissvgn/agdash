@@ -14,7 +14,7 @@ import pytest
 import uvicorn
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, insert
+from sqlalchemy import create_engine, insert, select
 from sqlalchemy.orm import sessionmaker
 
 from agdash.api import stream
@@ -354,6 +354,58 @@ def test_a_state_change_reaches_a_connected_client_within_two_seconds(database):
                     break
             assert time.monotonic() - written_at < 2.0
     writer.dispose()
+
+
+def test_a_look_reads_only_the_new_events_and_carries_on_where_it_stopped(database, monkeypatch):
+    """What a look costs follows what is new, not how much is stored.
+
+    Grouping the new events by session in SQL made the database walk an index of every
+    event, twice a second for every open window.
+    """
+    import re
+
+    from sqlalchemy import event as sa_event
+
+    engine = create_engine(database)
+    sessions = sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(stream, "EVENT_PAGE", 3)
+    with sessions() as db:
+        second = Session(harness="codex", native_id="second")
+        db.add(second)
+        db.flush()
+        first = db.scalars(select(Session).where(Session.native_id == "first")).one()
+        mark = stream.start(db)
+        for sequence, owner in enumerate([first, second, first, first, second, second, first]):
+            db.add(
+                Event(
+                    session_id=owner.id,
+                    sequence=sequence,
+                    kind=EventKind.STATUS,
+                    payload={"status": "line"},
+                )
+            )
+        db.commit()
+        seen: list[str] = []
+        sa_event.listen(engine, "before_cursor_execute", lambda *a: seen.append(a[2]))
+        counted: dict[int, int] = {}
+        newest: dict[int, int] = {}
+        looks = 0
+        while True:
+            found = dict(stream.changes(db, mark))
+            if "events" not in found:
+                break
+            looks += 1
+            for row in found["events"]["sessions"]:
+                counted[row["id"]] = counted.get(row["id"], 0) + row["new_events"]
+                newest[row["id"]] = row["newest_sequence"]
+        assert looks == 3, "seven events, three to a look"
+        assert counted == {first.id: 4, second.id: 3}
+        assert newest == {first.id: 6, second.id: 5}
+        of_events = [re.sub(r"\s+", " ", sql) for sql in seen if "FROM events" in sql]
+        assert of_events and all(
+            "GROUP BY" not in sql and "events.id >" in sql for sql in of_events
+        )
+    engine.dispose()
 
 
 def test_the_stream_refuses_a_client_without_the_token(database):

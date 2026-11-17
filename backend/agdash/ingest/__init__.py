@@ -6,9 +6,11 @@ from agdash.ingest.engine import (
     Line,
     ScanReport,
     discover_files,
+    discover_states,
     match_files,
     pattern_folders,
     session_folders,
+    signature_of,
     single_files,
 )
 
@@ -18,8 +20,10 @@ __all__ = [
     "Line",
     "ScanReport",
     "discover_files",
+    "discover_states",
     "match_files",
     "pattern_folders",
     "session_folders",
+    "signature_of",
     "single_files",
 ]

@@ -57,6 +57,35 @@ files in the harness folders:
 A harness that writes its records late adds its own delay on top: Codex writes
 in bursts, many seconds after the events they record.
 
+## What it costs to keep watching
+
+Once the backfill is done the service keeps three things going: it looks at
+the process table every two seconds, reads what the harnesses write as they
+write it, and every 30 seconds checks every session file against the listing.
+
+On the same home, with a store of 7.7 GB (1.7 million events, 7,700 sessions),
+about 500 processes of the user and a dozen sessions running, measured over two
+minutes with no dashboard window open:
+
+| | |
+|---|---|
+| Processor, average | 3.7% of one core |
+| Processor, the few seconds of a 30-second check | 10 to 17% of one core |
+| Memory | 59 MB |
+| Write-ahead log on disk | at most 64 MB |
+
+What keeps it there:
+
+- A pass never reads every session or every event. It asks for the sessions
+  that are live or lately active by index, and a dashboard's live stream reads
+  only the events newer than the last it saw.
+- A process is asked for its program and arguments when it is first seen,
+  while it is new, when its name changes, and otherwise once in two minutes.
+- The 30-second check takes each file's size and time from the directory
+  listing, and asks nothing about files that cannot be session files.
+- Antigravity's conversation summaries are stored again only when their file
+  has changed.
+
 ## Peak memory against transcript size
 
 | Rollout | 5 MB | 20 MB | 80 MB | 160 MB |
