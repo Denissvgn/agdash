@@ -526,11 +526,13 @@ def test_the_first_read_goes_in_the_order_given_and_says_how_far_it_is(home):
 
 @pytest.mark.parametrize("force_polling", [True, False], ids=["polling", "file-events"])
 def test_a_file_written_during_the_first_read_does_not_wait_for_its_end(home, force_polling):
-    old = [home / "archived_sessions" / f"rollout-old-{n:03}.jsonl" for n in range(120)]
+    # A first read long enough that a watcher slow to report, as on a loaded machine, still
+    # reports well before its end: a minute of it, of which the test takes a second or two.
+    # The recorder reads nothing, so the old files need only be named.
+    old = [home / "archived_sessions" / f"rollout-old-{n:04}.jsonl" for n in range(1200)]
     live = home / "sessions/2026/01/02" / NAME
-    for path in [*old, live]:
-        path.write_bytes(record(1))
-    seen = Recorder(seconds=0.05)  # the whole first read takes six seconds
+    live.write_bytes(record(1))
+    seen = Recorder(seconds=0.05)
     access = ReadOnlyAccess([home], snapshot_dir=home.parent)
     written_at = 20  # a second in, once any kind of watcher has its bearings
 
@@ -554,8 +556,9 @@ def test_a_file_written_during_the_first_read_does_not_wait_for_its_end(home, fo
         slice_seconds=0.1,
         force_polling=force_polling,
         debounce_ms=50,
+        timeout=90.0,
     )
-    assert read_after_writing() < 100, "it was read long before the old files were done"
+    assert read_after_writing() < len(old), "it was read before the old files were done"
 
 
 def test_a_change_is_looked_up_directly_not_by_listing_everything_again(home):

@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../App'
 import { unnamedControls } from '../test/controls'
+import { DESKTOP, PHONE, setWidth } from '../test/viewport'
 import { newQueryClient } from '../api/queryClient'
 import type { LiveActivity, Page, SessionSummary } from '../api/types'
 import { ENDED_WINDOW_MS, UNKNOWN_WINDOW_MS, forest, groups, split, stateCounts } from './board'
@@ -444,14 +445,23 @@ describe('the live board', () => {
   })
 
   test('where the panel takes the rows\' place, focus goes to it and comes back', async () => {
-    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('max-width: 1023px') }))
-    serve({ sessions: [session(1, { title: 'First one', last_activity_at: ago(0) }), session(2, { title: 'Second one' })], prompts: {} })
-    open()
-    fireEvent.click(await screen.findByRole('link', { name: 'Second one' }))
-    await waitFor(() => expect(within(panel()).getByRole('heading', { level: 2, name: 'Second one' })).toHaveFocus())
-    fireEvent.click(within(panel()).getByRole('link', { name: 'All live sessions' }))
-    await waitFor(() => expect(screen.getByRole('link', { name: 'Second one' })).toHaveFocus())
-    expect(window.location.hash).not.toContain('session=')
+    // A real browser is given a phone's width; jsdom has no layout, so there the width is
+    // only what matchMedia says it is.
+    if (navigator.userAgent.includes('jsdom')) {
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('max-width: 1023px') }))
+    }
+    await setWidth(PHONE)
+    try {
+      serve({ sessions: [session(1, { title: 'First one', last_activity_at: ago(0) }), session(2, { title: 'Second one' })], prompts: {} })
+      open()
+      fireEvent.click(await screen.findByRole('link', { name: 'Second one' }))
+      await waitFor(() => expect(within(panel()).getByRole('heading', { level: 2, name: 'Second one' })).toHaveFocus())
+      fireEvent.click(within(panel()).getByRole('link', { name: 'All live sessions' }))
+      await waitFor(() => expect(screen.getByRole('link', { name: 'Second one' })).toHaveFocus())
+      expect(window.location.hash).not.toContain('session=')
+    } finally {
+      await setWidth(DESKTOP)
+    }
   })
 
   test('nothing running says so', async () => {
