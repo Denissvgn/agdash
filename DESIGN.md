@@ -176,7 +176,7 @@ Cool paper neutrals, a deliberately scarce cobalt planning thread, and WorkChord
 
 ### Secondary
 
-- **Active Cyan, Resolved Emerald, Closed Violet, Planned Slate:** WorkChord's canonical record states. Planned Slate colours the dashed-circle icon of unavailable and empty notices, because a view that waits on its data has not begun. Session state chips map onto the four: active is cyan; ended is violet (closed, with no claim of success); waiting, idle and unknown are slate, since nothing is in progress that agdash can vouch for. The chip always carries the state's word, so colour is never the only signal.
+- **Active Cyan, Resolved Emerald, Closed Violet, Planned Slate:** WorkChord's canonical record states. Planned Slate colours the dashed-circle icon of unavailable and empty notices, because a view that waits on its data has not begun. Session state chips map onto the four: active is cyan; ended is violet (closed, with no claim of success); waiting, idle and unknown are slate, since nothing is in progress that agdash can vouch for. The chip always carries the state's word, so colour is never the only signal. A source's chip on Settings · Sources takes the same two: cyan while agdash reads the harness, slate when its folder is not on this machine.
 - **Feedback Warning:** The icon of an error notice (the service could not be reached or refused the request), an actionable exception with a retry. **Danger** is not yet used.
 
 ### Neutral
@@ -287,6 +287,7 @@ The honest answer for a view whose data source does not exist yet.
 - **Heading:** Title size, "Not available yet", led by an 18px dashed-circle icon in planned slate.
 - **Content:** A term-and-value list, "What will appear here" and "Waits on", terms in Label size and secondary ink, values in Body and primary ink, capped at 70 characters. Two columns on wider windows, one at 520px and below.
 - It never holds placeholder numbers, skeleton tiles or sample data.
+- Every destination has its own page now; a destination added before its data exists gets this panel until it does.
 
 ### Navigation drawer
 
@@ -329,6 +330,10 @@ Above a session's timeline, one figure, "Overview", shows the whole session on o
 - **The window:** the part of the timeline in view is planning-thread soft behind the marks, outlined in a 2px planning-thread rule. It follows the list as it scrolls. It is a slider, the figure's second tab stop: the arrow keys move it a bucket at a time (Page Up and Page Down ten, Home and End to the ends), dragging moves it, and a press on the drawing moves it to that moment; each scrolls the list to the first event at or after that time, loading further pages until one is there.
 - **Twin and keys:** the bucket marks give their counts in the tooltip and on the keyboard; the table twin has a row per bucket with every lane's count, the tokens of the turns started in it ("not reported" where none reported), and the state at its start.
 
+### Session export
+
+On a session's title line, at its right edge from 521px and on a line of its own below that, a secondary button, "Export", with a 16px download icon and a chevron that turns when open (`aria-expanded`, `aria-controls`). It opens a panel under the title line (working paper, hairline, 8px corners, 16px padding, no shadow): the label "Export this session as" beside three secondary buttons, Markdown, JSONL and Raw lines; a hint in Label size and secondary ink; and a polite status line in primary ink that says the file is being prepared, then its name (in 12px monospace, as an identifier) and size, or why there is none. The buttons are disabled while a file is prepared. A session with no archived lines saves no empty file and says so. In the desktop app the window saves the file with the person's downloads, and saves nothing but a file the page itself made.
+
 ### Live board
 
 Every session running now on one screen: slim rows on a shared clock, never tiles, counters or gauges, with one panel beside them for whatever a row has no room for. Sessions appear, change and end in place as the live stream reports them. At 1440 by 900 about twenty sessions show without scrolling.
@@ -363,6 +368,28 @@ Every session running now on one screen: slim rows on a shared clock, never tile
 - **Activity by project:** on Projects · Board, under the attention list, a time-lanes figure with a lane per project (by name, sessions mapped to none last) and each session active in the range as a span from its start to its last activity, the "now" line in the planning thread. A Range switch above it picks the last 7 or 30 days; it lives in the address (`days=30`; 7, the default, leaves it). Over 7 days, idle stretches of over 2 hours are compressed into breaks, so several days still fit; over 30 days the axis stays linear with a label each week, since a break for every night would leave no room to read it. Wherever breaks are used they take at most a third of the axis: past that, the shortest gaps stay to scale. A time label names its day whenever the day differs from the label before it, and labels that would touch are dropped. The now line sits under the marks, so a session live now keeps its ring on it. Sessions are placed by the same resolver as the board, so a conflict or no evidence leaves a session in the unmapped lane.
 - **Declared and observed:** each mapped project's group leads with a dumbbell, one row per agent: its current assignments in the project (declared, a ring in the mark ink, wider than the dot so that equal values read as a dot inside its ring) against the live sessions mapped to it (observed, a dot one step darker), joined by a 2px context-ink line on a shared count scale that spans at least 0 to 4, so small counts sit near the names. Each row ends with its pair in words ("2 assigned · 3 live"). Focus or hover on a row says how each observed session was mapped ("Its run: 2, Its own WorkChord call: 1"); its table twin lists the same. It replaces the earlier row of agent pills.
 - **A session's mapping:** on a session's page, under its header, a tree from the session to its agent, its project and each of its runs with their tasks. Each edge's line follows how the link is known, named in the legend, which shows even when every link is known the same way: a recorded link (a pin, the session's own run or task, or a run's tool call) is solid; a matching record (the agent's own call, its assignments, a runtime rule, a trace id) long dashes; a folder or repository rule, or an MCP configuration, short dashes; and a heuristic run link, or the best guess on conflicting evidence, dots and is labelled "Suggestion", never shown as the mapping. A session nothing maps says "Not mapped" with how to map it; with no WorkChord server connected the figure is left out. A leaf's name is clipped to the room left to the card's edge; the tooltip and table twin carry it in full.
+
+### Settings · Sources
+
+What agdash reads on this machine, as one list of harness records in the session list's row grammar; never tiles and never a form.
+
+- **Summary:** one Body line in primary ink above the list: how many of the harnesses were found and, when it is so, how many may have changed their format, which is the count of the warning lines below and not of every old gap.
+- **Record:** a row per harness, in the service's order, inside one container (working paper, hairline, 8px corners, resting shadow), rows parted by hairlines, 12px by 16px padding. First line: a found chip, the harness's name (Body, 600) and, once a file of it has been read, "Last read" with the time at the right. Second line: Label-size facts in secondary ink parted by middle dots: files read, how much of them was read, sessions, the format read most recently, and "Every record understood" when that is so. The format's version is in 12px monospace, as an identifier. A count of zero is left out, never shown as 0; a harness with nothing read says so in words ("No session files read yet", "Nothing of it on this machine"), and one whose folder is gone gives its sessions as "kept from earlier", so "Not found" and a count never seem to disagree.
+- **Found chip:** the state chip's form with the word "Found" or "Not found": active cyan while agdash reads the harness, planned slate when its folder is not here.
+- **Places:** under the facts, each place the harness is looked for, in 12px monospace as an identifier: primary ink when it exists, secondary ink followed by "not found" when it does not. A settings file says "sign-in method only". A path may break after any slash, and inside a name only when the name alone is wider than the line; the store's path on Settings · Data is set the same way.
+- **Not understood:** shown only when true. Something not understood in a format read in the last 14 days is a Label line in primary ink led by a 14px alert-circle icon in feedback warning, saying what, since when, and that some records are not shown; the same in formats read earlier is one Label line in secondary ink. Under either, a native disclosure, "By format", led by a 14px chevron that turns down when open, holds a table of each such format: unknown records, unreadable lines, first read and last read. At 520px and below, where five columns do not fit, each format is its own short list of the same terms and values instead.
+- **Notes:** Label lines under the list say what agdash never does in these folders, what it reads of a harness's settings, why a harness kept elsewhere is not found (naming the harnesses' own folder settings in monospace), and what "not understood" means.
+- **Catching up, loading and error:** the live board's catching-up line; four still placeholder rows; an error notice with the page's own copy.
+
+### Settings · Data
+
+What agdash keeps, for how long, and how a session leaves it: three titled sections, Store, Retention and Export, in the WorkChord settings' form (working paper, hairline, 8px corners, 20px padding, resting shadow, a Title heading). The page reports and changes nothing: it has no field, switch or button that sets or removes anything, because retention is set where the service starts and applied by a command a person runs.
+
+- **Terms and values:** the unavailable-state panel's grid: terms in Label size and secondary ink, values in Body and primary ink, on one baseline, capped at 70 characters; one column at 520px and below.
+- **Names:** a setting or a command is written as the service takes it, in 13px monospace on canvas mist with 4px corners, with what it does in Label size and secondary ink under it. Commands a person runs themself sit below a hairline, under a Body-size heading in 600 weight.
+- **Store:** where the store is (its path in monospace), its size, how many sessions it holds and when the earliest started, and whether original harness lines are kept. The archive's size takes seconds to measure on a large store, so it is asked for apart from the rest and kept for five minutes: its line says "Measuring what is archived." until it arrives, and says so if it could not be measured. Kept or not, the setting behind it is named: what would stop the archive, or what turned it off and how to keep the lines again.
+- **Retention:** a lead sentence in primary ink gives the limit, or says none is set. "Set by" names the setting as the service was started with it. With a limit, "Would remove now" gives the sessions and the time they were last active before, and "Keeps although older" those kept because they may still run. The two commands follow with the limit in effect, or with 90 days named as an example; the one that removes says it cannot be undone.
+- **Export:** what each format is, that every export is redacted, a secondary button to History, and the command.
 
 ### State chip
 
@@ -448,7 +475,7 @@ The first focusable element on every page. Hidden until focused, then fixed near
 
 ### Message catalogue
 
-Every visible string and every accessible name (labels, titles, tooltips, placeholders) comes from the English message catalogue. Components hold keys, never literal copy; workspace and destination labels, titles, purposes and unavailable-state text live under each workspace's entry. A test renders every route with a marked pseudo-locale and fails on any text that did not come from the catalogue. English is the only language.
+Every visible string and every accessible name (labels, titles, tooltips, placeholders) comes from the English message catalogue. Components hold keys, never literal copy; workspace and destination labels, titles, purposes and unavailable-state text live under each workspace's entry. A test renders every route with a marked pseudo-locale and fails on any text that did not come from the catalogue. The names of settings and commands a page shows are catalogue strings too. English is the only language.
 
 ## Figures
 

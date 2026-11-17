@@ -125,7 +125,12 @@ agdash's own store is in `~/Library/Application Support/agdash`. A session's
 working folder is read from its records as text; agdash does not open it. The
 open-file and working-folder probes read process information, not the files.
 
-The one case that prompts: when `CLAUDE_CONFIG_DIR` or `CODEX_HOME` points into a
-guarded folder, such as `~/Documents/claude`. macOS then asks once whether agdash
-may use that folder. Allowing it is enough; agdash needs no Full Disk Access.
+Two cases can prompt. The first: when `CLAUDE_CONFIG_DIR` or `CODEX_HOME` points
+into a guarded folder, such as `~/Documents/claude`. macOS then asks once whether
+agdash may use that folder. Allowing it is enough; agdash needs no Full Disk Access.
 Refusing it means that harness's sessions are not read.
+
+The second: exporting a session from its page. The app's window saves the file into
+Downloads, which macOS guards, so macOS may ask once whether agdash may use that
+folder. Refusing it means the export is not saved; nothing else changes. The window
+saves only a file its own page made, never one fetched from elsewhere.

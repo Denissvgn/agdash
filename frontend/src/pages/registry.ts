@@ -3,6 +3,8 @@ import { ActivityPage } from '../analytics/ActivityPage'
 import { ToolsPage, UsagePage } from '../analytics/pages'
 import { SearchPage, SessionsPage } from '../history/pages'
 import { LiveAgentsPage, LiveBoardPage } from '../live/LiveBoard'
+import { DataPage } from '../settings/DataPage'
+import { SourcesPage } from '../settings/SourcesPage'
 import { ProjectBoardPage } from '../workchord/ProjectBoardPage'
 import { UnmappedPage } from '../workchord/UnmappedPage'
 import { WorkChordPage } from '../workchord/WorkChordPage'
@@ -21,5 +23,7 @@ export const PAGES: Record<string, ComponentType> = {
   'analytics:activity': ActivityPage,
   'projects:board': ProjectBoardPage,
   'projects:unmapped': UnmappedPage,
+  'settings:sources': SourcesPage,
   'settings:workchord': WorkChordPage,
+  'settings:data': DataPage,
 }

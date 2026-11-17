@@ -26,10 +26,11 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from sqlalchemy import create_engine, func, select
 
+from agdash.adapters.store import RECENT_FORMATS
 from agdash.api.security import NotLoopback, ensure_loopback
 from agdash.config import database_url, get_settings
 from agdash.db.migrate import sync_database_url
@@ -168,11 +169,6 @@ class Check:
     name: str
     level: str  # "ok", "warn" or "fail"
     detail: str
-
-
-# Unknown records or unreadable lines read this recently point at a format change;
-# older ones are history and are only mentioned.
-RECENT_FORMATS = timedelta(days=14)
 
 
 def _day(moment: datetime) -> str:

@@ -118,6 +118,32 @@ export async function getJson<T>(path: string, params: Params = {}, signal?: Abo
   }
 }
 
+/**
+ * A file the service makes on request, such as a session's export. It carries the token
+ * as every read does, which a plain link could not, and has no time limit: a long
+ * session takes as long as it takes, and the caller can cancel.
+ */
+export async function getBlob(path: string, params: Params = {}, signal?: AbortSignal): Promise<Blob> {
+  const config = window.__AGDASH__ ?? {}
+  const headers: Record<string, string> = {}
+  const token = localToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  let response: Response
+  try {
+    response = await fetch(`${config.apiBase ?? ''}${path}${query(params)}`, { headers, signal })
+  } catch (error) {
+    if (signal?.aborted) throw error
+    throw new ApiError('unreachable', null)
+  }
+  if (!response.ok) throw new ApiError(kindFor(response.status), response.status)
+  try {
+    return await response.blob()
+  } catch (error) {
+    if (signal?.aborted) throw error
+    throw new ApiError('unreachable', null)
+  }
+}
+
 async function detailOf(response: Response): Promise<string | null> {
   try {
     const body = (await response.json()) as { detail?: unknown }

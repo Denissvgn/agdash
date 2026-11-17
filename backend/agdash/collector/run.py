@@ -64,6 +64,7 @@ from agdash.ingest.ledger import SqlLedger
 from agdash.ingest.watch import run as watch
 from agdash.platform import Host
 from agdash.platform.probes import ProcessIdentity
+from agdash.platform.roots import is_settings_file
 from agdash.vocab import EventKind, Harness, SessionState
 
 log = logging.getLogger("agdash.collector")
@@ -135,7 +136,7 @@ class Collector:
         # Folders only: a harness's single files (such as ~/.claude.json) hold settings and
         # account details, which the collector never reads.
         roots = {
-            harness: tuple(root for root in found if root.suffix != ".json")
+            harness: tuple(root for root in found if not is_settings_file(root))
             for harness, found in host.harness_roots().items()
         }
         self._codex_roots = roots[Harness.CODEX]

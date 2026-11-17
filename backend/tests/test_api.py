@@ -223,6 +223,9 @@ def test_reading_every_endpoint_leaves_the_store_unchanged(filled):
             f"/api/sessions/{session_id}/events",
             "/api/search?q=work",
             "/api/stats",
+            "/api/sources",
+            "/api/storage",
+            "/api/storage/archive",
         ):
             assert fresh.get(url).status_code == 200, url
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
@@ -261,6 +264,9 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/workchord/connections/{connection_id}/pins",
         "/api/workchord/rules/{rule_id}",
         "/api/projects/board",
+        "/api/sources",
+        "/api/storage",
+        "/api/storage/archive",
     }
     # Only the WorkChord settings routes change anything; every other route reads.
     writes = {
@@ -281,6 +287,9 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "Overview",
         "StateHistory",
         "LiveActivity",
+        "Sources",
+        "Storage",
+        "ArchiveSize",
     ):
         assert schema in document["components"]["schemas"]
 

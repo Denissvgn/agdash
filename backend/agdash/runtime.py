@@ -20,7 +20,6 @@ from pathlib import Path
 
 import uvicorn
 from sqlalchemy import Engine, create_engine, event
-from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from agdash.api.security import NotLoopback, ensure_loopback
@@ -28,7 +27,7 @@ from agdash.collector.run import Collector
 from agdash.config import Settings, database_url, get_settings
 from agdash.connectors.mirror import MirrorSync
 from agdash.connectors.webhook import create_receiver
-from agdash.db.migrate import sync_database_url, upgrade
+from agdash.db.migrate import sqlite_file, sync_database_url, upgrade
 from agdash.main import create_app
 from agdash.platform import Host, current_host
 
@@ -66,17 +65,6 @@ class Store:
     url: str
     data_dir: Path
     database_file: Path | None
-
-
-def sqlite_file(url: str) -> Path | None:
-    parsed = make_url(sync_database_url(url))
-    if (
-        parsed.get_backend_name() != "sqlite"
-        or not parsed.database
-        or parsed.database == ":memory:"
-    ):
-        return None
-    return Path(parsed.database)
 
 
 def prepare(host: Host | None = None) -> Store:
