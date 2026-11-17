@@ -163,6 +163,49 @@ def test_sessions_known_only_by_name_can_be_left_out(client):
             assert item["event_count"] == 0
 
 
+def test_reports_add_up_usage_and_tools_without_reading_event_payloads(client):
+    """Usage and tool reports read the narrow tables kept beside the events.
+
+    Summing from payloads reads through the whole store, which takes minutes on a large
+    one. A query that looks right can still do it: by filtering the narrow table on a
+    column of ``events``, which ties the two together row by row.
+    """
+    import re
+
+    from sqlalchemy import event
+
+    session_id = client.get("/api/sessions").json()["items"][0]["id"]
+    seen: list[str] = []
+    engine = client.app.state.store.engine
+
+    def note(_conn, _cursor, statement, *_rest):
+        seen.append(re.sub(r"\s+", " ", statement))
+
+    event.listen(engine, "before_cursor_execute", note)
+    try:
+        for path in (
+            "/api/analytics/usage",
+            "/api/analytics/usage?group=model",
+            "/api/analytics/usage?group=folder",
+            "/api/analytics/tools",
+            "/api/analytics/series",
+            "/api/stats",
+            "/api/projects/board",
+            f"/api/sessions/{session_id}",
+            f"/api/sessions/{session_id}/overview",
+        ):
+            assert client.get(path).status_code == 200, path
+    finally:
+        event.remove(engine, "before_cursor_execute", note)
+    narrow = [sql for sql in seen if "event_usage" in sql or "event_tools" in sql]
+    assert len(narrow) >= 9
+    for sql in narrow:
+        assert "JSON_EXTRACT" not in sql.upper(), sql
+        # Inside the narrow table's own subquery, only its own columns narrow it.
+        for inner in re.findall(r"\(SELECT min\(event_usage\.event_id\).*?GROUP BY", sql):
+            assert "events." not in inner, sql
+
+
 def test_the_api_connection_refuses_to_write(client):
     engine = client.app.state.store.engine
     with engine.connect() as connection, pytest.raises(OperationalError, match="readonly"):
