@@ -32,16 +32,23 @@ export function Lanes({
   lanes,
   now,
   threshold = 30 * 60_000,
+  tickSpacing = 110,
   status = 'ready',
   onRetry,
   rowHeader,
+  emptyTitle,
+  emptyBody,
 }: {
   title: string
   caption?: string
+  emptyTitle?: string
+  emptyBody?: string
   lanes?: Lane[]
   now?: Date
   /** Idle gaps longer than this, in milliseconds, are compressed. */
   threshold?: number
+  /** About one time label per this many pixels of a stretch; wider spacing gives weekly days over a month. */
+  tickSpacing?: number
   status?: FigureStatus
   onRetry?: () => void
   rowHeader: string
@@ -129,20 +136,28 @@ export function Lanes({
       header: t('charts.lanes.gapRow'),
       cells: ['', formatMoment(new Date(gap.from)), formatMoment(new Date(gap.to)), duration(gap.to - gap.from)],
     }))
-    const ticks = x.stretches.flatMap((stretch, s) => {
+    const candidates = x.stretches.flatMap((stretch, s) => {
       const span = stretch.right - stretch.left
       // A stretch on a new day is labelled with the day, one later the same day with its time.
       const start = new Date(stretch.from)
       const previous = s > 0 ? new Date(x.stretches[s - 1].to) : null
       const newDay = !previous || previous.toDateString() !== start.toDateString()
-      const first = { key: `s${s}`, x: stretch.left, text: newDay ? formatDay(start) : formatTick(start, HOUR) }
+      const first = { key: `s${s}`, x: stretch.left, at: start, day: newDay }
       const inner = scaleTime()
         .domain([new Date(stretch.from), new Date(stretch.to)])
-        .ticks(Math.max(0, Math.floor(span / 110) - 1))
-        .map((at) => ({ key: `s${s}-${at.getTime()}`, x: x(at.getTime()), text: formatTick(at, HOUR) }))
+        .ticks(Math.max(0, Math.floor(span / tickSpacing) - 1))
+        .map((at) => ({ key: `s${s}-${at.getTime()}`, x: x(at.getTime()), at, day: false }))
         .filter((tick) => tick.x - stretch.left >= 100 && stretch.right - tick.x >= 24)
       return s === 0 || span >= 44 ? [first, ...inner] : inner
     })
+    // A label names its day whenever the day differs from the label before it, so no time
+    // is read against the wrong day; one that would touch the label before it is dropped.
+    const ticks = candidates.reduce<{ key: string; x: number; at: Date; text: string }[]>((kept, tick) => {
+      const last = kept[kept.length - 1]
+      const day = tick.day || !last || last.at.toDateString() !== tick.at.toDateString()
+      const text = day ? formatDay(tick.at) : formatTick(tick.at, HOUR)
+      return !last || tick.x - last.x >= labelWidth(last.text) + 12 ? [...kept, { key: tick.key, x: tick.x, at: tick.at, text }] : kept
+    }, [])
 
     plot = (
       <div ref={ref} className="min-w-0">
@@ -216,30 +231,7 @@ export function Lanes({
                   ))}
                 </g>
               ))}
-              {placed.map((p, i) =>
-                p.item.end ? (
-                  <rect
-                    key={`${p.lane}-${p.item.id}`}
-                    {...mark(i)}
-                    className={active === i ? FILL['mark-hover'] : FILL.mark}
-                    height={SPAN}
-                    rx={2}
-                    width={Math.max(2, p.x1 - p.x0)}
-                    x={p.x0}
-                    y={p.y - SPAN / 2}
-                  />
-                ) : (
-                  <circle
-                    key={`${p.lane}-${p.item.id}`}
-                    {...mark(i)}
-                    className={`${active === i ? FILL['mark-hover'] : FILL['ink-7']} stroke-working-paper`}
-                    cx={p.x0}
-                    cy={p.y}
-                    r={DOT / 2 + (active === i ? 1 : 0)}
-                    strokeWidth={RING}
-                  />
-                ),
-              )}
+              {/* The now line sits under the marks, so a session live now keeps its ring on it. */}
               {now ? (
                 <g aria-hidden="true">
                   <line
@@ -255,6 +247,30 @@ export function Lanes({
                   </text>
                 </g>
               ) : null}
+              {placed.map((p, i) =>
+                p.item.end ? (
+                  <rect
+                    key={`${p.lane}-${p.item.id}`}
+                    {...mark(i)}
+                    className={active === i ? FILL['mark-hover'] : FILL.mark}
+                    height={SPAN}
+                    rx={2}
+                    width={Math.max(3, p.x1 - p.x0)}
+                    x={p.x0}
+                    y={p.y - SPAN / 2}
+                  />
+                ) : (
+                  <circle
+                    key={`${p.lane}-${p.item.id}`}
+                    {...mark(i)}
+                    className={`${active === i ? FILL['mark-hover'] : FILL['ink-7']} stroke-working-paper`}
+                    cx={p.x0}
+                    cy={p.y}
+                    r={DOT / 2 + (active === i ? 1 : 0)}
+                    strokeWidth={RING}
+                  />
+                ),
+              )}
             </>
           )}
         </Plot>
@@ -265,6 +281,8 @@ export function Lanes({
   return (
     <Figure
       caption={caption}
+      emptyBody={emptyBody}
+      emptyTitle={emptyTitle}
       height={height}
       status={shown}
       table={

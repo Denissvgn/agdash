@@ -240,6 +240,7 @@ function serve() {
       if (url.pathname === '/api/sessions/1') return json(detail)
       if (url.pathname === '/api/sessions/1/overview') return json(synthetic())
       if (url.pathname === '/api/sessions/1/states') return json(STATES)
+      if (url.pathname === '/api/sessions/1/mapping') return json({ session_id: 1, connections: [] })
       if (url.pathname === '/api/sessions/1/events') {
         const from = url.searchParams.get('cursor') ? Number(url.searchParams.get('cursor')) + 1 : 0
         const items = EVENTS.slice(from, from + Number(url.searchParams.get('limit')))

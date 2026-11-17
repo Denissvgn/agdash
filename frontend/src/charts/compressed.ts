@@ -21,7 +21,8 @@ export type CompressedScale = {
 
 /**
  * Times in milliseconds, merged into stretches wherever they lie within ``threshold``
- * of each other; each gap longer than that becomes a break of ``BREAK`` pixels.
+ * of each other; each gap longer than that becomes a break of ``BREAK`` pixels, as many
+ * as fit in a third of the range.
  */
 export function compressedScale(intervals: [number, number][], threshold: number, range: [number, number]): CompressedScale {
   const sorted = intervals
@@ -36,6 +37,17 @@ export function compressedScale(intervals: [number, number][], threshold: number
   if (!merged.length) merged.push([0, 1])
 
   const [start, end] = range
+  // Breaks never take more than a third of the room: past that, the shortest gaps are
+  // kept to scale instead, so many short idle spells cannot push the busy time off the axis.
+  const most = Math.floor((end - start) / 3 / BREAK)
+  while (merged.length - 1 > Math.max(0, most)) {
+    let shortest = 0
+    for (let i = 1; i < merged.length - 1; i++) {
+      if (merged[i + 1][0] - merged[i][1] < merged[shortest + 1][0] - merged[shortest][1]) shortest = i
+    }
+    merged[shortest][1] = Math.max(merged[shortest][1], merged[shortest + 1][1])
+    merged.splice(shortest + 1, 1)
+  }
   const room = Math.max(1, end - start - BREAK * (merged.length - 1))
   const total = merged.reduce((sum, [from, to]) => sum + (to - from), 0)
   const weights = merged.map(([from, to]) => (total > 0 ? Math.max((to - from) / total, MIN_SHARE) : 1 / merged.length))

@@ -54,6 +54,22 @@ describe('the compressed time axis', () => {
     expect([...positions].sort((a, b) => a - b)).toEqual(positions)
   })
 
+  test('keeps its breaks to a third of the room, folding the shortest gaps back to scale', () => {
+    // Thirty nights between thirty working hours: too many breaks for 300 pixels.
+    const times: [number, number][] = Array.from({ length: 31 }, (_, d): [number, number] => [day(d, 9 + (d % 3)), day(d, 10 + (d % 3))])
+    const x = compressedScale(times, 6 * HOUR, [0, 300])
+    expect(x.gaps.length).toBe(Math.floor(300 / 3 / BREAK))
+    expect(x.stretches[x.stretches.length - 1].right).toBeCloseTo(300)
+    expect(x.stretches.every((stretch) => stretch.right > stretch.left)).toBe(true)
+    // The breaks kept stand for the longest nights.
+    const kept = Math.min(...x.gaps.map((gap) => gap.to - gap.from))
+    const folded = x.stretches.flatMap((stretch) => times.filter(([from]) => from > stretch.from && from <= stretch.to))
+    expect(folded.length).toBeGreaterThan(0)
+    expect(kept).toBeGreaterThanOrEqual(22 * HOUR)
+    const positions = times.flat().map(x)
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions)
+  })
+
   test('gives a lone moment room to show', () => {
     const x = compressedScale(
       [

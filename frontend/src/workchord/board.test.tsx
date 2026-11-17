@@ -130,10 +130,11 @@ describe('the board by project', () => {
     expect(within(unmapped).getByText('Synthetic session 3')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Map them in the Unmapped queue' })).toHaveAttribute('href', '#/projects/unmapped')
 
-    const agents = screen.getByRole('list', { name: 'Agents in Orchard' })
-    expect(within(agents).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-      'Robin · assigned · 1 live',
-      'Wren · assigned · 0 live',
+    // Each agent's declared assignments against its observed live sessions.
+    const agents = screen.getByRole('heading', { name: 'Declared and observed in Orchard' }).closest('figure')!
+    expect([...agents.querySelectorAll('[data-declared]')].map((row) => [row.getAttribute('data-declared'), row.getAttribute('data-observed')])).toEqual([
+      ['1', '1'],
+      ['1', '0'],
     ])
     expect(unnamedControls(document.body)).toEqual([])
   })

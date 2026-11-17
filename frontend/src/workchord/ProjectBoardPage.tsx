@@ -1,4 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
+import { AgentsFigure, ProjectActivityFigure, RangeSwitch } from './ProjectFigures'
+import { RANGES, type Range } from './ranges'
 import { TriangleAlert } from 'lucide-react'
 import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -193,20 +195,7 @@ function Group({ group }: { group: ProjectGroup }) {
           </Link>
         </p>
       ) : (
-        group.agents.length > 0 && (
-          <ul aria-label={t('board.agentsLabel', { project: name })} className="flex flex-wrap gap-xs">
-            {group.agents.map((agent) => (
-              <li
-                key={agent.id}
-                className="inline-flex h-[24px] items-center rounded-full border border-hairline bg-working-paper px-sm text-label text-secondary-ink"
-              >
-                {agent.assigned
-                  ? t('board.agentAssigned', { name: agent.name, count: agent.live_sessions })
-                  : t('board.agentLive', { name: agent.name, count: agent.live_sessions })}
-              </li>
-            ))}
-          </ul>
-        )
+        group.agents.length > 0 && <AgentsFigure group={group} />
       )}
       <ul
         aria-label={t('board.sessionsLabel', { project: name })}
@@ -242,6 +231,13 @@ export function ProjectBoardPage() {
   })
   const base = 'workspaces.projects.destinations.board'
   const data = board.data
+  const range: Range = (RANGES as readonly string[]).includes(search.get('days') ?? '') ? (search.get('days') as Range) : '7'
+  const changeRange = (next: Range) => {
+    const params = new URLSearchParams(search)
+    if (next === '7') params.delete('days')
+    else params.set('days', next)
+    setSearch(params)
+  }
   return (
     <article aria-labelledby="page-title" className="flex flex-col gap-page-gap">
       <PageHeader purposeKey={`${base}.purpose`} titleKey={`${base}.title`} />
@@ -282,6 +278,10 @@ export function ProjectBoardPage() {
             </Notice>
           )}
           <Attention flags={data!.flags} titles={titlesOf(data!.groups)} />
+          <section aria-label={t('board.activity.label')} className="flex flex-col gap-sm">
+            <RangeSwitch value={range} onChange={changeRange} />
+            <ProjectActivityFigure connection={chosen} range={range} />
+          </section>
           {data!.groups.length === 0 ? (
             <Notice body={t('board.emptyBody')} title={t('board.emptyTitle')} />
           ) : (

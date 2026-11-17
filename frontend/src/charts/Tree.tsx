@@ -39,9 +39,16 @@ export function Tree({
   status = 'ready',
   onRetry,
   rowHeader,
+  tierLabel,
+  emptyTitle,
+  emptyBody,
 }: {
   title: string
   caption?: string
+  /** Words for each line style in the legend, where the figure's links are not runs. */
+  tierLabel?: (tier: EvidenceTier) => string
+  emptyTitle?: string
+  emptyBody?: string
   root?: TreeNode
   status?: FigureStatus
   onRetry?: () => void
@@ -51,6 +58,7 @@ export function Tree({
   const [ref, width] = useWidth()
   const shown: FigureStatus = status === 'ready' && !root ? 'empty' : status
   const tier = (value: EvidenceTier) => t(`charts.tiers.${value}`)
+  const legendWord = tierLabel ?? tier
 
   let plot = null
   let height = 4 * ROW
@@ -77,11 +85,12 @@ export function Tree({
     const used = EVIDENCE_TIERS.filter((value) => order.some((node) => node.data.edge?.tier === value))
     legend = used.map((value) => ({
       key: value,
-      label: tier(value),
+      label: legendWord(value),
       swatch: 'ink-6',
       kind: 'line',
       dash: TIER_DASH[value],
       cap: tierCap(value),
+      form: true,
     }))
 
     const marks: Mark[] = order.map((node) => ({
@@ -180,7 +189,7 @@ export function Tree({
                       x={p.x - 4}
                       y={p.y - 9}
                     >
-                      {clip(node.data.name, node.children?.length ? chars : Math.max(chars, Math.floor((width - p.x - 12) / 6.4)))}
+                      {clip(node.data.name, node.children?.length ? chars : Math.max(6, Math.floor((width - p.x - 8) / 6.4)))}
                     </text>
                   </g>
                 )
@@ -195,6 +204,8 @@ export function Tree({
   return (
     <Figure
       caption={caption}
+      emptyBody={emptyBody}
+      emptyTitle={emptyTitle}
       height={height}
       legend={legend}
       status={shown}

@@ -163,6 +163,7 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/analytics/series",
         "/api/analytics/activity",
         "/api/analytics/started",
+        "/api/projects/activity",
         "/api/sessions/{session_id}/overview",
         "/api/sessions/{session_id}/states",
         "/api/live/activity",

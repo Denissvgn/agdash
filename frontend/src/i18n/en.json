@@ -626,6 +626,26 @@
         "state": "State at start"
       },
       "upTo": "up to {{value}}"
+    },
+    "mapping": {
+      "title": "WorkChord mapping",
+      "caption": "How this session is linked on {{server}}: each line says how the link is known, and a dotted one is only a suggestion.",
+      "actor": "Agent",
+      "project": "Project",
+      "node": "{{what}}: {{name}}",
+      "run": "Run #{{id}}: {{task}}",
+      "taskOnly": "Task: {{task}}",
+      "noTask": "no task",
+      "suggestion": "Suggestion",
+      "linked": "Linked",
+      "unmappedTitle": "Not mapped",
+      "unmappedBody": "Nothing links this session to a WorkChord agent, project, task or run yet. A folder rule or a pin on the Unmapped page can map it.",
+      "tiers": {
+        "tool_call": "Recorded link",
+        "trace_id": "Matching record",
+        "mcp_config": "Rule or configuration",
+        "heuristic": "Suggestion"
+      }
     }
   },
   "board": {
@@ -661,11 +681,6 @@
     "sessions_one": "{{count}} live session",
     "sessions_other": "{{count}} live sessions",
     "sessionsLabel": "Live sessions in {{project}}",
-    "agentsLabel": "Agents in {{project}}",
-    "agentAssigned_one": "{{name}} · assigned · {{count}} live",
-    "agentAssigned_other": "{{name}} · assigned · {{count}} live",
-    "agentLive_one": "{{name}} · {{count}} live",
-    "agentLive_other": "{{name}} · {{count}} live",
     "subagents": "Subagents of {{title}}",
     "agent": "Agent {{name}} ({{basis}})",
     "mappedBy": "Project from {{basis}}",
@@ -684,7 +699,30 @@
     "observed": "Observed",
     "tokens": "{{input}} in · {{output}} out tokens",
     "emptyTitle": "Nothing is running",
-    "emptyBody": "No session on this machine is active, waiting or idle right now."
+    "emptyBody": "No session on this machine is active, waiting or idle right now.",
+    "activity": {
+      "label": "Activity by project",
+      "range": "Range",
+      "title_one": "Sessions by project, last {{count}} day",
+      "title_other": "Sessions by project, last {{count}} days",
+      "caption": "Each session from its start to its last activity, in the lane of the project it maps to; stretches of over {{hours}} hours with nothing are squeezed into a marked break.",
+      "captionLinear": "Each session from its start to its last activity, in the lane of the project it maps to, on one time axis with no breaks.",
+      "project": "Project",
+      "emptyTitle": "No sessions in this range",
+      "emptyBody_one": "No session was active in the last {{count}} day.",
+      "emptyBody_other": "No session was active in the last {{count}} days."
+    },
+    "agents": {
+      "title": "Declared and observed in {{project}}",
+      "caption": "For each agent, its current assignments against the live sessions mapped to it; the tooltip says how each session was mapped.",
+      "declared": "Declared assignments",
+      "observed": "Observed live sessions",
+      "how": "How observed",
+      "values": "{{declared}} assigned · {{observed}} live",
+      "agent": "Agent",
+      "basis": "{{basis}}: {{count}}",
+      "and": ", "
+    }
   },
   "charts": {
     "roledescription": "chart",

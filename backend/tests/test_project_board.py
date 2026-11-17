@@ -307,6 +307,55 @@ def test_each_project_lists_its_agents(url, board_store):
     ]
 
 
+def test_each_agent_has_its_declared_assignments_and_the_basis_of_what_was_observed(
+    url, board_store
+):
+    orchard = get_board(url)["groups"][0]
+    agents = {a["name"]: a for a in orchard["agents"]}
+    assert agents["Robin"]["assignments"] == 1 and agents["Wren"]["assignments"] >= 1
+    # Robin's live session is mapped through its run; the bases add up to the sessions seen.
+    assert agents["Robin"]["observed_bases"] == {"run": 1}
+    for agent in agents.values():
+        assert sum(agent["observed_bases"].values()) == agent["live_sessions"]
+
+
+def test_project_activity_puts_each_recent_session_in_its_project_lane(url, board_store):
+    with local_client(url) as client:
+        week = client.get("/api/projects/activity", params={"days": 7}).json()
+        refused = client.get("/api/projects/activity", params={"days": 9})
+    assert refused.status_code == 422
+    assert week["days"] == 7 and week["omitted"] == 0
+    names = [(lane["project"] or {}).get("name") for lane in week["lanes"]]
+    assert names == ["Orchard", None]
+    lanes = {
+        (lane["project"] or {}).get("name"): {s["id"] for s in lane["sessions"]}
+        for lane in week["lanes"]
+    }
+    # The same mapping as the board, and recent sessions that are no longer live too.
+    assert {board_store[k] for k in ("a", "b", "f")} <= lanes["Orchard"]
+    assert board_store["c"] in lanes[None]
+    assert board_store["ended"] in lanes["Orchard"] | lanes[None]
+    for lane in week["lanes"]:
+        starts = [s["start"] for s in lane["sessions"]]
+        assert starts == sorted(starts)
+
+
+def test_project_activity_leaves_out_sessions_older_than_the_range(url):
+    engine = create_engine(url)
+    with sessionmaker(engine)() as db:
+        old = session(db, "old", SessionState.ENDED)
+        old.last_activity_at = NOW - timedelta(days=12)
+        session(db, "new", SessionState.ACTIVE)
+        db.commit()
+    engine.dispose()
+    with local_client(url) as client:
+        week = client.get("/api/projects/activity", params={"days": 7}).json()
+        month = client.get("/api/projects/activity", params={"days": 30}).json()
+    assert [len(lane["sessions"]) for lane in week["lanes"]] == [1]
+    assert [len(lane["sessions"]) for lane in month["lanes"]] == [2]
+    assert week["connection"] is None and week["lanes"][0]["project"] is None
+
+
 def test_without_a_connection_every_live_session_is_unmapped(url):
     engine = create_engine(url)
     with sessionmaker(engine)() as db:

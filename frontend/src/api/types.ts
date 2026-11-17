@@ -397,6 +397,54 @@ export interface BoardAgent {
   role: string | null
   live_sessions: number
   assigned: boolean
+  /** Current assignments in the project: what was declared. */
+  assignments?: number
+  /** Live sessions mapped to the agent here, by the basis of the agent mapping. */
+  observed_bases?: Record<string, number>
+}
+
+/** Sessions active in the last 7 or 30 days, in the lane of the project they map to. */
+export interface ProjectActivity {
+  connection: { id: number; name: string | null; server: string } | null
+  days: number
+  since: string
+  until: string
+  lanes: {
+    project: { id: number; name: string } | null
+    sessions: { id: number; harness: string; title: string | null; state: SessionState; parent_session_id: number | null; start: string | null; end: string | null }[]
+  }[]
+  omitted: number
+}
+
+/** How one mapping was decided: mapped, conflict or unmapped, with what points where. */
+export interface MappingResolution {
+  state: 'mapped' | 'conflict' | 'unmapped'
+  target: number | null
+  name: string | null
+  basis: string | null
+  suggestion: number | null
+  evidence: MappingEvidence[]
+}
+
+/** A session's WorkChord runs, actor and project, per connection. */
+export interface SessionMapping {
+  session_id: number
+  connections: {
+    connection_id: number
+    server: string
+    runs: {
+      basis: 'tool_call' | 'trace_id' | 'mcp_config' | 'heuristic'
+      confidence: number
+      suggestion: boolean
+      run_id: number | null
+      task_id: number | null
+      task_key: string | null
+      task_title: string | null
+      evidence: Record<string, unknown>
+    }[]
+    actor: MappingResolution
+    project: MappingResolution
+  }[]
 }
 
 export interface ProjectGroup {

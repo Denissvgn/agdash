@@ -15,6 +15,8 @@ export type LegendEntry = {
   kind?: 'block' | 'line'
   dash?: string
   cap?: 'round' | 'butt'
+  /** Names a form, such as how a link is known, not a series: shown even when it is the only entry. */
+  form?: boolean
 }
 
 /** A legend swatch drawn by the figure itself, such as a state's form. */
@@ -24,7 +26,8 @@ type Content = { plot: ReactNode; table?: TableTwinData }
 
 /**
  * The frame every figure sits in: a title, a caption, a legend where two or more
- * series share the figure, the drawing, and its table twin behind a disclosure.
+ * series share the figure (or where an entry names a form), the drawing, and its
+ * table twin behind a disclosure.
  * While new data loads it keeps showing the last drawing; an empty or failed figure
  * says so in words.
  */
@@ -58,7 +61,7 @@ export function Figure({
   const [held, setHeld] = useState<Content | null>(ready)
   if (ready && (ready.plot !== held?.plot || ready.table !== held?.table)) setHeld(ready)
   const shown = ready ?? (status === 'loading' ? held : null)
-  const showLegend = shown && (legend.filter((entry) => entry.swatch !== 'hatch').length >= 2 || legend.some((entry) => entry.swatch === 'hatch'))
+  const showLegend = shown && (legend.filter((entry) => entry.swatch !== 'hatch').length >= 2 || legend.some((entry) => entry.swatch === 'hatch' || entry.form))
 
   return (
     <figure className="flex min-w-0 flex-col gap-sm rounded-surface border border-hairline bg-working-paper p-md shadow-resting">
