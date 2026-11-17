@@ -160,9 +160,8 @@ const USAGE: ServiceUsageReport = {
 const PARTS: StoreParts = {
   bytes: 7_720_000_000,
   archive_bytes: 2_260_000_000,
-  search_bytes: 550_000_000,
   free_bytes: 1_970_000_000,
-  rest_bytes: 2_940_000_000,
+  rest_bytes: 3_490_000_000,
 }
 
 type Served = {
@@ -819,10 +818,9 @@ describe('Settings · Data: what the store holds', () => {
         .slice(1)
         .map((row) => [within(row).getByRole('rowheader').textContent, ...within(row).getAllByRole('cell').map((cell) => cell.textContent)]),
     ).toEqual([
-      ['Events and everything else', '2.9 GB', '38%'],
+      ['Events, their search index and the rest', '3.5 GB', '45%'],
       ['Original lines', '2.3 GB', '29%'],
       ['Free inside the file', '2 GB', '26%'],
-      ['Search index', '550 MB', '7%'],
     ])
     expect(asked).toContain('/api/storage/parts')
     expect(unnamedControls(document.body)).toEqual([])
@@ -837,13 +835,12 @@ describe('Settings · Data: what the store holds', () => {
   })
 
   test('leaves out a part that cannot be told, rather than calling it nothing', async () => {
-    serve({ storage: STORAGE, parts: { ...PARTS, search_bytes: null } })
+    serve({ storage: STORAGE, parts: { ...PARTS, free_bytes: null } })
     open('/settings/data')
     const table = within(await screen.findByRole('region', { name: 'What the store holds' })).getByRole('table')
     expect(within(table).getAllByRole('rowheader').map((header) => header.textContent)).toEqual([
-      'Events and everything else',
+      'Events, their search index and the rest',
       'Original lines',
-      'Free inside the file',
     ])
   })
 })

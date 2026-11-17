@@ -6,11 +6,10 @@ import type { StoreParts as Parts } from '../api/types'
 import { ShareBar } from '../charts'
 import { useSize } from './format'
 
-// Measuring walks the archive and the index, which takes seconds on a large store.
+// Measuring walks the archive, so it is not asked again each time the page is opened.
 const FRESH_MS = 5 * 60_000
 const ROWS = [
   ['rest', 'rest_bytes'],
-  ['search', 'search_bytes'],
   ['archive', 'archive_bytes'],
   ['free', 'free_bytes'],
 ] as const

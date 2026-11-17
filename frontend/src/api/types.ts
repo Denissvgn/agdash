@@ -193,7 +193,6 @@ export interface ArchiveSize {
 export interface StoreParts {
   bytes: number | null
   archive_bytes: number
-  search_bytes: number | null
   free_bytes: number | null
   rest_bytes: number | null
 }

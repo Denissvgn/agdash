@@ -1071,8 +1071,7 @@
       "size": "Size",
       "share": "Of the file",
       "names": {
-        "rest": "Events and everything else",
-        "search": "Search index",
+        "rest": "Events, their search index and the rest",
         "archive": "Original lines",
         "free": "Free inside the file"
       },

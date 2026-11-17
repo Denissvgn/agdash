@@ -510,13 +510,11 @@ def test_the_store_is_given_by_what_fills_it(url, store, tmp_path):
         )
     with client(url) as api:
         parts = api.get("/api/storage/parts").json()
+    assert set(parts) == {"bytes", "archive_bytes", "free_bytes", "rest_bytes"}
     assert parts["archive_bytes"] == 5000
-    assert parts["search_bytes"] is not None and parts["search_bytes"] >= 0
     assert parts["free_bytes"] is not None and parts["free_bytes"] >= 0
-    assert parts["bytes"] >= parts["archive_bytes"] + parts["search_bytes"] + parts["free_bytes"]
-    assert parts["rest_bytes"] == parts["bytes"] - sum(
-        parts[name] for name in ("archive_bytes", "search_bytes", "free_bytes")
-    )
+    assert parts["rest_bytes"] == parts["bytes"] - parts["archive_bytes"] - parts["free_bytes"]
+    assert parts["rest_bytes"] > 0
 
 
 # -- the command ----------------------------------------------------------------------
