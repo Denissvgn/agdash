@@ -5,6 +5,7 @@
 export { BarChart } from './BarChart'
 export { ColumnChart } from './ColumnChart'
 export type { Category, Coverage, Reported, TimeData, TimeSeries } from './data'
+export { Dumbbell, type DumbbellRow } from './Dumbbell'
 export { Figure, type FigureStatus } from './Figure'
 export { Heatmap, type HeatmapData } from './Heatmap'
 export { Lanes, type Lane, type LaneItem } from './Lanes'

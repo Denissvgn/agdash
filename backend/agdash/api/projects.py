@@ -23,13 +23,13 @@ What WorkChord holds comes from the mirror's copy; nothing here asks it.
 """
 
 import re
-from collections import defaultdict
-from datetime import UTC, datetime
+from collections import Counter, defaultdict
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from agdash.api.routes import Db, _one_per_message, _usage, _usage_columns
 from agdash.api.schemas import UsageTotals
@@ -133,6 +133,13 @@ class Card(BaseModel):
 class AgentOut(ActorOut):
     live_sessions: int
     assigned: bool = Field(description="Has a current assignment in this project.")
+    assignments: int = Field(
+        0, description="Current assignments in this project: what was declared."
+    )
+    observed_bases: dict[str, int] = Field(
+        default_factory=dict,
+        description="Live sessions mapped to this agent here, by the basis of the agent mapping.",
+    )
 
 
 class ProjectGroup(BaseModel):
@@ -142,6 +149,30 @@ class ProjectGroup(BaseModel):
     reason: Literal["mapped", "unmapped"]
     agents: list[AgentOut]
     sessions: list[Card]
+
+
+class ActivitySession(BaseModel):
+    id: int
+    harness: str
+    title: str | None
+    state: SessionState
+    parent_session_id: int | None
+    start: datetime | None = Field(description="When it started, else its first known activity.")
+    end: datetime | None = Field(description="Its last activity, or when it ended.")
+
+
+class ProjectLane(BaseModel):
+    project: dict[str, Any] | None = Field(description="Null for sessions mapped to no project.")
+    sessions: list[ActivitySession] = Field(description="Oldest start first.")
+
+
+class ProjectActivity(BaseModel):
+    connection: dict[str, Any] | None
+    days: int
+    since: datetime
+    until: datetime
+    lanes: list[ProjectLane] = Field(description="By project name; sessions mapped to none last.")
+    omitted: int = Field(description="Sessions in the range beyond the limit, left out.")
 
 
 class Board(BaseModel):
@@ -350,17 +381,17 @@ def board(
         ):
             continue
         entry = agents[assignment.project_remote_id].setdefault(
-            assignment.actor_remote_id, {"live_sessions": 0, "assigned": False}
+            assignment.actor_remote_id, _agent_entry()
         )
         entry["assigned"] = True
+        entry["assignments"] += 1
     for session in live:
         project = projects_of.get(session.id)
         actor_map = actors_of.get(session.id)
         if project and project.state == "mapped" and actor_map and actor_map.state == "mapped":
-            entry = agents[project.target].setdefault(
-                actor_map.target, {"live_sessions": 0, "assigned": False}
-            )
+            entry = agents[project.target].setdefault(actor_map.target, _agent_entry())
             entry["live_sessions"] += 1
+            entry["bases"][actor_map.basis] += 1
 
     agent_rows = {
         project_id: [
@@ -370,6 +401,8 @@ def board(
                 role=actors[actor_id].role if actor_id in actors else None,
                 live_sessions=entry["live_sessions"],
                 assigned=entry["assigned"],
+                assignments=entry["assignments"],
+                observed_bases=dict(entry["bases"]),
             )
             for actor_id, entry in sorted(
                 found.items(), key=lambda item: (-item[1]["live_sessions"], item[0])
@@ -384,6 +417,10 @@ def board(
         "flags": flags,
         "generated_at": now,
     }
+
+
+def _agent_entry() -> dict[str, Any]:
+    return {"live_sessions": 0, "assigned": False, "assignments": 0, "bases": Counter()}
 
 
 def _actor_name(actor: WcActor | None, actor_id: int) -> str:
@@ -473,3 +510,101 @@ def _groups(live, cards, projects_of, projects, agent_rows, flags) -> list[Proje
             ProjectGroup(project=None, reason="unmapped", agents=[], sessions=by_project[None])
         )
     return groups
+
+
+MAX_ACTIVITY = 2000
+RANGES = (7, 30)
+
+
+@router.get(
+    "/projects/activity", response_model=ProjectActivity, summary="Sessions by project over time"
+)
+def activity(
+    db: Db,
+    days: Annotated[int, Query(description="How far back to look: 7 or 30 days.")] = 7,
+    connection_id: Annotated[
+        int | None, Query(description="Default: the first connection.")
+    ] = None,
+) -> dict[str, Any]:
+    """Every session active in the last 7 or 30 days, in the lane of the project it maps to.
+
+    A session counts as active in the range when its last activity falls in it. The
+    project is the one the resolver decides from the session's links; a conflict or no
+    evidence leaves it in the lane of sessions mapped to no project.
+    """
+    if days not in RANGES:
+        raise HTTPException(status_code=422, detail="days must be 7 or 30")
+    now = datetime.now(UTC)
+    since = now - timedelta(days=days)
+    connections = list(
+        db.scalars(select(Connection).where(Connection.kind == KIND).order_by(Connection.id))
+    )
+    if connection_id is not None and connection_id not in {c.id for c in connections}:
+        raise HTTPException(status_code=404, detail="no such connection")
+    row = next((c for c in connections if connection_id in (None, c.id)), None)
+    last = func.coalesce(Session.last_activity_at, Session.started_at)
+    where = last >= since
+    total = db.scalar(select(func.count()).select_from(Session).where(where)) or 0
+    sessions = list(
+        db.scalars(
+            select(Session)
+            .where(where)
+            .order_by(last.desc(), Session.id.desc())
+            .limit(MAX_ACTIVITY)
+        )
+    )
+    ids = [s.id for s in sessions]
+    mapped: dict[int, int] = {}
+    projects: dict[int, WcProject] = {}
+    if row is not None:
+        found: dict[int, list[Candidate]] = defaultdict(list)
+        for link in db.scalars(
+            select(ProjectLink).where(
+                ProjectLink.connection_id == row.id, ProjectLink.session_id.in_(ids or [-1])
+            )
+        ):
+            found[link.session_id].append(
+                Candidate(link.basis.value, link.project_remote_id, link.evidence or {})
+            )
+        for session_id, candidates in found.items():
+            decided = decide(candidates, PROJECT_ORDER)
+            if decided.state == "mapped" and decided.target is not None:
+                mapped[session_id] = decided.target
+        projects = {
+            p.remote_id: p
+            for p in db.scalars(select(WcProject).where(WcProject.connection_id == row.id))
+        }
+    lanes: dict[int | None, list[ActivitySession]] = defaultdict(list)
+    for session in sessions:
+        start = session.started_at or session.last_activity_at
+        end = session.ended_at or session.last_activity_at or start
+        lanes[mapped.get(session.id)].append(
+            ActivitySession(
+                id=session.id,
+                harness=session.harness,
+                title=session.title,
+                state=session.state,
+                parent_session_id=session.parent_session_id,
+                start=start,
+                end=end,
+            )
+        )
+    for items in lanes.values():
+        items.sort(key=lambda item: (item.start or now, item.id))
+
+    def named(project_id: int) -> dict[str, Any]:
+        project = projects.get(project_id)
+        return {"id": project_id, "name": project.name if project else f"#{project_id}"}
+
+    ordered = sorted(
+        (k for k in lanes if k is not None), key=lambda k: (named(k)["name"].lower(), k)
+    )
+    return {
+        "connection": {"id": row.id, "name": row.name, "server": row.base_url} if row else None,
+        "days": days,
+        "since": since,
+        "until": now,
+        "lanes": [ProjectLane(project=named(k), sessions=lanes[k]) for k in ordered]
+        + ([ProjectLane(project=None, sessions=lanes[None])] if lanes.get(None) else []),
+        "omitted": total - len(sessions),
+    }

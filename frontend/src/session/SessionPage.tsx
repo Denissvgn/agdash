@@ -7,6 +7,7 @@ import type { EventOut, Page, SessionDetail, ThoughtsCoverage } from '../api/typ
 import { formatWhen } from '../history/format'
 import { ErrorNotice, LoadingRows, Notice, StateChip } from '../history/SessionList'
 import { useDocumentTitle } from '../shell/useDocumentTitle'
+import { MappingFigure } from './MappingFigure'
 import { SessionOverview } from './Overview'
 import { VirtualList, type VirtualListHandle } from './VirtualList'
 
@@ -331,6 +332,7 @@ export function SessionPage() {
       ) : (
         <>
           <Header session={session.data} />
+          <MappingFigure session={session.data} />
           <Timeline session={session.data} />
         </>
       )}
