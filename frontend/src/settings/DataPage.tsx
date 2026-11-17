@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useIsFetching, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { TriangleAlert } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -219,7 +219,7 @@ function LimitChoice({ retention }: { retention: Retention }) {
           <p aria-live="polite" className="data text-body text-primary-ink">
             {chosen === null
               ? t('storage.retention.trialEverything')
-              : trial.isPending
+              : trial.isPending || trial.isRefetching
                 ? t('storage.retention.trialPending')
                 : trial.isError
                   ? t('storage.retention.trialFailed')
@@ -232,12 +232,18 @@ function LimitChoice({ retention }: { retention: Retention }) {
             <button
               aria-busy={save.isPending}
               className="button-primary"
-              disabled={save.isPending}
+              // A limit is saved only once what it would remove has been shown.
+              disabled={save.isPending || (chosen !== null && (!trial.isSuccess || trial.isRefetching))}
               type="button"
               onClick={() => save.mutate({ retention_days: chosen }, { onSuccess: () => setPicked(undefined) })}
             >
               {save.isPending ? t('storage.retention.saving') : t('storage.retention.save')}
             </button>
+            {chosen !== null && trial.isError && !trial.isRefetching && (
+              <button className="button-secondary" type="button" onClick={() => void trial.refetch()}>
+                {t('storage.retention.trialRetry')}
+              </button>
+            )}
             <button className="button-secondary" disabled={save.isPending} type="button" onClick={() => setPicked(undefined)}>
               {t('storage.retention.cancel')}
             </button>
@@ -264,13 +270,23 @@ function RemoveNow({ retention }: { retention: Retention }) {
   const [confirming, setConfirming] = useState(false)
   const opener = useRef<HTMLButtonElement>(null)
   const keepThem = useRef<HTMLButtonElement>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  // The question shows what the store holds now, not what it held when the page opened.
+  const checking = useIsFetching({ queryKey: STORAGE, exact: true }) > 0
   const ask = useMutation({
-    mutationFn: () => sendJson<StorageReport>('POST', '/api/storage/retention/removal'),
+    // The time shown goes with the request: nothing last active after it is removed.
+    mutationFn: (before: string | null) => sendJson<StorageReport>('POST', '/api/storage/retention/removal', { before }),
     onSuccess: (answer) => {
       if (answer) client.setQueryData(STORAGE, answer)
       setConfirming(false)
+      // The question is gone; the focus stays in its place rather than falling to the page.
+      heading.current?.focus()
     },
   })
+  const open = () => {
+    setConfirming(true)
+    void client.refetchQueries({ queryKey: STORAGE, exact: true })
+  }
   // The safe answer has the focus when the question opens.
   useEffect(() => {
     if (confirming) keepThem.current?.focus()
@@ -286,7 +302,9 @@ function RemoveNow({ retention }: { retention: Retention }) {
   }
   return (
     <div className="flex flex-col gap-sm border-t border-hairline pt-md">
-      <h3 className="text-body font-semibold text-primary-ink">{t('storage.retention.now')}</h3>
+      <h3 ref={heading} className="rounded-compact text-body font-semibold text-primary-ink" tabIndex={-1}>
+        {t('storage.retention.now')}
+      </h3>
       {retention.running ? null : count === 0 ? (
         <p className="text-label text-secondary-ink">{t('storage.retention.nothingNow')}</p>
       ) : confirming ? (
@@ -297,7 +315,13 @@ function RemoveNow({ retention }: { retention: Retention }) {
           </p>
           <p className="text-label text-secondary-ink">{t('storage.retention.confirmBody')}</p>
           <div className="flex flex-wrap items-center gap-sm">
-            <button aria-busy={ask.isPending} className="button-primary" disabled={ask.isPending} type="button" onClick={() => ask.mutate()}>
+            <button
+              aria-busy={ask.isPending || checking}
+              className="button-primary"
+              disabled={ask.isPending || checking}
+              type="button"
+              onClick={() => ask.mutate(retention.cutoff)}
+            >
               <span className="data">{t('storage.retention.remove', { count, shown })}</span>
             </button>
             <button ref={keepThem} className="button-secondary" disabled={ask.isPending} type="button" onClick={cancel}>
@@ -307,7 +331,7 @@ function RemoveNow({ retention }: { retention: Retention }) {
         </div>
       ) : (
         <div>
-          <button ref={opener} className="button-secondary" type="button" onClick={() => setConfirming(true)}>
+          <button ref={opener} className="button-secondary" type="button" onClick={open}>
             <span className="data">{t('storage.retention.removeNow', { count, shown })}</span>
           </button>
         </div>

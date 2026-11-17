@@ -202,6 +202,7 @@ def remove_in_steps(
     days: int,
     *,
     now: datetime | None = None,
+    not_after: datetime | None = None,
     stop: threading.Event | None = None,
     step: int = STEP,
     step_events: int = STEP_EVENTS,
@@ -209,11 +210,15 @@ def remove_in_steps(
 ) -> Outcome:
     """Everything past the limit, a few sessions per transaction, beside a running collector.
 
+    ``not_after`` is the time a person was shown when they asked: nothing last active
+    after it goes, however long ago they were shown it. It can only narrow the limit.
     Stopped part-way, what is left is still past the limit and goes the next time.
     """
     if days < 1:
         raise ValueError("keep at least one day")
     cutoff = (now or datetime.now(UTC)) - timedelta(days=days)
+    if not_after is not None and not_after < cutoff:
+        cutoff = not_after
     with sessions() as db:
         chosen, kept = removable(db, cutoff)
         steps = _steps(db, chosen, step, step_events)
@@ -259,13 +264,19 @@ class Keeper:
         self._asked = threading.Event()
         self._running = False
         self._next_at: datetime | None = None
+        self._asked_before: datetime | None = None
 
     def standing(self) -> Standing:
         with self._lock:
             return Standing(self._running or self._asked.is_set(), self._next_at)
 
-    def ask(self) -> None:
-        """Remove what is past the limit now, without waiting for the day's pass."""
+    def ask(self, before: datetime | None = None) -> None:
+        """Remove what is past the limit now, without waiting for the day's pass.
+
+        ``before`` is the time the person was shown: nothing last active after it goes.
+        """
+        with self._lock:
+            self._asked_before = before
         self._asked.set()
 
     def limit_changed(self) -> None:
@@ -285,7 +296,13 @@ class Keeper:
             return soonest
         return max(soonest, datetime.fromisoformat(last["at"]) + DAILY)
 
-    def keep(self, *, automatic: bool, stop: threading.Event | None = None) -> Outcome | None:
+    def keep(
+        self,
+        *,
+        automatic: bool,
+        stop: threading.Event | None = None,
+        before: datetime | None = None,
+    ) -> Outcome | None:
         """One pass. None when no limit is set, so nothing was looked for."""
         with self._sessions() as db:
             days, _source = saved.retention_days(db)
@@ -294,7 +311,9 @@ class Keeper:
         with self._lock:
             self._running = True
         try:
-            outcome = remove_in_steps(self._sessions, days, now=self._clock(), stop=stop)
+            outcome = remove_in_steps(
+                self._sessions, days, now=self._clock(), not_after=before, stop=stop
+            )
             self._note(outcome.sessions, outcome.events, automatic, None)
             log.info(
                 "retention: removed %d sessions and %d events last active before %s",
@@ -339,8 +358,10 @@ class Keeper:
                     due = self._next_at is not None and self._clock() >= self._next_at
                 if not asked and not due:
                     continue
+                with self._lock:
+                    before, self._asked_before = self._asked_before, None
                 try:
-                    self.keep(automatic=not asked, stop=stop)
+                    self.keep(automatic=not asked, stop=stop, before=before if asked else None)
                 except Exception:
                     log.exception("removing sessions past the limit failed; it is tried again")
                 finally:

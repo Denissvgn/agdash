@@ -256,6 +256,20 @@ def test_a_step_ends_at_a_number_of_sessions_or_of_events(aged):
     assert [i for step in by_events for i in step] == ids
 
 
+def test_nothing_last_active_after_the_time_shown_is_removed(aged):
+    now = datetime.now(UTC)
+    # Shown sixty-five days back: only the session older than that goes, though the
+    # limit of thirty days would by now take two.
+    shown = now - timedelta(days=65)
+    assert remove_in_steps(aged, 30, not_after=shown, pause_seconds=0).sessions == 1
+    assert "old" not in names(aged) and "old-too" in names(aged)
+    # A time later than the limit allows changes nothing: the limit still holds.
+    later = now - timedelta(days=1)
+    outcome = remove_in_steps(aged, 30, not_after=later, pause_seconds=0)
+    assert outcome.sessions == 1 and "recent" in names(aged)
+    assert names(aged) == {"old-but-idle", "old-parent", "recent-child", "recent"}
+
+
 def test_stopped_part_way_the_rest_goes_the_next_time(aged):
     stop = threading.Event()
     stop.set()
@@ -317,7 +331,19 @@ def test_asking_from_the_page_needs_a_keeper_and_a_limit(url, aged):
         answer = api.post("/api/storage/retention/removal")
         assert answer.status_code == 202
         assert answer.json()["retention"]["running"] is True
+        assert keeper._asked_before is None
+        # The time the person was shown travels with the request, and must be a real one.
+        shown = datetime.now(UTC) - timedelta(days=65)
+        asked = api.post("/api/storage/retention/removal", json={"before": shown.isoformat()})
+        assert asked.status_code == 202 and keeper._asked_before == shown
+        for odd in ("soon", "2026-10-17T12:00:00"):
+            refused = api.post("/api/storage/retention/removal", json={"before": odd})
+            assert refused.status_code == 422, odd
+        assert keeper._asked_before == shown
     assert len(names(aged)) == 6, "asking only asks; the keeper's own thread removes"
+    # What the keeper then removes stops at the time shown.
+    assert keeper.keep(automatic=False, before=shown).sessions == 1
+    assert "old-too" in names(aged)
 
 
 def test_the_running_keeper_removes_when_asked_and_stops_with_the_service(aged, monkeypatch):

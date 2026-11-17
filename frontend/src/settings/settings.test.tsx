@@ -360,9 +360,9 @@ describe('Settings · Data', () => {
     expect(within(store).getByText('7.7 GB')).toBeInTheDocument()
     expect(within(store).getByText('7,737 sessions, the earliest started Mar 3, 2025')).toBeInTheDocument()
     // The archive's size is asked for apart from the rest, and arrives after it.
-    expect(await within(store).findByText('Kept, redacted and compressed. 2.2 GB archived.')).toBeInTheDocument()
+    expect(await within(store).findByText('A copy is kept, redacted and compressed. 2.2 GB archived.')).toBeInTheDocument()
     expect(asked).toContain('/api/storage/archive')
-    expect(within(store).getByRole('checkbox', { name: "Keep the harnesses' original lines" })).toBeChecked()
+    expect(within(store).getByRole('checkbox', { name: "Keep a copy of the harnesses' original lines" })).toBeChecked()
 
     const retention = await retentionOf()
     expect(retention.getByText('agdash keeps every session: no limit is set.')).toBeInTheDocument()
@@ -395,7 +395,10 @@ describe('Settings · Data', () => {
     fireEvent.click(retention.getByRole('radio', { name: '30 days' }))
     expect(await retention.findByText(/^117 sessions last active before Oct 17, 2026/)).toBeInTheDocument()
     expect(retention.getByText('Keeping 30 days would remove now')).toBeInTheDocument()
-    expect(retention.getByText(/^Saving removes nothing now\./)).toBeInTheDocument()
+    // The last press before removal that asks no more says so, and that it cannot be undone.
+    expect(
+      retention.getByText(/^Saving removes nothing now\. From an hour after you save, .* without asking again, and they cannot be brought back\./),
+    ).toBeInTheDocument()
     expect(sent).toEqual([])
     fireEvent.click(retention.getByRole('button', { name: 'Save limit' }))
     expect(await retention.findByText(/^Saved\. Nothing was removed; the next daily removal is on Nov 18, 2026/)).toBeInTheDocument()
@@ -418,15 +421,31 @@ describe('Settings · Data', () => {
     expect(sent).toEqual([{ path: '/api/storage/settings', body: { retention_days: null } }])
   })
 
-  test('a limit that could not be saved says so and stays to be tried again', async () => {
-    serve({ storage: STORAGE, archive: { chunks: 1, bytes: 1 }, preview: () => 500, save: () => 500 })
+  test('a limit is saved only once what it would remove has been shown', async () => {
+    let working = false
+    const { sent } = serve({
+      storage: STORAGE,
+      archive: { chunks: 1, bytes: 1 },
+      preview: (days) => (working ? { days, cutoff: '2026-10-17T12:00:00Z', removable_sessions: 117, kept_alive: 2 } : 500),
+      save: () => 500,
+    })
     open('/settings/data')
     const retention = await retentionOf()
     fireEvent.click(retention.getByRole('radio', { name: '30 days' }))
-    expect(await retention.findByText(/could not be worked out\. It can still be saved\.$/, {}, { timeout: 4000 })).toBeInTheDocument()
+    // While it is worked out, and when it cannot be, there is nothing to agree to yet.
+    expect(retention.getByRole('button', { name: 'Save limit' })).toBeDisabled()
+    expect(await retention.findByText(/could not be worked out, so it cannot be saved yet\.$/, {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(retention.getByRole('button', { name: 'Save limit' })).toBeDisabled()
+    working = true
+    fireEvent.click(retention.getByRole('button', { name: 'Try again' }))
+    expect(await retention.findByText(/^117 sessions last active before Oct 17, 2026/)).toBeInTheDocument()
+    expect(retention.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(retention.getByRole('button', { name: 'Save limit' })).toBeEnabled()
+
     fireEvent.click(retention.getByRole('button', { name: 'Save limit' }))
     expect(await retention.findByText('The limit was not saved. Try again.')).toBeInTheDocument()
     expect(retention.getByRole('button', { name: 'Save limit' })).toBeEnabled()
+    expect(sent).toHaveLength(1)
   })
 
   test('a limit in effect says what it would remove, what it keeps and when it next removes', async () => {
@@ -443,7 +462,7 @@ describe('Settings · Data', () => {
   })
 
   test('removing now is asked twice, says what goes, and is followed to its end', async () => {
-    const { sent } = serve({
+    const { asked, sent } = serve({
       storage: LIMITED,
       archive: { chunks: 1, bytes: 1 },
       afterRemoval: {
@@ -457,8 +476,12 @@ describe('Settings · Data', () => {
     })
     open('/settings/data')
     const retention = await retentionOf()
+    const looks = () => asked.filter((path) => path === '/api/storage').length
+    const before = looks()
     fireEvent.click(retention.getByRole('button', { name: 'Remove 1,204 sessions now' }))
     expect(retention.getByText(/^Remove 1,204 sessions last active before Oct 17, 2026.*\?$/)).toBeInTheDocument()
+    // The question is asked of what the store holds now: the page looks again as it opens.
+    await waitFor(() => expect(looks()).toBe(before + 1))
     expect(retention.getByText(/cannot be brought back\. The harnesses' own files are not touched\.$/)).toBeInTheDocument()
     // The safe answer has the focus, and taking it sends nothing.
     await waitFor(() => expect(retention.getByRole('button', { name: 'Keep them' })).toHaveFocus())
@@ -467,9 +490,13 @@ describe('Settings · Data', () => {
     expect(sent).toEqual([])
 
     fireEvent.click(retention.getByRole('button', { name: 'Remove 1,204 sessions now' }))
+    await waitFor(() => expect(retention.getByRole('button', { name: 'Remove 1,204 sessions' })).toBeEnabled())
     fireEvent.click(retention.getByRole('button', { name: 'Remove 1,204 sessions' }))
     expect(await retention.findByText(/^Removing the sessions past the limit\./)).toBeInTheDocument()
-    expect(sent).toEqual([{ path: '/api/storage/retention/removal', body: undefined }])
+    // The time the question showed goes with the request, so nothing later can be taken.
+    expect(sent).toEqual([{ path: '/api/storage/retention/removal', body: { before: '2026-10-17T12:00:00Z' } }])
+    // With the question gone, the focus stays where it was asked.
+    expect(retention.getByRole('heading', { name: 'Remove now' })).toHaveFocus()
     // The page asks again by itself until it is over, then says what went.
     expect(await retention.findByText(/: 1,204 sessions with 52,000 events$/, {}, { timeout: 6000 })).toBeInTheDocument()
     expect(retention.getByText('Nothing is past the limit now.')).toBeInTheDocument()
@@ -517,9 +544,9 @@ describe('Settings · Data', () => {
     })
     open('/settings/data')
     const store = await screen.findByRole('region', { name: 'Store' })
-    fireEvent.click(within(store).getByRole('checkbox', { name: "Keep the harnesses' original lines" }))
+    fireEvent.click(within(store).getByRole('checkbox', { name: "Keep a copy of the harnesses' original lines" }))
     // What is already archived stays, and is still measured.
-    expect(await within(store).findByText('Not kept for lines read from now on. 2.2 GB archived.')).toBeInTheDocument()
+    expect(await within(store).findByText('No copy is kept of lines read from now on. 2.2 GB archived.')).toBeInTheDocument()
     expect(within(store).getByText(/^Saved\. It holds from the next lines read/)).toBeInTheDocument()
     expect(within(store).getByRole('checkbox')).not.toBeChecked()
     expect(sent).toEqual([{ path: '/api/storage/settings', body: { keep_raw: false } }])
@@ -530,14 +557,14 @@ describe('Settings · Data', () => {
     open('/settings/data')
     const store = await screen.findByRole('region', { name: 'Store' })
     expect(within(store).getByText('7.7 GB')).toBeInTheDocument()
-    expect(within(store).getByText('Kept, redacted and compressed. Measuring what is archived.')).toBeInTheDocument()
+    expect(within(store).getByText('A copy is kept, redacted and compressed. Measuring what is archived.')).toBeInTheDocument()
   })
 
   test('an archive set where the service starts names the setting', async () => {
     serve({ storage: { ...STORAGE, archive: { enabled: false, source: 'environment', chunks: 0 } } })
     open('/settings/data')
     const store = await screen.findByRole('region', { name: 'Store' })
-    expect(within(store).getByText('Not kept for lines read from now on. Nothing is archived yet.')).toBeInTheDocument()
+    expect(within(store).getByText('No copy is kept of lines read from now on. Nothing is archived yet.')).toBeInTheDocument()
     expect(within(store).getByText('AGDASH_KEEP_RAW')).toBeInTheDocument()
     expect(within(store).getByRole('checkbox')).not.toBeChecked()
   })

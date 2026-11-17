@@ -976,16 +976,16 @@
     },
     "archive": {
       "term": "Original lines",
-      "on": "Kept, redacted and compressed.",
-      "off": "Not kept for lines read from now on.",
+      "on": "A copy is kept, redacted and compressed.",
+      "off": "No copy is kept of lines read from now on.",
       "empty": "Nothing is archived yet.",
       "measuring": "Measuring what is archived.",
       "unmeasured": "What is archived could not be measured.",
       "size": "{{size}} archived.",
-      "about": "They let a session be exported as the harness wrote it, after the harness has pruned its own files.",
-      "keep": "Keep the harnesses' original lines",
+      "about": "The copy lets a session be exported as the harness wrote it, after the harness has pruned its own files.",
+      "keep": "Keep a copy of the harnesses' original lines",
       "started": "Set where the agdash service starts, by",
-      "saved": "Saved. It holds from the next lines read; nothing already archived is removed.",
+      "saved": "Saved. It holds from the next lines read; nothing already archived is removed, and the harnesses' own files are not touched.",
       "failed": "That was not saved. Try again."
     },
     "retention": {
@@ -996,7 +996,7 @@
       "setBy": "Set by",
       "setWhere": "Where the agdash service starts. A limit saved on this page takes its place.",
       "wouldRemove": "Would remove now",
-      "nothing": "No session: none was last active before {{before}} and is free to go.",
+      "nothing": "No session. None last active before {{before}} can be removed.",
       "removable_one": "{{shown}} session last active before {{before}}",
       "removable_other": "{{shown}} sessions last active before {{before}}",
       "keeps": "Keeps although older",
@@ -1015,9 +1015,9 @@
       "days_other": "{{count}} days",
       "trialEverything": "Keeping everything removes nothing, and ends the daily removal.",
       "trialPending": "Working out what that limit would remove.",
-      "trialFailed": "What that limit would remove could not be worked out. It can still be saved.",
-      "saveNote": "Saving removes nothing now. Sessions past the limit are removed once a day, the first time no sooner than an hour after you save.",
-      "saveNoteManual": "Saving removes nothing. Here sessions are removed only by the command below.",
+      "trialFailed": "What that limit would remove could not be worked out, so it cannot be saved yet.",
+      "saveNote": "Saving removes nothing now. From an hour after you save, the agdash service removes sessions past the limit once a day without asking again, and they cannot be brought back. The harnesses' own files are not touched.",
+      "saveNoteManual": "Saving removes nothing. Here sessions are removed only by the command below, and cannot be brought back.",
       "saveEverything": "Sessions removed earlier do not come back.",
       "save": "Save limit",
       "saving": "Saving",
@@ -1052,7 +1052,8 @@
       "keepThem": "Keep them",
       "removing": "Removing the sessions past the limit. This page follows it until it is done.",
       "askFailed": "The removal could not be started. Try again.",
-      "trial": "Keeping {{limit}} would remove now"
+      "trial": "Keeping {{limit}} would remove now",
+      "trialRetry": "Try again"
     },
     "export": {
       "title": "Export",

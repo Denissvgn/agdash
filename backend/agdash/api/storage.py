@@ -11,8 +11,9 @@
   is saved.
 * ``POST /api/storage/settings``: save the retention limit, or whether original
   lines are kept. Saving removes nothing.
-* ``POST /api/storage/retention/removal``: remove what is past the limit now.
-  The service's keeper does it, a few sessions at a time; this only asks.
+* ``POST /api/storage/retention/removal``: remove what is past the limit now,
+  and nothing last active after the time the person was shown. The service's
+  keeper does it, a few sessions at a time; this only asks.
 
 The two that write change agdash's own store and nothing else: a row in
 ``settings``, and, through the keeper, sessions agdash itself collected. The
@@ -25,7 +26,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
@@ -121,6 +122,14 @@ class SettingsIn(BaseModel):
         if "keep_raw" in self.model_fields_set and self.keep_raw is None:
             raise ValueError("keep_raw is true or false")
         return self
+
+
+class RemovalIn(BaseModel):
+    before: AwareDatetime | None = Field(
+        default=None,
+        description="The time the person was shown in the question. Nothing last active "
+        "after it is removed, however long the page was open; it can only narrow the limit.",
+    )
 
 
 def _size(path: Path) -> int | None:
@@ -220,7 +229,7 @@ def save(request: Request, body: SettingsIn, db: Writer) -> dict[str, dict]:
     summary="Remove what is past the limit now",
     responses={409: {"description": "No limit is set."}, 503: {"description": "No keeper."}},
 )
-def remove_now(request: Request, db: Db) -> dict[str, dict]:
+def remove_now(request: Request, db: Db, body: RemovalIn | None = None) -> dict[str, dict]:
     """Ask the service to remove the sessions past the limit now. It answers at once;
     ``retention.running`` says while it is under way and ``last_removal`` what it did."""
     keeper = _keeper(request)
@@ -228,5 +237,5 @@ def remove_now(request: Request, db: Db) -> dict[str, dict]:
         raise HTTPException(503, "this service removes nothing by itself; use agdash retention")
     if saved.retention_days(db)[0] is None:
         raise HTTPException(409, "no limit is set, so there is nothing to remove")
-    keeper.ask()
+    keeper.ask(body.before if body is not None else None)
     return _storage(request, db)
