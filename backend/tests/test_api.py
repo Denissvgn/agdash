@@ -227,7 +227,10 @@ def test_reading_every_endpoint_leaves_the_store_unchanged(filled):
             "/api/sources",
             "/api/storage",
             "/api/storage/archive",
+            "/api/storage/parts",
             "/api/storage/retention/preview?days=30",
+            "/api/service/usage",
+            "/api/service/usage?range=quarter",
         ):
             assert fresh.get(url).status_code == 200, url
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
@@ -269,7 +272,9 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/sources",
         "/api/storage",
         "/api/storage/archive",
+        "/api/storage/parts",
         "/api/storage/retention/preview",
+        "/api/service/usage",
         "/api/storage/settings",
         "/api/storage/retention/removal",
     }
@@ -296,6 +301,8 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "Sources",
         "Storage",
         "ArchiveSize",
+        "StoreParts",
+        "ServiceUsageReport",
     ):
         assert schema in document["components"]["schemas"]
 

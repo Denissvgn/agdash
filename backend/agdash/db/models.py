@@ -654,3 +654,34 @@ class Setting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), nullable=False, default=utcnow, onupdate=utcnow
     )
+
+
+class ServiceUsage(Base):
+    """What the service itself used over one minute or one hour.
+
+    Written by the service's own sampler from what the operating system counts for
+    its process: nothing here is about a harness or a session. Minutes are kept for
+    two days and folded into hours, which are kept for ninety. A number the system
+    did not give is NULL, not zero.
+    """
+
+    __tablename__ = "service_usage"
+    __table_args__ = (UniqueConstraint("period", "started_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    period: Mapped[str] = mapped_column(String(8), nullable=False)  # minute or hour
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    # How much of the period was measured: less than all of it when the service was not up.
+    seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    cpu_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    # CPU seconds by part of the service: ingest, probe, api and so on.
+    parts: Mapped[dict[str, Any]] = mapped_column(json_document(), nullable=False, default=dict)
+    # The largest seen in the period.
+    footprint_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    resident_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Read from and written to storage within the period.
+    read_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    written_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # As the period ended: the store with its write-ahead log, and room left on its volume.
+    store_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    free_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

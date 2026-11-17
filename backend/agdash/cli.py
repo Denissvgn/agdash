@@ -9,6 +9,7 @@
     agdash connect ...  connect a WorkChord server (see agdash connect --help)
     agdash export ...   export a session to a file you name
     agdash retention    see or apply the retention setting
+    agdash usage        what the running service itself uses: CPU, memory and disk
     agdash token        the local API token, for the desktop app, through a pipe only
     agdash open         a link that opens the UI in a browser, for a host with no app
 
@@ -113,6 +114,77 @@ def open_ui(host: Host, out=print, err=None) -> int:
     out("The token stays in the part after #, which the browser keeps to itself.")
     out("On a host with no display, open it on your own computer through an SSH tunnel:")
     out(f"    ssh -N -L {settings.port}:127.0.0.1:{settings.port} <this host>")
+    return 0
+
+
+UNITS = ("bytes", "kB", "MB", "GB", "TB")
+
+
+def _size(amount: float | None, per_second: bool = False) -> str:
+    """A byte count as people read it, in steps of a thousand as the UI counts them."""
+    if amount is None:
+        return "not reported"
+    unit = 0
+    while amount >= 1000 and unit < len(UNITS) - 1:
+        amount, unit = amount / 1000, unit + 1
+    shown = f"{amount:.0f}" if unit == 0 or amount >= 100 else f"{amount:.1f}"
+    return f"{shown} {UNITS[unit]}" + ("/s" if per_second else "")
+
+
+def _percent(value: float | None) -> str:
+    return "not reported" if value is None else f"{value:.1f}% of one core"
+
+
+def _service_usage(token: str, timeout: float = 5.0) -> dict | None:
+    settings = get_settings()
+    request = urllib.request.Request(  # noqa: S310 - our own loopback service
+        f"http://{settings.host}:{settings.port}{settings.api_prefix}/service/usage?range=hour",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+            return json.loads(response.read())
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def usage(host: Host, out=print, err=None) -> int:
+    """What the running service itself uses now, and over its last hour."""
+    err = err or (lambda text: print(text, file=sys.stderr))
+    settings = get_settings()
+    if _health() is None:
+        err(
+            f"The service is not answering on http://{settings.host}:{settings.port}."
+            " Start it with `agdash serve`, or `agdash install` to start it at login."
+        )
+        return 1
+    from agdash.api.security import load_or_create_token
+
+    report = _service_usage(load_or_create_token(host.secret_store()))
+    if report is None:
+        err("The service answers but gave no usage: it may be an earlier version.")
+        return 1
+    now = report.get("now")
+    if now is None:
+        out("Nothing measured yet: the service takes its first sample ten seconds after it starts.")
+        return 0
+    out(
+        f"Measured: {now['at']}"
+        + (f", sampling since {report['since']}" if report.get("since") else "")
+    )
+    out(f"CPU:      {_percent(now['cpu_percent'])}")
+    out(f"Memory:   {_size(now['footprint_bytes'])} (resident {_size(now['resident_bytes'])})")
+    out(
+        f"Storage:  read {_size(now['read_bytes_per_second'], per_second=True)},"
+        f" written {_size(now['written_bytes_per_second'], per_second=True)}"
+    )
+    out(f"Store:    {_size(now['store_bytes'])}, {_size(now['free_bytes'])} free on its volume")
+    parts = report.get("parts") or []
+    if parts:
+        minutes = round(report["measured_seconds"] / 60)
+        out(f"CPU by part over the last {minutes} minutes measured:")
+        for part in parts:
+            out(f"  {part['part']:<10} {_percent(part['cpu_percent'])}")
     return 0
 
 
@@ -385,6 +457,7 @@ def main(argv: Sequence[str] | None = None, *, host: Host | None = None, manager
         ("uninstall", "stop starting the service at login; data stays"),
         ("token", "the local API token, for the desktop app (pipe only)"),
         ("open", "a link that opens the UI in a browser"),
+        ("usage", "what the running service itself uses"),
     ):
         commands.add_parser(name, help=text)
     for name in ("connect", "export", "retention"):
@@ -411,6 +484,8 @@ def main(argv: Sequence[str] | None = None, *, host: Host | None = None, manager
         return 0
     if args.command == "open":
         return open_ui(host)
+    if args.command == "usage":
+        return usage(host)
     if args.command == "backfill":
         from agdash.runtime import collector_for, prepare
 

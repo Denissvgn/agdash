@@ -7,6 +7,9 @@
 * ``GET /api/storage/archive``: how much the archive of original lines holds. It
   walks every archived chunk, which takes seconds on a large store, so it is
   asked for apart from the rest.
+* ``GET /api/storage/parts``: what the store's file is made of: the archive, the
+  search index, room left free inside the file, and the rest. Asked for apart
+  from the rest for the same reason.
 * ``GET /api/storage/retention/preview``: what a limit would remove, before it
   is saved.
 * ``POST /api/storage/settings``: save the retention limit, or whether original
@@ -27,7 +30,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, BaseModel, Field, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session as DbSession
 
 from agdash import saved
@@ -35,6 +38,7 @@ from agdash.api.routes import Db
 from agdash.api.workchord import Writer
 from agdash.db.migrate import sqlite_file
 from agdash.db.models import RawChunk, Session
+from agdash.db.search import SEARCH_TABLE
 from agdash.retention import Keeper, removable
 
 router = APIRouter()
@@ -124,6 +128,16 @@ class SettingsIn(BaseModel):
         return self
 
 
+class StoreParts(BaseModel):
+    bytes: int | None = Field(description="The file and its write-ahead log; null with no file.")
+    archive_bytes: int = Field(description="The archived original lines, compressed.")
+    search_bytes: int | None = Field(description="The search index; null where there is none.")
+    free_bytes: int | None = Field(
+        description="Room inside the file that new data fills before the file grows."
+    )
+    rest_bytes: int | None = Field(description="Everything else: the events, mostly.")
+
+
 class RemovalIn(BaseModel):
     before: AwareDatetime | None = Field(
         default=None,
@@ -198,6 +212,33 @@ def archive_size(db: Db) -> dict[str, int]:
         select(func.count(), func.coalesce(func.sum(func.length(RawChunk.data)), 0))
     ).one()
     return {"chunks": chunks, "bytes": stored}
+
+
+@router.get("/storage/parts", response_model=StoreParts, summary="What the store is made of")
+def store_parts(request: Request, db: Db) -> dict[str, int | None]:
+    """The store's file by what fills it. The parts are what their rows hold, so they
+    come to a little less than the file; the rest, events mostly, is what remains."""
+    store = request.app.state.store
+    path = sqlite_file(store.database_url)
+    total = _size(path) if path is not None else None
+    archive = db.scalar(select(func.coalesce(func.sum(func.length(RawChunk.data)), 0))) or 0
+    search = free = None
+    if path is not None:
+        free = (db.scalar(text("PRAGMA freelist_count")) or 0) * (
+            db.scalar(text("PRAGMA page_size")) or 0
+        )
+        if store.has_search_index(db):
+            search = db.scalar(
+                text(f"SELECT coalesce(sum(length(block)), 0) FROM {SEARCH_TABLE}_data")
+            )
+    rest = None if total is None else max(0, total - archive - (search or 0) - (free or 0))
+    return {
+        "bytes": total,
+        "archive_bytes": archive,
+        "search_bytes": search,
+        "free_bytes": free,
+        "rest_bytes": rest,
+    }
 
 
 @router.get(
