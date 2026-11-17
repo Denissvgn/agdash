@@ -32,6 +32,7 @@ from agdash.db.migrate import sqlite_file, sync_database_url, upgrade
 from agdash.main import create_app
 from agdash.platform import Host, current_host
 from agdash.retention import Keeper
+from agdash.service_usage import Sampler
 
 log = logging.getLogger("agdash")
 
@@ -171,6 +172,8 @@ def serve() -> int:
     threads += mirror.run(stop)
     keeper = Keeper(sessions)
     threads += keeper.run(stop)
+    sampler = Sampler(sessions, current_host().usage_reader(), store_file=store.database_file)
+    threads += sampler.run(stop)
     log.info("collecting; serving on %s:%d", settings.host, settings.port)
     receiver = None
     try:
@@ -178,7 +181,13 @@ def serve() -> int:
         if receiver is not None:
             log.info("receiving WorkChord webhooks on %s:%d", settings.host, settings.webhook_port)
         config = uvicorn.Config(
-            create_app(store.url, port=settings.port, reading=collector.reading, retention=keeper),
+            create_app(
+                store.url,
+                port=settings.port,
+                reading=collector.reading,
+                retention=keeper,
+                usage=sampler,
+            ),
             host=settings.host,
             port=settings.port,
             access_log=False,

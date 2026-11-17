@@ -12,6 +12,7 @@ from agdash.api import (
     mapping,
     projects,
     series,
+    service,
     sources,
     storage,
     stream,
@@ -43,13 +44,15 @@ def create_app(
     reading: Callable[[], object] | None = None,
     host: Host | None = None,
     retention: object | None = None,
+    usage: object | None = None,
 ) -> FastAPI:
     """The service's API. Nothing touches the database or the keyring until the first request.
 
     ``reading`` reports how far the collector's start-up read has got, when the
     collector runs in this process. ``host`` is the machine whose harness folders are
     reported; left out, it is this one. ``retention`` is the service's keeper, which
-    removes sessions past the limit; without one this process only reports.
+    removes sessions past the limit; without one this process only reports. ``usage`` is
+    the service's sampler of its own process; without one only the rows it kept are served.
     """
     settings = get_settings()
     store = Store(database_url or settings.database_url or default_database_url())
@@ -72,6 +75,7 @@ def create_app(
     app.state.reading = reading
     app.state.host = host
     app.state.retention = retention
+    app.state.service_usage = usage
     app.include_router(router, prefix=settings.api_prefix)
     app.include_router(stream.router, prefix=settings.api_prefix)
     app.include_router(exports.router, prefix=settings.api_prefix)
@@ -83,6 +87,7 @@ def create_app(
     app.include_router(projects.router, prefix=settings.api_prefix)
     app.include_router(sources.router, prefix=settings.api_prefix)
     app.include_router(storage.router, prefix=settings.api_prefix)
+    app.include_router(service.router, prefix=settings.api_prefix)
 
     @app.get("/health")
     def health() -> dict[str, str]:

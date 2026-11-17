@@ -109,6 +109,11 @@
           "label": "Data",
           "title": "Data",
           "purpose": "What agdash keeps, for how long, and how a session leaves it."
+        },
+        "service": {
+          "label": "Service",
+          "title": "Service",
+          "purpose": "What agdash itself costs this machine: its processor, memory and disk."
         }
       }
     }
@@ -960,6 +965,90 @@
     },
     "or": "or"
   },
+  "service": {
+    "loading": "Loading what the service uses",
+    "error": {
+      "unreachableTitle": "Can't reach the agdash service",
+      "unreachableBody": "Make sure the service is running on this machine, then try again.",
+      "refusedTitle": "The service refused this request",
+      "refusedBody": "The page did not present the service's local token. Open agdash from its app, or restart it.",
+      "serverTitle": "The service could not answer",
+      "serverBody": "Something went wrong while reading what the service uses. Try again.",
+      "retry": "Try again"
+    },
+    "percent": "{{value}}% of one core",
+    "rate": "{{size}} a second",
+    "notReported": "Not reported",
+    "now": {
+      "title": "Now",
+      "lead": "Measured {{when}}, from the service's own process. Nothing here is about an agent.",
+      "kept": "This copy of the service does not measure itself. These are the last figures kept, from {{when}}.",
+      "soon": "Nothing is measured yet. The service takes its first sample ten seconds after it starts.",
+      "never": "Nothing has been measured. This copy of the service does not measure itself.",
+      "cpu": "Processor",
+      "machine_one": "This machine has {{shown}} core.",
+      "machine_other": "This machine has {{shown}} cores.",
+      "memory": "Memory",
+      "resident": "{{size}} of it is resident. The rest the system has compressed or swapped out, and it still counts.",
+      "read": "Read from disk",
+      "written": "Written to disk",
+      "store": "Store",
+      "free": "{{size}} free on its volume.",
+      "since": "Measuring since"
+    },
+    "over": {
+      "title": "Over time",
+      "range": "Show",
+      "ranges": {
+        "hour": "The last hour",
+        "day": "The last day",
+        "quarter": "The last 90 days"
+      },
+      "time": "Time",
+      "cpu": {
+        "title": "Processor, % of one core",
+        "caption": "The service's own processor time, as a share of one core. A hatched stretch is one in which the service was not running."
+      },
+      "memory": {
+        "title": "Memory",
+        "caption": "The largest footprint in each step: everything the service is charged with, compressed and swapped memory included."
+      },
+      "read": {
+        "title": "Read from disk, each second",
+        "caption": "What the service read from storage, as the system counts it for the process. Reads the system answered from memory are not in it."
+      },
+      "written": {
+        "title": "Written to disk, each second",
+        "caption": "What the service wrote to storage: its own store and nothing else."
+      },
+      "store": {
+        "title": "Store size",
+        "caption": "The store's file with its write-ahead log, as each step ended."
+      }
+    },
+    "parts": {
+      "title": "By part",
+      "lead": "Which part of the service the processor time went to, by the threads that do each job.",
+      "figure": "Processor by part, % of one core",
+      "captions": {
+        "hour": "Averaged over what was measured in the last hour.",
+        "day": "Averaged over what was measured in the last day.",
+        "quarter": "Averaged over what was measured in the last 90 days."
+      },
+      "part": "Part",
+      "value": "% of one core",
+      "names": {
+        "ingest": "Reading harness files",
+        "probe": "Watching the process table",
+        "watch": "Waiting for file changes",
+        "mirror": "WorkChord mirror",
+        "retention": "Removing old sessions",
+        "api": "Answering pages",
+        "monitor": "Measuring itself",
+        "other": "Everything else"
+      }
+    }
+  },
   "storage": {
     "loading": "Loading what agdash keeps",
     "store": {
@@ -973,6 +1062,20 @@
       "sessions_other": "{{shown}} sessions",
       "sessionsSince_one": "{{shown}} session, the earliest started {{since}}",
       "sessionsSince_other": "{{shown}} sessions, the earliest started {{since}}"
+    },
+    "parts": {
+      "title": "What the store holds",
+      "measuring": "Measuring what the store holds.",
+      "unmeasured": "What the store holds could not be measured.",
+      "part": "Part",
+      "size": "Size",
+      "share": "Of the file",
+      "names": {
+        "rest": "Events, their search index and the rest",
+        "archive": "Original lines",
+        "free": "Free inside the file"
+      },
+      "note": "Free space inside the file is room that removed data left. New data fills it before the file grows."
     },
     "archive": {
       "term": "Original lines",

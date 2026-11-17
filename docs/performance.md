@@ -86,6 +86,17 @@ What keeps it there:
 - Antigravity's conversation summaries are stored again only when their file
   has changed.
 
+The service measures this itself. Every ten seconds it asks the operating
+system about its own process: processor time in all and for each of its
+threads, memory, and the bytes it read from and wrote to storage. `agdash
+usage` prints the current figures, and Settings · Service shows them over the
+last hour, day or 90 days, with the processor time each part of the service
+took. The memory it shows is the footprint, which counts memory the system has
+compressed or swapped out; resident size alone leaves that out and reads
+several times lower on a machine under memory pressure. One row a minute is
+kept for two days and one an hour for ninety, under a megabyte in all, and a
+sample costs well under a millisecond.
+
 ## Peak memory against transcript size
 
 | Rollout | 5 MB | 20 MB | 80 MB | 160 MB |

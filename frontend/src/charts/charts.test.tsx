@@ -156,6 +156,11 @@ describe('the figure frame', () => {
     expect(within(legend).getAllByRole('listitem').map((item) => item.textContent)).toEqual(harnesses.slice(0, 2))
   })
 
+  test('labels its value axis in the unit it is given', () => {
+    const { container } = show(<LineChart data={daily()} formatAxis={(value) => `${value} units`} rowHeader="Day" title="Units" />)
+    expect([...container.querySelectorAll('svg text')].some((label) => label.textContent?.endsWith(' units'))).toBe(true)
+  })
+
   test('folds a fourth series into Other rather than adding a fourth ink', () => {
     const { container } = show(<ColumnChart data={daily(harnesses)} rowHeader="Day" title="Four" />)
     const legend = within(container).getByRole('list', { name: 'Legend' })

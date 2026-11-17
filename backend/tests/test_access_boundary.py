@@ -66,6 +66,9 @@ EXEMPT = {
     "platform/service.py": {"subprocess", "os.open", "os.replace", "mkdir", "unlink"},
     # Runs lsof to read a process's open files when psutil is refused.
     "platform/probes.py": {"subprocess"},
+    # Reads what the kernel keeps under /proc/self about agdash's own process: its
+    # memory, storage traffic and thread times. It takes no path from a caller.
+    "platform/usage.py": {"read_text"},
     # Writes a session export to the new file the person named, never inside a harness
     # directory and never over an existing file.
     "export.py": {"os.open"},

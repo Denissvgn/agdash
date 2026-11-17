@@ -21,6 +21,7 @@ from agdash.platform.service import (
     ServiceManager,
     SystemdUserManager,
 )
+from agdash.platform.usage import LinuxUsageReader, MacUsageReader, UsageReader
 from agdash.vocab import Harness
 
 
@@ -80,6 +81,12 @@ class Host:
 
     def process_probe(self, **options) -> ProcessProbe:
         return ProcessProbe(lsof_fallback=self.os is OperatingSystem.MACOS, **options)
+
+    def usage_reader(self, **options) -> UsageReader:
+        """Reads what this process itself uses; it is asked about no other."""
+        if self.os is OperatingSystem.MACOS:
+            return MacUsageReader(**options)
+        return LinuxUsageReader(**options)
 
     def service_manager(self, *, uid: int | None = None, **options) -> ServiceManager:
         forbidden = self.all_harness_roots()
