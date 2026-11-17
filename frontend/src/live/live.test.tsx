@@ -73,7 +73,7 @@ describe('arranging the board', () => {
     expect(all(roots).sort()).toEqual([1, 2])
   })
 
-  test('groups follow the root, most recently active first, children counted', () => {
+  test('groups follow the root, in name order with what is not recorded last, children counted', () => {
     const sessions = [
       session(1, { cwd: '/work/orchard', last_activity_at: ago(20) }),
       session(2, { cwd: '/elsewhere', parent_session_id: 1 }),
@@ -81,11 +81,36 @@ describe('arranging the board', () => {
       session(4, { cwd: null, harness: 'codex', last_activity_at: ago(40) }),
     ]
     expect(groups(sessions, 'folder').map((g) => [g.key, g.count])).toEqual([
-      ['/work/orchard', 2],
       ['/work/meadow', 1],
+      ['/work/orchard', 2],
       [null, 1],
     ])
-    expect(groups(sessions, 'harness').map((g) => g.key)).toEqual(['claude_code', 'pi', 'codex'])
+    expect(groups(sessions, 'harness').map((g) => g.key)).toEqual(['claude_code', 'codex', 'pi'])
+  })
+
+  test('sessions keep the order they started in, whatever they do afterwards', () => {
+    const ids = (sessions: SessionSummary[]) => forest(sessions).map((node) => node.session.id)
+    const started = [
+      session(1, { started_at: ago(50), state: 'idle', last_activity_at: ago(40) }),
+      session(2, { started_at: ago(30), state: 'waiting', last_activity_at: ago(9) }),
+      session(3, { started_at: ago(10), state: 'active', last_activity_at: ago(0) }),
+    ]
+    expect(ids(started)).toEqual([1, 2, 3])
+    // The idle one wakes and writes, the active one goes quiet, the list comes back in another order.
+    const later = [
+      { ...started[2], state: 'idle' as const, last_activity_at: ago(8) },
+      { ...started[0], state: 'active' as const, last_activity_at: ago(0) },
+      started[1],
+    ]
+    expect(ids(later)).toEqual([1, 2, 3])
+    // One that starts now is added after them; one with no start recorded comes last, by id.
+    expect(ids([session(9, { started_at: null }), ...later, session(4, { started_at: ago(0) }), session(8, { started_at: null })])).toEqual([
+      1, 2, 3, 4, 8, 9,
+    ])
+    // Group order does not follow activity either.
+    const two = [session(1, { cwd: '/b', last_activity_at: ago(0) }), session(2, { cwd: '/a', last_activity_at: ago(20) })]
+    const swapped = [{ ...two[0], last_activity_at: ago(20) }, { ...two[1], last_activity_at: ago(0) }]
+    expect(groups(two, 'folder').map((g) => g.key)).toEqual(groups(swapped, 'folder').map((g) => g.key))
   })
 
   test('by harness, a group counts its own sessions and names the others nested in it', () => {
@@ -277,7 +302,8 @@ describe('the live board', () => {
 
   test('picking a row puts the session in the address, and the panel follows', async () => {
     serve({
-      sessions: [session(1, { title: 'First one', last_activity_at: ago(0) }), session(2, { title: 'Second one', cwd: '/work/meadow' })],
+      // Folders are in name order, so the first row is the one in the first folder.
+      sessions: [session(1, { title: 'First one', cwd: '/work/apiary' }), session(2, { title: 'Second one', cwd: '/work/meadow' })],
       prompts: {},
     })
     open()
@@ -315,7 +341,7 @@ describe('the live board', () => {
     open()
     await rowOf('Lead session')
     // Each under the session that started it, before the next session standing alone.
-    expect(titles()).toEqual(['Lead session', 'Sub-agent', 'Helper session', 'Alone'])
+    expect(titles()).toEqual(['Lead session', 'Helper session', 'Sub-agent', 'Alone'])
     const lead = within(panel())
     expect(lead.getByText('Started 2 sessions')).toBeInTheDocument()
 
@@ -395,14 +421,69 @@ describe('the live board', () => {
     expect(summary()).toHaveTextContent('3 sessions live: 1 active · 2 idle.')
   })
 
-  test('past twenty rows the board tightens them', async () => {
-    serve({ sessions: Array.from({ length: 21 }, (_, i) => session(i + 1, { title: `Session ${i + 1}` })), prompts: {} })
+  test('past twenty rows the board tightens them, and loosens them only below sixteen', async () => {
+    const many = (count: number) => Array.from({ length: count }, (_, i) => session(i + 1, { title: `Session ${i + 1}` }))
+    const state = { sessions: many(21), prompts: {} }
+    const { stream } = serve(state)
     open()
-    expect((await rowOf('Session 1')).className).toContain('h-[24px]')
+    const height = async () => ((await rowOf('Session 1')).className.match(/h-\[\d+px\]/) ?? [''])[0]
+    expect(await height()).toBe('h-[24px]')
+    // Hovering around twenty does not change every row's height back and forth.
+    state.sessions = many(18)
+    act(() => stream.send('sessions', { sessions: [{ id: 19 }] }))
+    await waitFor(() => expect(titles()).toHaveLength(18))
+    expect(await height()).toBe('h-[24px]')
+    state.sessions = many(15)
+    act(() => stream.send('sessions', { sessions: [{ id: 16 }] }))
+    await waitFor(() => expect(titles()).toHaveLength(15))
+    expect(await height()).toBe('h-[28px]')
     cleanup()
     serve({ sessions: [session(1, { title: 'Only one' })], prompts: {} })
     open()
     expect((await rowOf('Only one')).className).toContain('h-[28px]')
+  })
+
+  test('rows stay where they are as sessions change, and a new one is added after them, marked', async () => {
+    const state = {
+      sessions: [
+        session(1, { title: 'First started', started_at: ago(50), state: 'idle', last_activity_at: ago(30) }),
+        session(2, { title: 'Second started', started_at: ago(40), state: 'active', last_activity_at: ago(0) }),
+        session(3, { title: 'In another folder', started_at: ago(45), cwd: '/work/apiary' }),
+      ],
+      prompts: {},
+    }
+    const { stream } = serve(state)
+    open()
+    await rowOf('First started')
+    // Folders in name order; within one, the order of starting, not of state or activity.
+    expect(titles()).toEqual(['In another folder', 'First started', 'Second started'])
+    expect(within(panel()).getByRole('heading', { level: 2, name: 'In another folder' })).toBeInTheDocument()
+
+    // The idle one wakes and the active one goes quiet: chips change, rows do not move.
+    state.sessions = [
+      { ...state.sessions[0], state: 'active', last_activity_at: ago(0) },
+      { ...state.sessions[1], state: 'idle', last_activity_at: ago(12) },
+      state.sessions[2],
+    ]
+    act(() => stream.send('sessions', { sessions: [{ id: 1 }, { id: 2 }] }))
+    await waitFor(() => expect(within(screen.getByRole('link', { name: 'First started' }).closest('li')!).getByText('Active')).toBeInTheDocument())
+    expect(titles()).toEqual(['In another folder', 'First started', 'Second started'])
+    expect(within(panel()).getByRole('heading', { level: 2, name: 'In another folder' })).toBeInTheDocument()
+    expect(document.querySelector('[data-new]')).toBeNull()
+
+    // A session starts: it is added at the end of its folder, with a tag, and nothing above it moves.
+    state.sessions = [...state.sessions, session(4, { title: 'Just started', started_at: ago(0), last_activity_at: ago(0) })]
+    act(() => stream.send('sessions', { sessions: [{ id: 4 }] }))
+    const added = await rowOf('Just started')
+    expect(titles()).toEqual(['In another folder', 'First started', 'Second started', 'Just started'])
+    expect(within(added).getByText('New')).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-new]')).toHaveLength(1)
+    // The tag goes after its first minute.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(90_000)
+    })
+    await waitFor(() => expect(document.querySelector('[data-new]')).toBeNull())
+    expect(titles()).toEqual(['In another folder', 'First started', 'Second started', 'Just started'])
   })
 
   test('the agents view draws the same sessions as a graph, with how each link is known', async () => {
@@ -424,7 +505,7 @@ describe('the live board', () => {
     await waitFor(() => expect(document.querySelector('[data-agents] a[data-row]')).not.toBeNull())
     const graph = document.querySelector('[data-agents]')!
     await waitFor(() => expect(graph.querySelectorAll('a[data-row]')).toHaveLength(3))
-    expect([...graph.querySelectorAll('a[data-row]')].map((node) => node.getAttribute('data-session'))).toEqual(['1', '3', '2'])
+    expect([...graph.querySelectorAll('a[data-row]')].map((node) => node.getAttribute('data-session'))).toEqual(['1', '2', '3'])
     expect(graph.querySelector('path[data-edge="process_tree"]')).toHaveAttribute('stroke-dasharray')
     expect(graph.querySelector('path[data-edge="harness_record"]')).not.toHaveAttribute('stroke-dasharray')
     expect(within(graph as HTMLElement).getByRole('link', { name: /Helper session/ })).toHaveTextContent(

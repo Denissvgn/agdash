@@ -344,6 +344,10 @@ def _crowd(now: datetime, live, busy, changes) -> None:
         found = live(title, "claude_code", SessionState.IDLE, FOLDERS[days % 3])
         found.started_at = now - timedelta(days=days, hours=3)
         found.last_activity_at = now - timedelta(days=days)
+    # One that started seconds ago, which the board marks as new for its first minute.
+    started = live("Start the nightly report", "claude_code", SessionState.ACTIVE, FOLDERS[1])
+    started.started_at = now - timedelta(seconds=5)
+    started.last_activity_at = now
     for minutes, title in enumerate(JUST_ENDED, start=4):
         found = live(title, "codex", SessionState.ENDED, FOLDERS[0], model="model-mini")
         found.last_activity_at = now - timedelta(minutes=minutes + 1)

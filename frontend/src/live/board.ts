@@ -11,14 +11,16 @@ export const UNKNOWN_WINDOW_MS = 30 * 60_000
 export const ENDED_WINDOW_MS = 15 * 60_000
 /** A session left open with nothing happening for this long is folded away as long quiet. */
 export const QUIET_AFTER_MS = 24 * 60 * 60_000
-/** Past this many rows the board tightens its rows. */
+/** Past this many rows the board tightens its rows; it loosens them again only below the second. */
 export const DENSE_ABOVE = 20
+export const LOOSE_BELOW = 16
+/** How long a session that just started is marked as new. */
+export const NEW_FOR_MS = 60_000
 
 /** The board's two pages: rows on one clock, or a graph of which session started which. */
 export type LiveView = 'timeline' | 'agents'
 
 export const LIVE_STATES: SessionState[] = ['active', 'waiting', 'idle', 'unknown']
-const STATE_ORDER: Record<SessionState, number> = { active: 0, waiting: 1, idle: 2, unknown: 3, ended: 4 }
 
 export interface Node {
   session: SessionSummary
@@ -48,8 +50,21 @@ export function endedAt(session: SessionSummary): number {
   return time(session.ended_at) || lastActive(session)
 }
 
-function byState(a: SessionSummary, b: SessionSummary): number {
-  return STATE_ORDER[a.state] - STATE_ORDER[b.state] || lastActive(b) - lastActive(a) || b.id - a.id
+/**
+ * The order sessions keep on the board: as they started, the oldest first. Nothing a
+ * running session does changes it, so a row stays where it is while its state and its
+ * lane change, and a session that starts is added after the others. Sorting by state or
+ * by the latest write moved rows on nearly every update.
+ */
+function byStart(a: SessionSummary, b: SessionSummary): number {
+  const started = (session: SessionSummary) => (session.started_at ? Date.parse(session.started_at) : Infinity)
+  const order = started(a) - started(b)
+  return (Number.isNaN(order) ? 0 : order) || a.id - b.id
+}
+
+/** Whether a session started so recently that the board marks it as new. */
+export function isNew(session: SessionSummary, now: number): boolean {
+  return session.started_at !== null && now - Date.parse(session.started_at) < NEW_FOR_MS
 }
 
 /** Live sessions and those just ended, from the rows the API returned. */
@@ -72,7 +87,7 @@ export function split(sessions: SessionSummary[], now: number): { live: SessionS
 /** Sessions arranged under their parents; a child whose parent is not live stands alone. */
 export function forest(sessions: SessionSummary[]): Node[] {
   const nodes = new Map<number, Node>()
-  for (const session of [...sessions].sort(byState)) {
+  for (const session of [...sessions].sort(byStart)) {
     nodes.set(session.id, { session, children: [], orphan: false })
   }
   const roots: Node[] = []
@@ -107,7 +122,7 @@ function newest(node: Node): number {
   return Math.max(lastActive(node.session), ...node.children.map(newest))
 }
 
-/** Root trees grouped by the root's folder or harness; most recently active group first. */
+/** Root trees grouped by the root's folder or harness, the groups in name order. */
 export function groups(sessions: SessionSummary[], by: LiveGroup): Group[] {
   return groupNodes(forest(sessions), by)
 }
@@ -125,11 +140,9 @@ export function groupNodes(roots: Node[], by: LiveGroup): Group[] {
       const own = by === 'harness' ? all.filter((session) => session.harness === key).length : all.length
       return { key, nodes, count: own, others: all.length - own }
     })
-    .sort(
-      (a, b) =>
-        Math.max(...b.nodes.map(newest)) - Math.max(...a.nodes.map(newest)) ||
-        String(a.key).localeCompare(String(b.key)),
-    )
+    // By name, what is not recorded last: like the rows, groups do not trade places as
+    // their sessions write.
+    .sort((a, b) => Number(a.key === null) - Number(b.key === null) || String(a.key).localeCompare(String(b.key)))
 }
 
 export function stateCounts(sessions: SessionSummary[]): [SessionState, number][] {
