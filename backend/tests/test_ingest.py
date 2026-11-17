@@ -509,6 +509,40 @@ def run_until(condition, *, timeout: float = 60.0, **options) -> None:
     assert not worker.is_alive()
 
 
+class Changes:
+    """Stands in for the operating system's file events: the test says what changed, and when.
+
+    How soon a real watcher reports depends on the machine and its load, which is not what
+    these tests are about. ``watcher`` is given to the loop in the real one's place.
+    """
+
+    def __init__(self) -> None:
+        self.waiting: list[Path] = []
+        self.watched: frozenset[Path] = frozenset()
+        changes = self
+
+        class Watcher:
+            failed = False
+
+            def __init__(self, directories, **_options) -> None:
+                self.directories = directories
+                changes.watched = directories
+
+            def take(self, seconds: float, stop: threading.Event) -> set[Path]:
+                if not changes.waiting:
+                    stop.wait(min(seconds, 0.01))
+                found, changes.waiting = set(changes.waiting), []
+                return found
+
+            def close(self) -> None:
+                pass
+
+        self.watcher = Watcher
+
+    def report(self, path: Path) -> None:
+        self.waiting.append(path)
+
+
 def test_the_first_read_goes_in_the_order_given_and_says_how_far_it_is(home):
     files = [home / "sessions/2026/01/02" / NAME.replace("05-0b5", f"0{n}-0b5") for n in range(5)]
     for path in files:
@@ -528,57 +562,58 @@ def test_the_first_read_goes_in_the_order_given_and_says_how_far_it_is(home):
     assert seen.progress == [(0, 5), (1, 5), (2, 5), (3, 5), (4, 5), (5, 5)]
 
 
-@pytest.mark.parametrize("force_polling", [True, False], ids=["polling", "file-events"])
-def test_a_file_written_during_the_first_read_does_not_wait_for_its_end(home, force_polling):
-    # A first read long enough that a watcher slow to report, as on a loaded machine, still
-    # reports well before its end: a minute of it, of which the test takes a second or two.
+def test_a_file_written_during_the_first_read_does_not_wait_for_its_end(home):
     # The recorder reads nothing, so the old files need only be named.
-    old = [home / "archived_sessions" / f"rollout-old-{n:04}.jsonl" for n in range(1200)]
+    old = [home / "archived_sessions" / f"rollout-old-{n:03}.jsonl" for n in range(200)]
     live = home / "sessions/2026/01/02" / NAME
     live.write_bytes(record(1))
-    seen = Recorder(seconds=0.05)
+    seen = Recorder(seconds=0.005)
     access = ReadOnlyAccess([home], snapshot_dir=home.parent)
-    written_at = 20  # a second in, once any kind of watcher has its bearings
+    changes = Changes()
+    reported_at: list[int] = []
 
-    def read_after_writing() -> int | None:
-        """Which scan first read the live file once it was written to, if any has yet."""
-        if len(seen.calls) == written_at:
-            with open(live, "ab") as target:
-                target.write(record(2))
-        # A watcher may name other files in the same batch, so the file is looked for.
-        return next(
-            (n for n, call in enumerate(seen.calls) if n > written_at and live.resolve() in call),
-            None,
-        )
+    def read_after_the_change() -> int | None:
+        """Which scan first read the live file once it was reported changed, if any has yet."""
+        if len(seen.calls) >= 20 and not reported_at:
+            reported_at.append(len(seen.calls))
+            changes.report(live)
+        if not reported_at:
+            return None
+        later = enumerate(seen.calls[reported_at[0] :], start=reported_at[0])
+        return next((n for n, call in later if call == [live.resolve()]), None)
 
     run_until(
-        lambda: read_after_writing() is not None,
+        lambda: read_after_the_change() is not None,
         directories=[home / "sessions", home / "archived_sessions"],
         discover=lambda: [*old, live],  # the live file would come last
         scan=seen.scan,
         match=lambda paths: match_files(access, [home], PATTERNS, paths),
-        slice_seconds=0.1,
-        force_polling=force_polling,
-        debounce_ms=50,
-        timeout=90.0,
+        slice_seconds=0.02,
+        watcher_type=changes.watcher,
     )
-    assert read_after_writing() < len(old), "it was read before the old files were done"
+    # Read at the next gap between slices, a handful of files on, not after all two hundred.
+    assert read_after_the_change() - reported_at[0] < 40
 
 
 def test_a_change_is_looked_up_directly_not_by_listing_everything_again(home):
     path = home / "sessions/2026/01/02" / NAME
     path.write_bytes(record(1))
+    (home / "sessions/2026/01/02/notes.txt").write_text("x")
     seen = Recorder()
     access = ReadOnlyAccess([home], snapshot_dir=home.parent)
+    changes = Changes()
+    reported: list[bool] = []
 
     def discover() -> list[Path]:
         seen.discovered += 1
         return discover_files(access, [home], PATTERNS)
 
     def changed_and_read() -> bool:
-        if len(seen.calls) == 1:
-            with open(path, "ab") as target:
-                target.write(record(2))
+        if len(seen.calls) == 1 and not reported:
+            reported.append(True)
+            # What a watcher names: the session file, and a file beside it that is not one.
+            changes.report(path)
+            changes.report(home / "sessions/2026/01/02/notes.txt")
         return len(seen.calls) >= 2
 
     run_until(
@@ -587,8 +622,8 @@ def test_a_change_is_looked_up_directly_not_by_listing_everything_again(home):
         discover=discover,
         scan=seen.scan,
         match=lambda paths: match_files(access, [home], PATTERNS, paths),
-        poll_seconds=30.0,
-        debounce_ms=50,
+        poll_seconds=600.0,  # no full poll within the test
+        watcher_type=changes.watcher,
     )
     assert seen.calls[1] == [path.resolve()]
     assert seen.discovered == 1
@@ -599,22 +634,26 @@ def test_a_single_file_is_watched_like_a_folder(home):
     index.write_text("{}\n")
     seen = Recorder()
     access = ReadOnlyAccess([home], snapshot_dir=home.parent)
+    changes = Changes()
+    reported: list[bool] = []
 
     def changed_and_read() -> bool:
-        if len(seen.calls) == 1:
-            with open(index, "a") as target:
-                target.write("{}\n")
+        if len(seen.calls) == 1 and not reported:
+            reported.append(True)
+            changes.report(index)
         return len(seen.calls) >= 2
 
     run_until(
         changed_and_read,
-        directories=lambda: [index],
+        # A folder that is not there yet is left out; the file is watched as it is.
+        directories=lambda: [index, home / "not-made-yet"],
         discover=lambda: [index.resolve()],
         scan=seen.scan,
         match=lambda paths: match_files(access, [home], ["session_index.jsonl"], paths),
-        poll_seconds=30.0,
-        debounce_ms=50,
+        poll_seconds=600.0,
+        watcher_type=changes.watcher,
     )
+    assert changes.watched == frozenset({index})
     assert seen.calls[1] == [index.resolve()]
 
 
