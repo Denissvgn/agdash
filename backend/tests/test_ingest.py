@@ -489,8 +489,12 @@ class Recorder:
         return [path for call in self.calls for path in call]
 
 
-def run_until(condition, *, timeout: float = 20.0, **options) -> None:
-    """Run the watch loop until ``condition()`` holds, then stop it."""
+def run_until(condition, *, timeout: float = 60.0, **options) -> None:
+    """Run the watch loop until ``condition()`` holds, then stop it.
+
+    The wait is long because a loaded machine can take many seconds to report a file
+    event; the loop stops as soon as the condition holds, so it costs nothing otherwise.
+    """
     stop = threading.Event()
     worker = threading.Thread(target=run, kwargs={"stop": stop, **options}, daemon=True)
     worker.start()
