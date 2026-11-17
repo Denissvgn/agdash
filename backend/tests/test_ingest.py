@@ -675,11 +675,16 @@ def test_a_full_poll_reads_only_what_changed_since_it_was_last_read(home):
         seen.discovered += 1
         return [quiet, busy]
 
+    written_at: list[int] = []
+
     def polled_then_written() -> bool:
-        if seen.discovered == 4 and busy.stat().st_size == len(record(1)):
+        # Written once a few polls are over, at whichever poll this is looked at: a
+        # loaded machine can run several polls between two looks.
+        if seen.discovered >= 4 and not written_at:
             with open(busy, "ab") as target:
                 target.write(record(2))
-        return seen.discovered >= 8
+            written_at.append(seen.discovered)
+        return bool(written_at) and seen.discovered >= written_at[0] + 4
 
     # Nothing is watched, so every pass after the first read is a full poll.
     run_until(
@@ -715,11 +720,15 @@ def test_a_full_poll_tells_what_changed_from_the_listing_alone(home):
         found = path.stat()
         return found.st_size, found.st_mtime_ns, found.st_ino
 
+    written_at: list[int] = []
+
     def polled_then_written() -> bool:
-        if seen.discovered == 3 and busy.stat().st_size == len(record(1)):
+        # At whichever poll this is looked at, as in the test above.
+        if seen.discovered >= 3 and not written_at:
             with open(busy, "ab") as target:
                 target.write(record(2))
-        return seen.discovered >= 7
+            written_at.append(seen.discovered)
+        return bool(written_at) and seen.discovered >= written_at[0] + 4
 
     run_until(
         polled_then_written,
