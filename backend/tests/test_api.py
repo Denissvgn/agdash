@@ -106,7 +106,7 @@ def direct(url: str):
 
 
 def test_only_get_is_routed_for_data(client):
-    assert len(router.routes) == 7
+    assert len(router.routes) == 8
     for route in router.routes:
         assert isinstance(route, APIRoute) and route.methods <= DATA_METHODS, route.path
     session_id = client.get("/api/sessions").json()["items"][0]["id"]
@@ -118,9 +118,36 @@ def test_only_get_is_routed_for_data(client):
         "/api/search/sessions",
         "/api/sessions/facets",
         "/api/stats",
+        "/api/reading",
     ):
         for method in ("post", "put", "patch", "delete"):
             assert getattr(client, method)(path).status_code == 405, (method, path)
+
+
+def test_the_start_up_read_is_reported_when_the_collector_runs_here(filled):
+    from agdash.collector.run import Reading
+
+    with local_client(filled) as alone:
+        assert alone.get("/api/reading").json() == {
+            "known": False,
+            "done": 0,
+            "total": 0,
+            "finished": False,
+        }
+    state = {"reading": Reading(12, 40)}
+    app = create_app(filled, token=TOKEN, port=8765, reading=lambda: state["reading"])
+    with TestClient(
+        app, base_url="http://127.0.0.1:8765", headers={"Authorization": f"Bearer {TOKEN}"}
+    ) as beside:
+        assert beside.get("/api/reading").json() == {
+            "known": True,
+            "done": 12,
+            "total": 40,
+            "finished": False,
+        }
+        state["reading"] = Reading(40, 40, finished=True)
+        assert beside.get("/api/reading").json()["finished"] is True
+        assert beside.get("/api/reading", headers={"Authorization": ""}).status_code == 401
 
 
 def test_the_api_connection_refuses_to_write(client):
@@ -158,6 +185,7 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/search/sessions",
         "/api/sessions/facets",
         "/api/stats",
+        "/api/reading",
         "/api/analytics/usage",
         "/api/analytics/tools",
         "/api/analytics/series",

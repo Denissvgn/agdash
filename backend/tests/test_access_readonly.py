@@ -207,6 +207,33 @@ def test_walk_yields_files_inside_the_roots_only(harness):
     assert names.count("session-a.jsonl") == 2
 
 
+def test_walk_keeps_a_stable_order_and_enters_no_linked_folder(tmp_path):
+    root = tmp_path / "root"
+    for folder in ("b/deep", "a", "c"):
+        (root / folder).mkdir(parents=True)
+    for name in ("z.txt", "b/2.txt", "b/1.txt", "b/deep/x.txt", "a/y.txt"):
+        (root / name).write_text("x")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("x")
+    (root / "c" / "linked-folder").symlink_to(root / "b")
+    (root / "c" / "leaves").symlink_to(outside)
+    (root / "c" / "leaving.txt").symlink_to(outside / "secret.txt")
+    (root / "c" / "inside.txt").symlink_to(root / "z.txt")
+    (root / "c" / "dangling.txt").symlink_to(root / "nothing")
+    access = ReadOnlyAccess([root], snapshot_dir=tmp_path / "snapshots")
+    real = root.resolve()
+    found = [str(path.relative_to(real)) for path in access.walk(root)]
+    # A folder's files first, then its folders in name order; the link inside the root
+    # is the file it points at; nothing is reached through a linked folder.
+    assert found == ["z.txt", "a/y.txt", "b/1.txt", "b/2.txt", "b/deep/x.txt", "z.txt"]
+    assert [str(p.relative_to(real)) for p in access.walk(root / "b")] == [
+        "b/1.txt",
+        "b/2.txt",
+        "b/deep/x.txt",
+    ]
+
+
 def test_snapshots_may_not_be_kept_inside_a_harness_root(harness, monkeypatch):
     with pytest.raises(AccessError, match="inside a harness root"):
         ReadOnlyAccess([harness.root], snapshot_dir=harness.root / "state")

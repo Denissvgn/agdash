@@ -22,6 +22,7 @@ from agdash.api.schemas import (
     Facets,
     HealthRow,
     Page,
+    Reading,
     SearchHit,
     SessionDetail,
     SessionHit,
@@ -658,6 +659,20 @@ def search_sessions(
 
 
 # -- stats --------------------------------------------------------------------------
+
+
+@router.get("/reading", response_model=Reading, summary="Progress of the start-up read")
+def reading(request: Request) -> dict[str, Any]:
+    """Whether the service has read everything the harnesses had written when it started.
+
+    Files of sessions running now are read first, then the newest; lists are short
+    of sessions until ``finished``.
+    """
+    source = getattr(request.app.state, "reading", None)
+    found = source() if source is not None else None
+    if found is None:
+        return {"known": False}
+    return {"known": True, "done": found.done, "total": found.total, "finished": found.finished}
 
 
 @router.get("/stats", response_model=Stats, summary="Counts and usage")

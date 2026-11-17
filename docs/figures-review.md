@@ -26,6 +26,9 @@ and says it cannot reach it when that is not running.
 The live board shows the last 30 minutes, so the store's live sessions are gone
 half an hour after it starts. Start it again for the Live screen.
 
+Add `--reading 1250/6383` to see the pages as they are while the service is
+still reading the harnesses' files after a start.
+
 ## The automated run
 
 ```bash

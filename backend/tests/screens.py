@@ -530,17 +530,28 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--port", type=int, default=8790)
     parser.add_argument("--ui", required=True, help="the built UI, frontend/dist")
+    parser.add_argument(
+        "--reading",
+        metavar="DONE/TOTAL",
+        help="answer as a service still on its start-up read, this many files in",
+    )
     args = parser.parse_args()
 
     import uvicorn
 
+    from agdash.collector.run import Reading
     from agdash.main import create_app
+
+    reading = None
+    if args.reading:
+        done, total = (int(part) for part in args.reading.split("/"))
+        reading = lambda: Reading(done, total, finished=done >= total)  # noqa: E731
 
     folder = Path(tempfile.mkdtemp(prefix="agdash-screens-"))
     url = f"sqlite:///{folder / 'screens.db'}"
     ids = build(url)
     print(f"long session {ids['long_session']}", flush=True)
-    app = create_app(url, token=TOKEN, port=args.port, ui_dir=args.ui)
+    app = create_app(url, token=TOKEN, port=args.port, ui_dir=args.ui, reading=reading)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 
 

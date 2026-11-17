@@ -122,6 +122,19 @@ class HealthRow(BaseModel):
     last_seen_at: datetime | None
 
 
+class Reading(BaseModel):
+    """How far the read of what the harnesses had written at start-up has got.
+
+    ``known`` is false when this process runs no collector. Until ``finished``,
+    sessions are still missing from every list.
+    """
+
+    known: bool
+    done: int = 0
+    total: int = 0
+    finished: bool = False
+
+
 class Stats(BaseModel):
     since: datetime | None
     until: datetime | None

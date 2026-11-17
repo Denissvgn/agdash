@@ -188,6 +188,9 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+/** The board's own count of live sessions; the catching-up announcement comes before it. */
+const summary = () => screen.getAllByRole('status').at(-1)!
+
 describe('the live board', () => {
   test('a stream that falls silent past the keep-alive is reconnected, and says so', async () => {
     const { calls } = serve({ sessions: [session(1)], prompts: {} })
@@ -212,7 +215,7 @@ describe('the live board', () => {
 
     expect(await screen.findByRole('heading', { level: 3, name: 'Prune the trees' })).toBeInTheDocument()
     expect(await screen.findByText('Sharpen the shears first')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('1 session live: 1 active.')
+    expect(summary()).toHaveTextContent('1 session live: 1 active.')
     act(() => stream.send('hello', { from: {} }))
     expect(await screen.findByText('Updates as sessions start, change and end.')).toBeInTheDocument()
 
@@ -220,7 +223,7 @@ describe('the live board', () => {
     state.sessions = [...state.sessions, session(2, { title: 'Plan next season', last_activity_at: ago(0) })]
     act(() => stream.send('sessions', { sessions: [{ id: 2 }] }))
     expect(await screen.findByRole('heading', { level: 3, name: 'Plan next season' })).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('2 sessions live: 2 active.')
+    expect(summary()).toHaveTextContent('2 sessions live: 2 active.')
 
     // The first one ends: it moves to "Just ended".
     state.sessions = [
@@ -231,7 +234,7 @@ describe('the live board', () => {
     const ended = await screen.findByRole('region', { name: 'Just ended' })
     expect(within(ended).getByRole('heading', { level: 3, name: 'Prune the trees' })).toBeInTheDocument()
     expect(within(ended).getByText('Process exited')).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 session live: 1 active.'))
+    await waitFor(() => expect(summary()).toHaveTextContent('1 session live: 1 active.'))
   })
 
   test('a new prompt refreshes the latest-prompt line', async () => {

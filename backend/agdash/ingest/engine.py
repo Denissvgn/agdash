@@ -96,20 +96,126 @@ class ScanReport:
         return sum(report.lines for report in self.files)
 
 
-def discover_files(
+_WILDCARDS = frozenset("*?[")
+
+
+def pattern_folders(patterns: Sequence[str]) -> list[str]:
+    """The fixed folders ``patterns`` begin with: no file outside them matches any.
+
+    A harness keeps far more beside its session files (checkouts, installed
+    packages), and none of that needs listing. ``""`` is the root itself, for
+    a pattern with no folder before its first wildcard. A pattern with no
+    wildcard at all names one file and needs no folder listed.
+    """
+    folders = set()
+    for pattern in patterns:
+        if not _WILDCARDS & set(pattern):
+            continue
+        fixed = []
+        for part in pattern.split("/")[:-1]:
+            if _WILDCARDS & set(part):
+                break
+            fixed.append(part)
+        folders.add("/".join(fixed))
+    if "" in folders:
+        return [""]
+    return sorted(
+        folder for folder in folders if not any(folder.startswith(other + "/") for other in folders)
+    )
+
+
+def _matches(relative: str, patterns: Sequence[str]) -> bool:
+    return any(fnmatch.fnmatch(relative, pattern) for pattern in patterns)
+
+
+def session_folders(
     access: ReadOnlyAccess, roots: Iterable[Path], patterns: Sequence[str]
 ) -> list[Path]:
-    """Files below ``roots`` whose path relative to their root matches one of ``patterns``."""
+    """The folders below ``roots`` that can hold a matching file, as real paths.
+
+    A linked folder is left out, as the walk leaves out linked directories.
+    """
     found = []
     for root in roots:
         if not access.exists(root):
             continue
         real_root = access.resolve(root)
-        for path in access.walk(root):
-            relative = os.path.relpath(path, real_root)
-            if any(fnmatch.fnmatch(relative, pattern) for pattern in patterns):
-                found.append(path)
+        for folder in pattern_folders(patterns):
+            start = real_root / folder if folder else real_root
+            try:
+                if access.resolve(start) == start and start.is_dir():
+                    found.append(start)
+            except (OutsideAllowedRoots, OSError):
+                continue
+    return found
+
+
+def single_files(
+    access: ReadOnlyAccess, roots: Iterable[Path], patterns: Sequence[str]
+) -> list[Path]:
+    """The files that patterns without a wildcard name, where they exist, as real paths.
+
+    A linked file is left out: its real path would not match the pattern.
+    """
+    found = []
+    for root in roots:
+        if not access.exists(root):
+            continue
+        real_root = access.resolve(root)
+        for pattern in patterns:
+            if _WILDCARDS & set(pattern):
+                continue
+            path = real_root / pattern
+            try:
+                if access.resolve(path) == path and path.is_file():
+                    found.append(path)
+            except (OutsideAllowedRoots, OSError):
+                continue
+    return found
+
+
+def discover_files(
+    access: ReadOnlyAccess, roots: Iterable[Path], patterns: Sequence[str]
+) -> list[Path]:
+    """Files below ``roots`` whose path relative to their root matches one of ``patterns``.
+
+    Only the folders the patterns begin with are walked.
+    """
+    found = single_files(access, roots, patterns)
+    for root in roots:
+        if not access.exists(root):
+            continue
+        real_root = access.resolve(root)
+        for start in session_folders(access, [root], patterns):
+            for path in access.walk(start):
+                if _matches(os.path.relpath(path, real_root), patterns):
+                    found.append(path)
     return sorted(set(found))
+
+
+def match_files(
+    access: ReadOnlyAccess, roots: Iterable[Path], patterns: Sequence[str], paths: Iterable[Path]
+) -> list[Path]:
+    """Those of ``paths`` that ``discover_files`` would find, without listing any folder.
+
+    For the files a watcher names: looking at them alone costs the same however
+    much the harness keeps.
+    """
+    real_roots = [access.resolve(root) for root in roots if access.exists(root)]
+    found = set()
+    for path in paths:
+        try:
+            real_path = access.resolve(path)
+        except (OutsideAllowedRoots, OSError, ValueError):
+            continue  # gone again, or not ours to read
+        if not real_path.is_file():
+            continue
+        for real_root in real_roots:
+            if real_root in real_path.parents and _matches(
+                os.path.relpath(real_path, real_root), patterns
+            ):
+                found.add(real_path)
+    return sorted(found)
 
 
 def split_lines(data: bytes, start: int) -> tuple[list[Line], int]:
