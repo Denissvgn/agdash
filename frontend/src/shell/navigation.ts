@@ -6,6 +6,8 @@ export type WorkspaceId = 'live' | 'history' | 'projects' | 'analytics' | 'setti
 export interface Destination {
   id: string
   path: string
+  /** Pages under this address belong to the destination too, such as one session's page. */
+  also?: string
 }
 
 export interface Workspace {
@@ -22,13 +24,21 @@ export interface Workspace {
  * workspaces.<id>.
  */
 export const WORKSPACES: Workspace[] = [
-  { id: 'live', path: '/live', icon: Activity, destinations: [{ id: 'board', path: '/live' }] },
+  {
+    id: 'live',
+    path: '/live',
+    icon: Activity,
+    destinations: [
+      { id: 'board', path: '/live' },
+      { id: 'agents', path: '/live/agents' },
+    ],
+  },
   {
     id: 'history',
     path: '/history',
     icon: History,
     destinations: [
-      { id: 'sessions', path: '/history' },
+      { id: 'sessions', path: '/history', also: '/history/sessions/' },
       { id: 'search', path: '/history/search' },
     ],
   },

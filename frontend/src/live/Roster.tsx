@@ -3,6 +3,7 @@ import { useId, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import type { SessionSummary } from '../api/types'
+import { useSessionName } from '../history/names'
 import { StateChip } from '../history/SessionList'
 import { endedAt, flatten, lastActive, type Group, type LiveGroup, type Node } from './board'
 import { formatAgo } from './format'
@@ -57,6 +58,7 @@ function Row({
   const ago = useShortAgo()
   const words = useStripWords()
   const onKeyDown = useRowKeys()
+  const name = useSessionName()
   const id = useId()
   const harness = t(`history.harnesses.${session.harness}`, { defaultValue: session.harness })
   const when = ended ? endedAt(session) : lastActive(session)
@@ -85,7 +87,7 @@ function Row({
           to={to(session.id)}
           onKeyDown={onKeyDown}
         >
-          {session.title || t('history.list.untitled')}
+          {name(session)}
         </Link>
       </span>
       <span className="hidden truncate text-secondary-ink min-[1340px]:block">{harness}</span>

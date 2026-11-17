@@ -3,13 +3,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { getJson } from '../api/client'
-import type { EventOut, Page, SessionDetail, ThoughtsCoverage } from '../api/types'
+import type { EventOut, Page, SessionDetail, SessionSummary, ThoughtsCoverage } from '../api/types'
 import { formatWhen } from '../history/format'
 import { ErrorNotice, LoadingRows, Notice, StateChip } from '../history/SessionList'
 import { useDocumentTitle } from '../shell/useDocumentTitle'
 import { MappingFigure } from './MappingFigure'
 import { SessionOverview } from './Overview'
 import { VirtualList, type VirtualListHandle } from './VirtualList'
+import { useSessionName } from '../history/names'
 
 const PAGE = 500
 const PREVIEW = 1200
@@ -129,9 +130,62 @@ function EventRow({ event, expanded, onToggle }: { event: EventOut; expanded: bo
   )
 }
 
+/** How many of the sessions a session started are named in its header; the rest are counted. */
+const NAMED = 8
+
+/**
+ * The sessions around this one, by name: the one that started it, and those it started.
+ * A session can start hundreds, so only the most recently active are named.
+ */
+function Family({ session }: { session: SessionDetail }) {
+  const { t } = useTranslation()
+  const name = useSessionName()
+  const parentId = session.parent_session_id
+  const parent = useQuery({
+    queryKey: ['session', parentId],
+    queryFn: ({ signal }) => getJson<SessionDetail>(`/api/sessions/${parentId}`, {}, signal),
+    enabled: parentId !== null,
+  })
+  const started = useQuery({
+    queryKey: ['session', session.id, 'started'],
+    queryFn: ({ signal }) => getJson<Page<SessionSummary>>('/api/sessions', { parent: session.id, limit: NAMED }, signal),
+    enabled: session.children.length > 0,
+  })
+  if (parentId === null && session.children.length === 0) return null
+  // Until their names arrive, and if they do not, the links are still there by number.
+  const children = started.data?.items.length
+    ? started.data.items.map((child) => ({ id: child.id, label: name(child) }))
+    : session.children.slice(0, NAMED).map((id, index) => ({ id, label: t('session.subagent', { number: index + 1 }) }))
+  const more = session.children.length - children.length
+  return (
+    <nav aria-label={t('session.family')} className="flex flex-col gap-xs text-label">
+      {parentId !== null && (
+        <p className="flex flex-wrap items-baseline gap-x-sm">
+          <span className="text-secondary-ink">{t('session.startedBy')}</span>
+          <Link className="text-primary-ink underline underline-offset-2" to={`/history/sessions/${parentId}`}>
+            {parent.data ? name(parent.data) : t('session.parent')}
+          </Link>
+        </p>
+      )}
+      {children.length > 0 && (
+        <p className="flex flex-wrap items-baseline gap-x-sm gap-y-[2px]">
+          <span className="text-secondary-ink">{t('session.children', { count: session.children.length })}</span>
+          {children.map((child) => (
+            <Link key={child.id} className="text-primary-ink underline underline-offset-2" to={`/history/sessions/${child.id}`}>
+              {child.label}
+            </Link>
+          ))}
+          {more > 0 && <span className="text-secondary-ink">{t('session.moreChildren', { count: more })}</span>}
+        </p>
+      )}
+    </nav>
+  )
+}
+
 function Header({ session }: { session: SessionDetail }) {
   const { t } = useTranslation()
-  const title = session.title || t('history.list.untitled')
+  const name = useSessionName()
+  const title = name(session)
   useDocumentTitle(title)
   const harness = t(`history.harnesses.${session.harness}`, { defaultValue: session.harness })
   const started = formatWhen(session.started_at)
@@ -175,20 +229,7 @@ function Header({ session }: { session: SessionDetail }) {
           <bdi>{session.cwd}</bdi>
         </p>
       )}
-      {(session.parent_session_id !== null || session.children.length > 0) && (
-        <nav aria-label={t('session.family')} className="flex flex-wrap items-center gap-sm text-label">
-          {session.parent_session_id !== null && (
-            <Link className="button-ghost" to={`/history/sessions/${session.parent_session_id}`}>
-              {t('session.parent')}
-            </Link>
-          )}
-          {session.children.map((child, index) => (
-            <Link key={child} className="button-ghost" to={`/history/sessions/${child}`}>
-              {t('session.subagent', { number: index + 1 })}
-            </Link>
-          ))}
-        </nav>
-      )}
+      <Family session={session} />
     </header>
   )
 }

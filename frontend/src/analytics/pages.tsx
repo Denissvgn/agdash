@@ -13,6 +13,7 @@ import { ErrorNotice, LoadingRows, Notice } from '../history/SessionList'
 import { formatCost, formatCount, splitDuration } from './format'
 import { byMeasure, MEASURES, rowValue, type Measure } from './measure'
 import { UsageFigure } from './UsageFigure'
+import { Choice } from '../shell/Choice'
 
 const GROUPS: UsageGroup[] = ['harness', 'model', 'folder']
 const TOKENS = ['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens'] as const
@@ -67,41 +68,6 @@ function Duration({ row }: { row: UsageRow }) {
       {hours ? t('analytics.duration.hours', { hours, minutes }) : t('analytics.duration.minutes', { minutes })}
       <Coverage count={row.sessions_with_duration} total={row.sessions} />
     </>
-  )
-}
-
-/** One of a few choices, as pills over native radio buttons; the page keeps it in its address. */
-function Choice<T extends string>({
-  legend,
-  value,
-  options,
-  label,
-  onChange,
-}: {
-  legend: string
-  value: T
-  options: readonly T[]
-  label: (option: T) => string
-  onChange: (option: T) => void
-}) {
-  const name = useId()
-  return (
-    <fieldset className="flex flex-wrap items-center gap-sm">
-      <legend className="float-left mr-sm text-label text-secondary-ink">{legend}</legend>
-      {options.map((option) => (
-        <label key={option} className="toggle-chip relative cursor-pointer has-[:checked]:border-planning-thread has-[:checked]:bg-planning-thread-soft has-[:checked]:text-planning-thread has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-planning-thread">
-          <input
-            checked={value === option}
-            className="sr-only"
-            name={name}
-            type="radio"
-            value={option}
-            onChange={() => onChange(option)}
-          />
-          {label(option)}
-        </label>
-      ))}
-    </fieldset>
   )
 }
 

@@ -2,7 +2,7 @@ import type { ComponentType } from 'react'
 import { ActivityPage } from '../analytics/ActivityPage'
 import { ToolsPage, UsagePage } from '../analytics/pages'
 import { SearchPage, SessionsPage } from '../history/pages'
-import { LiveBoardPage } from '../live/LiveBoard'
+import { LiveAgentsPage, LiveBoardPage } from '../live/LiveBoard'
 import { ProjectBoardPage } from '../workchord/ProjectBoardPage'
 import { UnmappedPage } from '../workchord/UnmappedPage'
 import { WorkChordPage } from '../workchord/WorkChordPage'
@@ -13,6 +13,7 @@ import { WorkChordPage } from '../workchord/WorkChordPage'
  */
 export const PAGES: Record<string, ComponentType> = {
   'live:board': LiveBoardPage,
+  'live:agents': LiveAgentsPage,
   'history:sessions': SessionsPage,
   'history:search': SearchPage,
   'analytics:usage': UsagePage,

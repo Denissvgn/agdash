@@ -41,9 +41,27 @@ function flagText(flag: AttentionFlag, t: (key: string, options?: Record<string,
 }
 
 function Attention({ flags, titles }: { flags: AttentionFlag[]; titles: Map<number, string> }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const titleId = useId()
   if (flags.length === 0) return null
+  const lines = new Map<string, { code: string; sessions: number[] }>()
+  for (const flag of flags) {
+    const line = t('board.flagLine', { flag: t(`board.flags.${flag.code}.short`), text: flagText(flag, t) })
+    const found = lines.get(line) ?? { code: flag.code, sessions: [] }
+    if (flag.session_id !== null && !found.sessions.includes(flag.session_id)) found.sessions.push(flag.session_id)
+    lines.set(line, found)
+  }
+  const grouped = [...lines].map(([line, { code, sessions }]) => ({
+    // Said of several sessions at once, where the signal has the words for it.
+    line:
+      sessions.length > 1 && i18n.exists(`board.flags.${code}.several`)
+        ? t('board.flagLine', {
+            flag: t(`board.flags.${code}.short`),
+            text: t(`board.flags.${code}.several`, { count: sessions.length }),
+          })
+        : line,
+    sessions,
+  }))
   return (
     <section
       aria-labelledby={titleId}
@@ -55,17 +73,18 @@ function Attention({ flags, titles }: { flags: AttentionFlag[]; titles: Map<numb
       </h2>
       <p className="max-w-[70ch] text-label text-secondary-ink">{t('board.attentionPurpose')}</p>
       <ul className="flex flex-col gap-xs">
-        {flags.map((flag, index) => (
-          <li key={`${flag.code}-${flag.session_id}-${flag.run_id}-${index}`} className="text-body text-primary-ink">
-            {t('board.flagLine', { flag: t(`board.flags.${flag.code}.short`), text: flagText(flag, t) })}
-            {flag.session_id !== null && (
-              <>
-                {' '}
-                <Link className="text-secondary-ink underline underline-offset-2" to={`/history/sessions/${flag.session_id}`}>
-                  {titles.get(flag.session_id) ?? t('history.list.untitled')}
+        {/* Signals that say the same of several sessions are one line, with a link a session. */}
+        {grouped.map(({ line, sessions }) => (
+          <li key={line} className="max-w-[110ch] text-body text-primary-ink">
+            {line}
+            {sessions.map((sessionId, index) => (
+              <span key={sessionId}>
+                {index === 0 ? ' ' : ', '}
+                <Link className="text-secondary-ink underline underline-offset-2" to={`/history/sessions/${sessionId}`}>
+                  {titles.get(sessionId) ?? t('history.list.untitled')}
                 </Link>
-              </>
-            )}
+              </span>
+            ))}
           </li>
         ))}
       </ul>

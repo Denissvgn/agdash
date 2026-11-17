@@ -155,6 +155,39 @@ describe('what each event shows', () => {
     expect(screen.getByRole('link', { name: 'Subagent 1' })).toHaveAttribute('href', '#/history/sessions/7')
   })
 
+  test('the sessions around it are named, and the sidebar still says where the reader is', async () => {
+    const started = Array.from({ length: 12 }, (_, i) => 100 + i)
+    const child = detail({ id: 9, title: 'The one in view', parent_session_id: 4, children: started })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        const url = new URL(input, 'http://127.0.0.1:8765')
+        const json = (value: unknown) => new Response(JSON.stringify(value))
+        if (url.pathname === '/api/sessions/9') return json(child)
+        if (url.pathname === '/api/sessions/4') return json(detail({ id: 4, title: 'The one that started it' }))
+        if (url.pathname === '/api/sessions' && url.searchParams.get('parent') === '9') {
+          const limit = Number(url.searchParams.get('limit'))
+          // One has no title: it is named by how its first prompt began.
+          const items = started.slice(0, limit).map((id, i) => ({ id, title: i ? `Helper ${i}` : null, initial_task: 'Count the rows\nthen sort them' }))
+          return json({ items, next_cursor: null })
+        }
+        if (url.pathname === '/api/sessions/9/events') return json({ items: [], next_cursor: null })
+        return new Response(JSON.stringify({ detail: 'not found' }), { status: 404 })
+      }),
+    )
+    open('/history/sessions/9')
+    const family = within(await screen.findByRole('navigation', { name: 'Related sessions' }))
+    expect(await family.findByRole('link', { name: 'The one that started it' })).toHaveAttribute('href', '#/history/sessions/4')
+    expect(family.getByText('Started 12 sessions')).toBeInTheDocument()
+    expect(await family.findByRole('link', { name: 'Count the rows' })).toHaveAttribute('href', '#/history/sessions/100')
+    // The most recent few by name; the rest are counted, not listed by the hundred.
+    expect(family.getAllByRole('link')).toHaveLength(1 + 8)
+    expect(family.getByText('and 4 more')).toBeInTheDocument()
+    // A session's page is under History › Sessions, and the sidebar marks it so.
+    const sessions = within(screen.getByRole('navigation', { name: 'History sections' })).getByRole('link', { name: 'Sessions' })
+    expect(sessions).toHaveAttribute('aria-current', 'true')
+  })
+
   test('an address that names no session says so', async () => {
     serve(detail(), () => [], 0)
     open('/history/sessions/not-a-number')

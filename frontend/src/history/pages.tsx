@@ -25,7 +25,9 @@ export function SessionsPage() {
     queryFn: ({ pageParam, signal }) =>
       getJson<Page<SessionSummary>>(
         '/api/sessions',
-        { ...apiParams(filters), cursor: pageParam, limit: PAGE_SIZE },
+        // Sessions a person or a schedule started: those a session started are counted on its
+        // row and listed on its page, and one known only by name has nothing to open.
+        { ...apiParams(filters), roots_only: true, recorded: true, cursor: pageParam, limit: PAGE_SIZE },
         signal,
       ),
     initialPageParam: undefined as string | undefined,

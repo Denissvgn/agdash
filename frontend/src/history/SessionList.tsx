@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import type { Excerpt, SessionHit, SessionState, SessionSummary } from '../api/types'
 import { formatWhen } from './format'
+import { useSessionName } from './names'
 
 const STATE_DOT: Record<SessionState, string> = {
   active: 'bg-status-active',
@@ -52,25 +53,27 @@ export function ExcerptText({ excerpt }: { excerpt: Excerpt }) {
 
 function Row({ session }: { session: SessionSummary | SessionHit }) {
   const { t } = useTranslation()
+  const name = useSessionName()
   const harness = t(`history.harnesses.${session.harness}`, { defaultValue: session.harness })
   const surface = session.surface ? t(`history.surfaces.${session.surface}`) : null
   const lastActive = formatWhen(session.last_activity_at ?? session.started_at)
   const hit = 'excerpts' in session ? session : null
   return (
-    <li className="flex flex-col gap-xs px-md py-[12px]">
+    <li className="flex flex-col gap-[2px] px-md py-sm">
       <div className="flex flex-wrap items-center gap-x-sm gap-y-xs">
-        <StateChip state={session.state} />
+        {/* "Unknown" on a session long over says nothing, so only a state that does is shown. */}
+        {session.state !== 'unknown' && <StateChip state={session.state} />}
         {/* At least 12rem for the title; the date wraps below it rather than squeezing it. */}
         <h3 className="line-clamp-2 min-w-[min(100%,12rem)] flex-1 break-words text-body font-semibold text-primary-ink roomy:line-clamp-none roomy:truncate">
           <Link className="hover:underline focus-visible:underline" to={`/history/sessions/${session.id}`}>
-            {session.title || t('history.list.untitled')}
+            {name(session)}
           </Link>
         </h3>
         <span className="data shrink-0 text-label text-secondary-ink">
           {lastActive ? t('history.list.lastActive', { when: lastActive }) : t('history.list.noActivity')}
         </span>
       </div>
-      <p className="flex flex-wrap gap-x-sm text-label text-secondary-ink">
+      <p className="flex min-w-0 flex-wrap items-baseline gap-x-sm text-label text-secondary-ink">
         <span>{surface ? t('history.list.harnessSurface', { harness, surface }) : harness}</span>
         <span aria-hidden="true">·</span>
         <span className="min-w-0 truncate">
@@ -90,13 +93,16 @@ function Row({ session }: { session: SessionSummary | SessionHit }) {
             <span className="data">{t('history.search.hits', { count: hit.hits })}</span>
           </>
         )}
+        {/* Last on the line, cut from its start: the last folders are what tell sessions apart. */}
+        {session.cwd && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="data min-w-[8rem] flex-1 truncate text-left font-mono text-[0.75rem] [direction:rtl]">
+              <bdi>{session.cwd}</bdi>
+            </span>
+          </>
+        )}
       </p>
-      {/* Cut from the start: the last folders are what tell sessions apart. */}
-      {session.cwd && (
-        <p className="data truncate text-left font-mono text-[0.75rem] text-secondary-ink [direction:rtl]">
-          <bdi>{session.cwd}</bdi>
-        </p>
-      )}
       {hit && hit.excerpts.length > 0 && (
         <div aria-label={t('history.search.excerpts')} className="mt-xs flex flex-col gap-xs" role="group">
           {hit.excerpts.map((excerpt) => (

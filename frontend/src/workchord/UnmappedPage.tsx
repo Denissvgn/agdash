@@ -40,12 +40,13 @@ function PinForm({ item }: { item: UnmappedItem }) {
     if (project) pin.mutate()
   }
   return (
-    <form className="flex flex-col gap-xs" onSubmit={submit}>
-      <label className="text-label text-secondary-ink" htmlFor={selectId}>
+    <form className="flex shrink-0 flex-col gap-xs" onSubmit={submit}>
+      {/* The select's own first line says what to choose, so the label is for assistive technology. */}
+      <label className="sr-only" htmlFor={selectId}>
         {t('mapping.pin.label')}
       </label>
-      <div className="flex flex-col gap-sm roomy:flex-row">
-        <div className="roomy:w-[16rem]">
+      <div className="flex gap-sm">
+        <div className="min-w-0 flex-1 roomy:w-[16rem] roomy:flex-none">
           <ProjectSelect
             connectionId={item.connection_id}
             id={selectId}
@@ -59,7 +60,7 @@ function PinForm({ item }: { item: UnmappedItem }) {
           {pin.isPending ? t('mapping.pin.pinning') : t('mapping.pin.submit')}
         </button>
       </div>
-      <p aria-live="polite" className="text-label text-secondary-ink" role="status">
+      <p aria-live="polite" className="text-label text-secondary-ink empty:hidden" role="status">
         {pin.isError
           ? reasonOf(pin.error)
             ? t('mapping.pin.failed', { reason: reasonOf(pin.error) })
@@ -76,7 +77,10 @@ function QueueRow({ item }: { item: UnmappedItem }) {
   const harness = t(`history.harnesses.${item.harness}`, { defaultValue: item.harness })
   const when = formatWhen(item.last_activity_at)
   return (
-    <li className="flex flex-col gap-sm px-md py-[12px]">
+    // What the session is on the left, what to do about it on the right: one line a session
+    // where there is room, so the queue can be read down instead of scrolled through.
+    <li className="flex flex-col gap-sm px-md py-sm min-[1024px]:flex-row min-[1024px]:items-start min-[1024px]:gap-lg">
+      <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
       <div className="flex flex-wrap items-center gap-x-sm gap-y-xs">
         <StateChip state={item.state} />
         <h3 className="min-w-[min(100%,12rem)] flex-1 break-words text-body font-semibold text-primary-ink">{title}</h3>
@@ -84,16 +88,19 @@ function QueueRow({ item }: { item: UnmappedItem }) {
           {when ? t('history.list.lastActive', { when }) : t('history.list.noActivity')}
         </span>
       </div>
-      <p className="text-label text-secondary-ink">{harness}</p>
-      {item.cwd && (
-        <p className="data truncate text-left font-mono text-[0.75rem] text-secondary-ink [direction:rtl]">
-          <bdi>{item.cwd}</bdi>
-        </p>
-      )}
-      {item.reason === 'no evidence' ? (
-        <p className="text-label text-secondary-ink">{t('mapping.noEvidence')}</p>
-      ) : (
-        <div className="flex flex-col gap-xs">
+      <p className="flex min-w-0 flex-wrap items-baseline gap-x-sm text-label text-secondary-ink">
+        <span>{harness}</span>
+        {item.cwd && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="data min-w-[8rem] max-w-full truncate text-left font-mono text-[0.75rem] [direction:rtl]">
+              <bdi>{item.cwd}</bdi>
+            </span>
+          </>
+        )}
+      </p>
+      {item.reason === 'no evidence' ? null : (
+        <div className="mt-xs flex flex-col gap-xs">
           <p className="text-label text-primary-ink">{t('mapping.conflict')}</p>
           <ul aria-label={t('mapping.evidenceLabel', { title })} className="flex flex-col gap-xs">
             {item.evidence.map((evidence, index) => (
@@ -102,6 +109,7 @@ function QueueRow({ item }: { item: UnmappedItem }) {
           </ul>
         </div>
       )}
+      </div>
       <PinForm item={item} />
     </li>
   )

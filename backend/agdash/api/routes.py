@@ -111,6 +111,7 @@ class SessionFilters:
     auth_method: str | None = None
     started_from: datetime | None = None
     started_before: datetime | None = None
+    recorded: bool = False
 
     def apply(self, query):
         if self.harness:
@@ -153,6 +154,10 @@ class SessionFilters:
             query = query.where(Session.started_at >= self.started_from)
         if self.started_before is not None:
             query = query.where(Session.started_at < self.started_before)
+        if self.recorded:
+            query = query.where(
+                or_(Session.started_at.is_not(None), Session.last_activity_at.is_not(None))
+            )
         return query
 
 
@@ -176,6 +181,10 @@ def session_filters(
     auth_method: Annotated[str | None, Query(max_length=64)] = None,
     started_from: Annotated[datetime | None, Query(description="Started at or after.")] = None,
     started_before: Annotated[datetime | None, Query(description="Started before.")] = None,
+    recorded: Annotated[
+        bool,
+        Query(description="Leave out sessions known only by name: no start and no activity."),
+    ] = False,
 ) -> SessionFilters:
     return SessionFilters(
         harness,
@@ -190,6 +199,7 @@ def session_filters(
         auth_method,
         started_from,
         started_before,
+        recorded,
     )
 
 

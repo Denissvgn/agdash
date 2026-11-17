@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import type { SessionSummary } from '../api/types'
 import { useWidth } from '../charts/useWidth'
+import { useSessionName } from '../history/names'
 import { StateDot } from '../history/SessionList'
 import type { Group, LiveGroup, Node } from './board'
 import type { LinkTo } from './parts'
@@ -58,6 +59,7 @@ export function AgentGraph({
   const { t } = useTranslation()
   const [ref, width] = useWidth()
   const onKeyDown = useRowKeys()
+  const name = useSessionName()
   const levels = Math.max(0, ...groups.map((group) => deepest(group.nodes))) + 1
   const column = (width - 2 * PAD) / levels
   const beside = column >= MIN_COLUMN
@@ -118,11 +120,11 @@ export function AgentGraph({
                           <StateDot state={session.state} />
                           {t(`history.states.${session.state}`)}
                         </span>
-                        <span className="truncate font-semibold">{session.title || t('history.list.untitled')}</span>
+                        <span className="truncate font-semibold">{name(session)}</span>
                         {from ? (
                           <span className="sr-only">
                             {t('live.agents.startedBy', {
-                              title: from.title || t('history.list.untitled'),
+                              title: name(from),
                               basis: t(`live.parentBasis.${session.parent_basis ?? 'unknown'}`, {
                                 defaultValue: t('live.parentBasis.unknown'),
                               }),

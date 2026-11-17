@@ -1,5 +1,6 @@
 import type { MappingResolution, SessionDetail, SessionMapping } from '../api/types'
 import type { EvidenceTier, TreeNode } from '../charts'
+import { nameOf } from '../history/names'
 
 /**
  * How sure each kind of mapping is, as the tree's line styles: a recorded link
@@ -68,5 +69,5 @@ export function mappingTree(
     })
   }
   if (!children.length) return null
-  return { id: 'session', name: session.title || t('history.list.untitled'), children }
+  return { id: 'session', name: nameOf(session) ?? t('history.list.untitled'), children }
 }
