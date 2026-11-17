@@ -457,7 +457,7 @@ class Writer:
         )
         if latest is not None:
             return latest.get("model")
-        return session.models[0] if session.models else None
+        return session.models[-1] if session.models else None
 
     # Thread titles.
 

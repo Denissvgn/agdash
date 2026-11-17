@@ -32,7 +32,10 @@ class SessionSummary(BaseModel):
     started_at: datetime | None
     last_activity_at: datetime | None
     ended_at: datetime | None
-    models: list[str]
+    models: list[str] = Field(
+        description="Each model the session used, once, in the order last used: "
+        "the last is the one it is on now."
+    )
     effort: str | None
     parent_session_id: int | None
     parent_basis: ParentBasis | None = Field(
