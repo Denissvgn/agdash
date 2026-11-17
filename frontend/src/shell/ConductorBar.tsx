@@ -2,6 +2,7 @@ import { Eye, Menu } from 'lucide-react'
 import type { RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink } from 'react-router-dom'
+import { Mark } from './Mark'
 import { HOME_PATH, WORKSPACES } from './navigation'
 
 export const DRAWER_ID = 'navigation-drawer'
@@ -44,8 +45,9 @@ export function ConductorBar({ drawerOpen, onOpenMenu, menuButtonRef }: Props) {
       <Link
         to={HOME_PATH}
         aria-label={t('app.home')}
-        className="rounded-compact text-title text-working-paper"
+        className="inline-flex items-center gap-sm rounded-compact text-title text-working-paper"
       >
+        <Mark />
         {t('app.name')}
       </Link>
 

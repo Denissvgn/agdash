@@ -42,6 +42,16 @@ Two things about the build:
   opens the app. If a build fails with "can't find crate", delete
   `desktop/target/package` and build again.
 
+### The icon
+
+The app's icon files in `desktop/icons` are drawn from two SVG sources there:
+`icon.svg`, and `icon-small.svg` for 32 pixels and under. After changing either,
+draw them again on a Mac:
+
+```bash
+(cd frontend && npm run icons)
+```
+
 ## Signing and notarising
 
 Signing and notarising use your Apple Developer account. You set them up once, and
