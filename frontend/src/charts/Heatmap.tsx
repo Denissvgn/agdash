@@ -20,7 +20,10 @@ export type HeatmapData = {
 
 const TOP = 20
 const MAX_CELL = 28
-const MIN_CELL = 12
+/** Cells narrow to fit the width, so every column shows; below this they would stop reading as cells. */
+const MIN_CELL = 6
+/** A row is never shorter than this, so the row names beside it stay apart. */
+const MIN_ROW = 14
 /**
  * A grid of cells in the ink ramp, darker for more, with a scale legend; a cell
  * that was not reported is hatched. Arrow keys move along a row, up and down
@@ -54,7 +57,9 @@ export function Heatmap({
   const shown: FigureStatus = status === 'ready' && !ready ? 'empty' : status
   const left = ready ? Math.min(Math.max(...data.rows.map((row) => labelWidth(row.name)), 40), Math.max(40, Math.floor(width * 0.3))) : 40
   const cell = ready ? Math.max(MIN_CELL, Math.min(MAX_CELL, (width - left) / data.columns.length)) : MAX_CELL
-  const height = TOP + (ready ? data.rows.length : 7) * cell
+  // Square while there is room; on a narrow screen the cells narrow and keep a readable row.
+  const pitch = Math.max(cell, MIN_ROW)
+  const height = TOP + (ready ? data.rows.length : 7) * pitch
   const scaleOf = ready ? heatScale(data.values.flat().filter((value): value is number => value !== null)) : null
 
   let plot = null
@@ -67,7 +72,7 @@ export function Heatmap({
         const value = data.values[r]?.[c] ?? null
         return {
           x: left + c * cell + cell / 2,
-          y: TOP + r * cell + cell / 2,
+          y: TOP + r * pitch + pitch / 2,
           value: value === null ? t('charts.notReported') : formatValue(value),
           name: t('charts.heatmap.cell', { row: row.name, column: column.name }),
         }
@@ -81,7 +86,7 @@ export function Heatmap({
           marks={marks}
           pick={(px, py) => {
             const c = Math.floor((px - left) / cell)
-            const r = Math.floor((py - TOP) / cell)
+            const r = Math.floor((py - TOP) / pitch)
             return c >= 0 && c < n && r >= 0 && r < data.rows.length ? r * n + c : null
           }}
           stride={n}
@@ -104,7 +109,7 @@ export function Heatmap({
                     dominantBaseline="middle"
                     textAnchor="end"
                     x={left - 8}
-                    y={TOP + r * cell + cell / 2}
+                    y={TOP + r * pitch + pitch / 2}
                   >
                     {row.name}
                   </text>
@@ -115,19 +120,19 @@ export function Heatmap({
                   const value = data.values[r]?.[c] ?? null
                   const i = r * n + c
                   const x = left + c * cell + GAP / 2
-                  const y = TOP + r * cell + GAP / 2
+                  const y = TOP + r * pitch + GAP / 2
                   return (
                     <g key={`${row.id}-${column.id}`} {...mark(i)}>
                       {value === null ? (
-                        <NotReportedBand height={cell - GAP} labelled={false} pattern={hatch} width={cell - GAP} x={x} y={y} />
+                        <NotReportedBand height={pitch - GAP} labelled={false} pattern={hatch} width={cell - GAP} x={x} y={y} />
                       ) : (
-                        <rect className={FILL[heatStep(value, scaleOf!)]} height={cell - GAP} rx={2} width={cell - GAP} x={x} y={y} />
+                        <rect className={FILL[heatStep(value, scaleOf!)]} height={pitch - GAP} rx={2} width={cell - GAP} x={x} y={y} />
                       )}
                       {active === i ? (
                         <rect
                           className="stroke-primary-ink"
                           fill="none"
-                          height={cell - GAP + 2}
+                          height={pitch - GAP + 2}
                           rx={3}
                           strokeWidth={HAIRLINE * 2}
                           width={cell - GAP + 2}

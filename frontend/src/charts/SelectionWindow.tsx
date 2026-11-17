@@ -149,7 +149,7 @@ export function SelectionWindow({
           aria-valuemin={0}
           aria-valuenow={at}
           aria-valuetext={when(at)}
-          className="absolute top-0 flex h-full w-[16px] -translate-x-1/2 pointer-coarse:w-touch cursor-ew-resize items-center justify-center rounded-compact outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-planning-thread"
+          className="absolute top-0 flex h-full w-[16px] -translate-x-1/2 pointer-coarse:w-touch cursor-ew-resize items-center justify-center rounded-compact focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-planning-thread"
           role="slider"
           style={{ left: part === 'start' ? edge(start) : edge(end + 1) }}
           tabIndex={0}

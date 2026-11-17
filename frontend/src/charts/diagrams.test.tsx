@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { useState, type ReactElement } from 'react'
 import { I18nextProvider } from 'react-i18next'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { catalogue, createI18n, LANGUAGE } from '../i18n'
 import { unnamedControls } from '../test/controls'
 import { openTwin } from '../test/twin'
@@ -107,6 +107,18 @@ describe('time lanes', () => {
     expect(below?.getAttribute('aria-label')).toMatch(/^Explorer/)
     expect(Math.abs(at(below).x - at(first).x)).toBeLessThan(120)
   })
+
+  test('Home and End go to the first and last span, never to a break', () => {
+    const { container } = show(<Lanes lanes={LANES.lanes} now={LANES.now} rowHeader="Agent" title="Work" />)
+    const group = plot(container)
+    act(() => group.focus())
+    press(group, 'End')
+    expect(active(group)?.getAttribute('aria-label')).not.toContain('Idle for')
+    press(group, 'ArrowRight')
+    expect(active(group)?.getAttribute('aria-label')).toContain('Idle for')
+    press(group, 'Home')
+    expect(active(group)?.getAttribute('aria-label')).toMatch(/^Main agent/)
+  })
 })
 
 describe('state strips', () => {
@@ -161,6 +173,19 @@ describe('heatmap', () => {
     expect(cells.map((row) => row.map((cell) => (cell === null ? null : Number(cell.replace(/,/g, '')))))).toEqual(data.values)
     expect(within(container).getByRole('list', { name: 'Scale' })).toBeInTheDocument()
     expect(group.querySelectorAll('rect[fill^="url(#"]').length).toBe(4)
+  })
+
+  test('narrows its cells so every column fits a phone, keeping rows tall enough to name', () => {
+    // The room a figure has at 320px: the page and the card each take their padding.
+    const narrow = vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 256, 200))
+    const { container } = show(<Heatmap data={heatmap()} rowHeader="Weekday" title="Calls" />)
+    narrow.mockRestore()
+    const cells = [...plot(container).querySelectorAll<SVGRectElement>('rect[rx="2"]')]
+    expect(cells).toHaveLength(7 * 24)
+    const right = Math.max(...cells.map((cell) => Number(cell.getAttribute('x')) + Number(cell.getAttribute('width'))))
+    expect(right).toBeLessThanOrEqual(256)
+    const rows = [...new Set(cells.map((cell) => Number(cell.getAttribute('y'))))].sort((a, b) => a - b)
+    expect(rows[1] - rows[0]).toBeGreaterThanOrEqual(14)
   })
 })
 

@@ -107,7 +107,7 @@ export function Plot({
       aria-describedby={hint}
       aria-label={label}
       aria-roledescription={t('charts.roledescription')}
-      className="relative outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-planning-thread"
+      className="relative focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-planning-thread"
       role="group"
       style={{ height }}
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
@@ -123,7 +123,8 @@ export function Plot({
       <span className="sr-only" id={hint}>
         {t('charts.keys')}
       </span>
-      <svg className="block overflow-visible" height={height} width={width}>
+      {/* No role of its own: the group holds its labelled marks directly, never inside an image. */}
+      <svg className="block overflow-visible" height={height} role="none" width={width}>
         <defs>
           <HatchPattern id={`${base}-hatch`} />
         </defs>

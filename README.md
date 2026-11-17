@@ -84,6 +84,8 @@ The Ubuntu packages, and running agdash on a server with no display, are in
 
 Backfill speed and memory, and how to measure them, are in
 [docs/performance.md](docs/performance.md).
+How the figures are checked for keyboard use, screen readers, forced colours,
+zoom and reflow is in [docs/figures-review.md](docs/figures-review.md).
 
 Contributor and agent rules are in [AGENTS.md](AGENTS.md).
 

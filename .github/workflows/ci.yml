@@ -113,6 +113,60 @@ jobs:
           path: frontend/specimen-shots/
           if-no-files-found: error
 
+  screens:
+    name: Figure screens (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Create the environments and build the UI
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e "backend[dev]"
+          (cd frontend && npm ci && npm run build)
+      # WebKit everywhere; Chromium on Linux too, the one engine that emulates forced colours.
+      - name: Install the browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps webkit ${{ runner.os == 'Linux' && 'chromium' || '' }}
+      # The built app over a synthetic store, on loopback, with no keyring and an empty home.
+      - name: Serve the synthetic store
+        working-directory: backend
+        env:
+          PYTHON_KEYRING_BACKEND: keyring.backends.fail.Keyring
+        run: |
+          export HOME="$RUNNER_TEMP/screens-home" && mkdir -p "$HOME"
+          nohup ../.venv/bin/python tests/screens.py --port 8790 --ui ../frontend/dist > "$RUNNER_TEMP/screens.log" 2>&1 &
+          for _ in $(seq 1 60); do curl -sf http://127.0.0.1:8790/health && exit 0; sleep 1; done
+          cat "$RUNNER_TEMP/screens.log"; exit 1
+      # Keyboard, labels, 200% zoom, 320px reflow and motion on every figure screen.
+      - name: Check every figure screen in WebKit
+        working-directory: frontend
+        run: node scripts/screens.mjs --engine webkit
+      - name: Check every figure screen in forced colours
+        if: runner.os == 'Linux'
+        working-directory: frontend
+        run: node scripts/screens.mjs --engine chromium --forced-colors
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: figure-screens-${{ matrix.os }}
+          path: frontend/specimen-shots/screens/
+          if-no-files-found: error
+
   desktop:
     name: Desktop shell (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
