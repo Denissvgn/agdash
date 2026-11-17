@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { NavLink } from 'react-router-dom'
 import { DRAWER_ID } from './ConductorBar'
 import { Destinations } from './Destinations'
+import { Mark } from './Mark'
 import { WORKSPACES, type Workspace } from './navigation'
 
 interface Props {
@@ -48,7 +49,10 @@ export function NavDrawer({ open, onClose, workspace, returnFocusTo }: Props) {
     >
       <div className="relative z-10 flex h-full w-[min(320px,86vw)] flex-col bg-working-paper pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] text-primary-ink shadow-popover animate-[drawer-in_180ms_cubic-bezier(0.16,1,0.3,1)] motion-reduce:animate-none">
         <div className="flex h-[calc(theme(spacing.conductor)+env(safe-area-inset-top))] shrink-0 items-center justify-between border-b border-hairline px-md pt-[env(safe-area-inset-top)]">
-          <span className="text-title">{t('app.name')}</span>
+          <span className="inline-flex items-center gap-sm text-title">
+            <Mark />
+            {t('app.name')}
+          </span>
           <button
             type="button"
             onClick={onClose}

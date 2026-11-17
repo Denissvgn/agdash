@@ -26,7 +26,9 @@ function literalStrings(path: string): string[] {
       ts.isJsxAttribute(node) &&
       ACCESSIBLE_ATTRIBUTES.includes(node.name.getText()) &&
       node.initializer &&
-      ts.isStringLiteral(node.initializer)
+      ts.isStringLiteral(node.initializer) &&
+      // An empty value says nothing: what a picture beside its own name should say.
+      node.initializer.text !== ''
     ) {
       found.push(`${node.name.getText()}="${node.initializer.text}"`)
     }

@@ -229,7 +229,9 @@ Tabular numerals are applied to measured data and identifiers so they align in c
 
 **The Operational Base Rule.** (Upstream.) Interactive and reading text starts at 14px; smaller sizes support the work and never carry the primary instruction.
 
-**The Wordmark Rule.** agdash has no product mark; the name is set in Title weight in working paper on the conductor bar, and links home.
+**The Wordmark Rule.** The name is set in Title weight in working paper on the conductor bar, with the mark before it, and links home.
+
+**The Mark Rule.** The mark is the heart of the ecosystem's root icon: a glowing pentagon and the five cells that share its edges, inside an open white ring. Three cells are lit, two green and one red, as a board of sessions is. It is a picture, not a reading: the lit cells never follow the sessions on the page, and its green and red say nothing of state. Its green, red and charcoal belong to the mark alone and are not interface colours. It always sits on its own near-black tile, 24px beside the name, and never stands in for the name. The app icon uses the full drawing (`desktop/icons/icon.svg`); 32px and under, the page icon and the mark beside the name use the small one (`desktop/icons/icon-small.svg`), with heavier parts and no cell edges.
 
 ## Layout
 
@@ -259,7 +261,7 @@ Gently compact corners from the upstream scale: 6px for every control and naviga
 
 The global workspace layer, in conductor navy with working-paper text.
 
-- **Order:** Menu button (narrow windows only), the agdash wordmark, the five workspaces, and the read-only marker pushed to the right edge.
+- **Order:** Menu button (narrow windows only), the mark and the agdash wordmark, the five workspaces, and the read-only marker pushed to the right edge.
 - **Workspace items:** 36px tall, 6px corners, 10px side padding, a 16px outline icon (1.75 stroke) and a Body label, 4px apart.
 - **Active:** Conductor panel fill, working-paper text and a 2px planning-thread inset underline. It stays active on every inner page of its workspace and carries `aria-current`.
 - **Inactive / Hover:** Inverse muted text; on hover the conductor hover fill and working-paper text.
@@ -291,7 +293,7 @@ The honest answer for a view whose data source does not exist yet.
 The narrow-window home of both the workspace switcher and the current workspace's destinations.
 
 - **Structure:** A native modal dialog covering the window. A working-paper panel on the left, 320px wide or 86% of the viewport, whichever is smaller, with the popover shadow and safe-area padding. The rest of the window is the scrim.
-- **Header:** 52px tall with a hairline below: the wordmark in Title size and a 34px square close button (44px on coarse pointers).
+- **Header:** 52px tall with a hairline below: the mark and the wordmark in Title size and a 34px square close button (44px on coarse pointers).
 - **Content:** The workspace list (34px rows, icon and label; selected rows use the soft tint and cobalt text) and, when the workspace has more than one destination, its sidebar destinations below, 24px apart.
 - **Behaviour:** Opened from the Menu button, which reports its expanded state and the dialog it controls. Focus is held inside while open and lands first on the close button. Escape, the close button, a tap on the scrim, choosing a destination or any change of address closes it, and focus returns to the Menu button.
 
