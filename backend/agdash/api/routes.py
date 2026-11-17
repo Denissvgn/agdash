@@ -6,13 +6,13 @@ so no request reads a whole session, however long it is.
 
 import json
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import String, and_, cast, func, or_, select, text
+from sqlalchemy import String, and_, bindparam, cast, func, or_, select, text
 from sqlalchemy.orm import Session as DbSession
 
 from agdash.api import cursors
@@ -440,6 +440,24 @@ def _snippet(marked: str) -> list[dict[str, Any]]:
     return parts
 
 
+def _marked(db: DbSession, expression: str, event_ids: Sequence[int]) -> dict[int, str]:
+    """Each event's text around its match, for the events a page shows and no others.
+
+    The index keeps no text: a snippet reads the event itself. Asked for with every
+    match, before the page is chosen, it would read every event that matches.
+    """
+    if not event_ids:
+        return {}
+    rows = db.execute(
+        text(
+            f"SELECT rowid AS id, snippet({SEARCH_TABLE}, 0, char(2), char(3), '…', 16) AS marked"
+            f" FROM {SEARCH_TABLE} WHERE {SEARCH_TABLE} MATCH :match AND rowid IN :ids"
+        ).bindparams(bindparam("ids", expanding=True)),
+        {"match": expression, "ids": list(event_ids)},
+    )
+    return {row.id: row.marked or "" for row in rows}
+
+
 def _plain_snippet(payload: dict[str, Any], query: str) -> list[dict[str, Any]]:
     """Without an index: the text around the first match, found by hand."""
     text_value = next(
@@ -512,13 +530,13 @@ def search(
         where = " AND ".join([f"{SEARCH_TABLE} MATCH :match", *filters])
         matched = db.execute(
             text(
-                f"SELECT e.id, snippet({SEARCH_TABLE}, 0, char(2), char(3), '…', 16) AS marked"
-                f" FROM {SEARCH_TABLE} JOIN events e ON e.id = {SEARCH_TABLE}.rowid"
+                f"SELECT e.id FROM {SEARCH_TABLE} JOIN events e ON e.id = {SEARCH_TABLE}.rowid"
                 f" JOIN sessions s ON s.id = e.session_id WHERE {where}"
                 f" ORDER BY bm25({SEARCH_TABLE}), e.id LIMIT :limit OFFSET :offset"
             ),
             params,
         ).all()
+        marked = _marked(db, expression, [row.id for row in matched])
         loaded = {
             event.id: (event, session_harness, title)
             for event, session_harness, title in db.execute(
@@ -528,7 +546,9 @@ def search(
             )
         }
         hits = [
-            _hit(*loaded[row.id], _snippet(row.marked or "")) for row in matched if row.id in loaded
+            _hit(*loaded[row.id], _snippet(marked.get(row.id, "")))
+            for row in matched
+            if row.id in loaded
         ]
     else:
         query = (
@@ -586,8 +606,7 @@ def search_sessions(
         rows = db.execute(
             text(
                 f"WITH hits AS (SELECT e.session_id AS sid, e.id AS eid,"
-                f" bm25({SEARCH_TABLE}) AS score,"
-                f" snippet({SEARCH_TABLE}, 0, char(2), char(3), '…', 16) AS marked"
+                f" bm25({SEARCH_TABLE}) AS score"
                 f" FROM {SEARCH_TABLE} JOIN events e ON e.id = {SEARCH_TABLE}.rowid"
                 f" WHERE {SEARCH_TABLE} MATCH :match AND e.session_id IN ({compiled})),"
                 " ranked AS (SELECT *,"
@@ -596,7 +615,7 @@ def search_sessions(
                 " min(score) OVER (PARTITION BY sid) AS best FROM hits),"
                 " paged AS (SELECT *, dense_rank() OVER (ORDER BY best, sid) AS place"
                 " FROM ranked WHERE rn <= :excerpts)"
-                " SELECT sid, eid, hits, marked FROM paged"
+                " SELECT sid, eid, hits FROM paged"
                 " WHERE place > :offset AND place <= :end ORDER BY place, rn"
             ),
             {
@@ -607,13 +626,14 @@ def search_sessions(
                 "end": offset + limit + 1,
             },
         ).all()
+        marked = _marked(db, expression, [eid for _, eid, _ in rows])
         order: list[int] = []
         found: dict[int, dict[str, Any]] = {}
-        for sid, eid, hits, marked in rows:
+        for sid, eid, hits in rows:
             if sid not in found:
                 order.append(sid)
                 found[sid] = {"hits": hits, "excerpts": []}
-            found[sid]["excerpts"].append((eid, _snippet(marked or "")))
+            found[sid]["excerpts"].append((eid, _snippet(marked.get(eid, ""))))
     else:
         rows = db.execute(
             select(Event.session_id, Event.id, Event.payload)
