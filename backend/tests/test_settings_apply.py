@@ -17,7 +17,7 @@ from agdash.adapters import pi
 from agdash.archive import Archiving
 from agdash.config import get_settings
 from agdash.db.migrate import upgrade
-from agdash.db.models import Event, EventUsage, RawChunk, Session, Setting
+from agdash.db.models import Event, EventUsage, RawChunk, Session, SessionFile, Setting
 from agdash.ingest import Ingestor, discover_files
 from agdash.ingest.ledger import SqlLedger
 from agdash.main import create_app
@@ -80,7 +80,6 @@ def add(db, name: str, *, days_ago: float, state=SessionState.UNKNOWN, parent=No
                 occurred_at=moment,
                 kind=EventKind.USER_PROMPT,
                 payload={"text": "synthetic"},
-                source_file=f"/files/{name}.jsonl",
             ),
             Event(
                 session_id=session.id,
@@ -88,10 +87,10 @@ def add(db, name: str, *, days_ago: float, state=SessionState.UNKNOWN, parent=No
                 occurred_at=moment,
                 kind=EventKind.USAGE,
                 payload={"input_tokens": 10, "output_tokens": 5},
-                source_file=f"/files/{name}.jsonl",
             ),
         ]
     )
+    db.add(SessionFile(session_id=session.id, path=f"/files/{name}.jsonl"))
     db.add(
         RawChunk(
             harness="pi",

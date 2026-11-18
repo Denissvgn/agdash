@@ -48,6 +48,7 @@ from agdash.db.models import (
     RawChunk,
     RunLink,
     Session,
+    SessionFile,
     SessionProcess,
     SessionStateChange,
     UsageSnapshot,
@@ -127,9 +128,7 @@ def _remove(db: DbSession, batch: Sequence[int], *, dry_run: bool = False) -> tu
     )
     if dry_run:
         return events, 0
-    files = set(
-        db.scalars(select(Event.source_file).where(Event.session_id.in_(batch)).distinct())
-    ) - {None}
+    files = set(db.scalars(select(SessionFile.path).where(SessionFile.session_id.in_(batch))))
     for table in (
         SessionProcess,
         SessionStateChange,
@@ -139,13 +138,12 @@ def _remove(db: DbSession, batch: Sequence[int], *, dry_run: bool = False) -> tu
         ProjectLink,
         PublishedLink,
         MappingRule,
+        SessionFile,
         Event,
     ):
         db.execute(delete(table).where(table.session_id.in_(batch)))
     db.execute(delete(Session).where(Session.id.in_(batch)))
-    still_used = set(
-        db.scalars(select(Event.source_file).where(Event.source_file.in_(files)).distinct())
-    )
+    still_used = set(db.scalars(select(SessionFile.path).where(SessionFile.path.in_(files))))
     orphaned = files - still_used
     raw = (
         db.execute(delete(RawChunk).where(RawChunk.source_file.in_(orphaned))).rowcount

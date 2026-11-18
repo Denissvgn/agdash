@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from agdash.db.base import utcnow
-from agdash.db.models import Event, Session, SourceHealth
+from agdash.db.models import Event, Session, SessionFile, SourceHealth
 from agdash.events import EventContractError, validate_event
 from agdash.redaction import redact_text, redact_value
 from agdash.vocab import AuthBasis, AuthMethod, EventKind, ParentBasis, Surface, ThoughtsCoverage
@@ -144,6 +144,27 @@ def _known_sequences(db: DbSession, session_id: int, sequence: int) -> set[int]:
     return window[2]
 
 
+_LINKED = "agdash.linked_files"
+
+
+def _link_file(db: DbSession, session_id: int, path: str) -> None:
+    """Note that events of this session were read from this file, once.
+
+    Remembered for the transaction, as the known sequences are, so a file's lines cost
+    one look and not one each.
+    """
+    transaction = db.get_transaction()
+    cached = db.info.get(_LINKED)
+    if cached is None or cached[0] is not transaction:
+        cached = db.info[_LINKED] = (transaction, set())
+    key = (session_id, path)
+    if key in cached[1]:
+        return
+    if db.get(SessionFile, key) is None:
+        db.add(SessionFile(session_id=session_id, path=path))
+    cached[1].add(key)
+
+
 def store_events(
     db: DbSession,
     session: Session,
@@ -178,11 +199,12 @@ def store_events(
                 kind=event.kind,
                 payload=payload,
                 thoughts_coverage=coverage,
-                source_file=source_file,
                 source_offset=offset,
             )
         )
         stored += 1
+    if stored:
+        _link_file(db, session.id, source_file)
     return stored
 
 

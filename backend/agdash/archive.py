@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterator, Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from agdash.db.models import Event, RawChunk
+from agdash.db.models import RawChunk, SessionFile
 from agdash.ingest.compressed import Compressor, decompress
 from agdash.ingest.engine import Cursor, Line
 from agdash.redaction import redact_text
@@ -71,13 +71,8 @@ class Archiving:
 
 
 def source_files(db: DbSession, session_id: int) -> list[str]:
-    return sorted(
-        path
-        for path in db.scalars(
-            select(Event.source_file).where(Event.session_id == session_id).distinct()
-        )
-        if path
-    )
+    """The files a session's events were read from."""
+    return sorted(db.scalars(select(SessionFile.path).where(SessionFile.session_id == session_id)))
 
 
 def raw_lines(db: DbSession, session_id: int) -> Iterator[str]:
