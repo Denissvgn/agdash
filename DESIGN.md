@@ -432,6 +432,8 @@ Secondary controls above the session list, per WorkChord's Persistent Object Rul
 
 Empty and error states share one quiet panel: working paper, hairline, 8px corners, 20px padding, resting shadow; a Title-size heading led by an 18px icon (dashed circle in planned slate for an empty state, alert circle in feedback warning for an error) and one Body line in secondary ink saying what is true and what to do next. An error notice adds a secondary "Try again" button. Its copy comes from the catalogue entry of the page it sits on, so each page explains the failure in its own terms.
 
+A service that answers "preparing its store" is not a failure, so it gets the quiet form, not the error form: the dashed circle, the same title and body on every page ("The service is preparing its store", why that takes minutes, and that the page loads by itself), and a secondary "Check now" button. A figure whose values did not come for that reason says the same in its own frame, without a button. Nothing needs to be clicked: the app asks the service every five seconds whether it is ready and then asks for everything again.
+
 ### Buttons and fields
 
 - **Secondary:** working paper, 1px hairline border, primary ink; hover canvas mist.
