@@ -1,6 +1,7 @@
 """Room that removed data left inside the store's file goes back to the disk."""
 
 import logging
+import os
 from pathlib import Path
 
 import pytest
@@ -8,12 +9,14 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from agdash import compact as compact_module
+from agdash import runtime
 from agdash.compact import compact, compact_if_worth_it, release, room
 from agdash.config import get_settings
 from agdash.db.migrate import upgrade
 from agdash.db.models import Event, RawChunk, Session
 from agdash.platform import Host, OperatingSystem
 from agdash.runtime import prepare, writer_engine
+from agdash.storelock import InsideHarness, hold, lock_file
 from agdash.vocab import EventKind
 
 KEPT, REMOVED = 40, 400
@@ -91,18 +94,50 @@ def whole(url: str) -> None:
 
 def test_compacting_writes_the_store_anew_without_its_free_pages(tmp_path):
     url, path = filled(tmp_path)
+    # Enough kept data that SQLite cannot hold the new copy in memory and must write it;
+    # it takes some of the free room, and the rest is what compacting gives back.
+    engine = writer_engine(url)
+    with sessionmaker(engine).begin() as db:
+        db.add(
+            RawChunk(
+                harness="pi",
+                source_file="/synthetic/kept.jsonl",
+                first_offset=0,
+                end_offset=1,
+                line_count=1,
+                data=os.urandom(4_000_000),
+            )
+        )
+    engine.dispose()
     before = look(url)
-    assert before.free_bytes > 6_000_000 and before.releases is False
-    done = compact(url)
+    assert before.free_bytes > 4_000_000 and before.releases is False
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    os.utime(copy, (1, 1))
+    done = compact(url, temporary=copy)
     after = look(url)
+    assert copy.stat().st_mtime > 1, "the temporary copy was written where it was told to be"
     assert done is not None and (done.before_bytes, done.after_bytes) == (
         before.file_bytes,
         after.file_bytes,
     )
-    assert after.file_bytes < before.file_bytes - 6_000_000
+    assert after.file_bytes < before.file_bytes - 4_000_000
     assert after.free_bytes == 0 and after.releases is True
     assert path.stat().st_size == after.file_bytes
-    assert not list(tmp_path.glob("*.tmp")) and "SQLITE_TMPDIR" not in __import__("os").environ
+    assert not list(copy.iterdir()), "and nothing of it is left"
+    with create_engine(url).connect() as connection:
+        told = connection.exec_driver_sql("PRAGMA temp_store_directory").scalar()
+    assert not told, "SQLite chooses its temporary folder by itself again"
+    whole(url)
+
+
+def test_a_sqlite_that_will_not_take_the_folder_is_not_compacted(tmp_path, monkeypatch):
+    url, path = filled(tmp_path)
+    size = path.stat().st_size
+    monkeypatch.setattr(compact_module, "_place_copy", lambda connection, folder: folder is None)
+    with pytest.raises(compact_module.CopyNotPlaced):
+        compact(url)
+    assert path.stat().st_size == size
     whole(url)
 
 
@@ -175,10 +210,12 @@ def test_the_service_compacts_as_it_starts_when_it_is_worth_it(tmp_path, monkeyp
     _url, path = filled(tmp_path)
     size = path.stat().st_size
     host = Host(OperatingSystem.LINUX, tmp_path, {"AGDASH_DATA_DIR": str(tmp_path)})
-    prepare(host)
+    prepare(host, compact=True)
     assert path.stat().st_size == size, "not by the real measure"
     monkeypatch.setattr(compact_module, "MIN_FREE_BYTES", 1_000_000)
-    store = prepare(host)
+    prepare(host)
+    assert path.stat().st_size == size, "never by a command run beside the service"
+    store = prepare(host, compact=True)
     assert store.database_file == path and path.stat().st_size < size - 6_000_000
     assert path.stat().st_mode & 0o077 == 0, "still readable by its owner only"
     whole(store.url)
@@ -195,6 +232,45 @@ def test_the_command_reports_and_compacts_only_with_the_service_stopped(
     assert "is free inside the file" in capsys.readouterr().out and path.stat().st_size == size
     assert compact_module.main(["--apply"], answering=lambda: True) == 1
     assert "Stop it first" in capsys.readouterr().out and path.stat().st_size == size
+    # A service still bringing its store up to date answers nothing, but holds the lock.
+    starting = hold(lock_file(path, tmp_path))
+    assert compact_module.main(["--apply"], answering=lambda: False) == 1
+    assert "Stop it first" in capsys.readouterr().out and path.stat().st_size == size
+    starting.release()
     assert compact_module.main(["--apply"], answering=lambda: False) == 0
     assert "Compacted from" in capsys.readouterr().out and path.stat().st_size < size
     whole(url)
+
+
+def test_a_second_service_on_the_same_store_ends_at_once(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("AGDASH_DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    path = tmp_path / "agdash.db"
+    first = hold(lock_file(path, tmp_path))
+    assert first is not None
+    monkeypatch.setattr(runtime, "prepare", lambda *a, **k: pytest.fail("the store was opened"))
+    assert runtime.serve() == 2
+    assert "another agdash service already has this store" in capsys.readouterr().err
+    assert not path.exists()
+    first.release()
+    again = hold(lock_file(path, tmp_path))
+    assert again is not None, "the lock goes with the process that held it"
+    again.release()
+
+
+def test_the_lock_is_beside_a_store_that_is_a_file(tmp_path):
+    assert lock_file(tmp_path / "agdash.db", tmp_path / "data") == tmp_path / "agdash.db.lock"
+    assert lock_file(None, tmp_path / "data") == tmp_path / "data" / "service.lock"
+    held = hold(tmp_path / "agdash.db.lock")
+    assert hold(tmp_path / "agdash.db.lock") is None, "one holder at a time"
+    held.release()
+    held.release()  # twice is harmless
+    assert (tmp_path / "agdash.db.lock").stat().st_mode & 0o077 == 0
+
+
+def test_no_lock_is_made_inside_a_harness_directory(tmp_path):
+    harness = tmp_path / "harness"
+    harness.mkdir()
+    with pytest.raises(InsideHarness):
+        hold(harness / "store.db.lock", forbidden_roots=(harness,))
+    assert not list(harness.iterdir())

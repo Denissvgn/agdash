@@ -35,6 +35,7 @@ from agdash.main import create_app
 from agdash.platform import Host, current_host
 from agdash.retention import Keeper
 from agdash.service_usage import Sampler
+from agdash.storelock import InsideHarness, hold, lock_file
 
 log = logging.getLogger("agdash")
 
@@ -72,8 +73,8 @@ class Store:
     database_file: Path | None
 
 
-def prepare(host: Host | None = None) -> Store:
-    """Create the private data directory, bring the store up to date and lock it down."""
+def locate(host: Host | None = None) -> Store:
+    """Where the store is, with its private folders made. The store itself is not opened."""
     host = host or current_host()
     data_dir = host.data_dir()
     data_dir.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
@@ -82,16 +83,29 @@ def prepare(host: Host | None = None) -> Store:
     path = sqlite_file(url)
     if path is not None:
         path.parent.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
-    upgrade(url)
-    try:
-        # Before anything else opens the store: compacting needs it to itself.
-        compact_if_worth_it(url)
-    except Exception:
-        log.exception("could not compact the store; it stays as it is")
-    if path is not None and path.exists():
-        path.chmod(PRIVATE_FILE)
-    (data_dir / "snapshots").mkdir(mode=PRIVATE_DIR, exist_ok=True)
     return Store(url=url, data_dir=data_dir, database_file=path)
+
+
+def prepare(host: Host | None = None, *, compact: bool = False) -> Store:
+    """Create the private data directory, bring the store up to date and lock it down.
+
+    ``compact`` also gives room freed inside the store back to the disk when that is
+    worth it. Only a caller that has the store to itself may ask: the service, which
+    holds the store's lock. A command run beside a service, such as ``backfill``, does
+    not, since compacting would keep the service from writing for minutes.
+    """
+    store = locate(host)
+    upgrade(store.url)
+    if compact:
+        try:
+            # Before anything else opens the store: compacting needs it to itself.
+            compact_if_worth_it(store.url)
+        except Exception:
+            log.exception("could not compact the store; it stays as it is")
+    if store.database_file is not None and store.database_file.exists():
+        store.database_file.chmod(PRIVATE_FILE)
+    (store.data_dir / "snapshots").mkdir(mode=PRIVATE_DIR, exist_ok=True)
+    return store
 
 
 WAL_LIMIT_BYTES = 64 * 1024 * 1024
@@ -170,7 +184,34 @@ def serve() -> int:
         print("agdash: refusing to start: the webhook receiver needs a port of its own")
         return 2
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    store = prepare()
+    host = current_host()
+    found = locate(host)
+    # Before the store is opened: bringing a large one up to date takes minutes, and a
+    # second service started meanwhile must not begin the same work beside this one.
+    try:
+        held = hold(
+            lock_file(found.database_file, found.data_dir),
+            forbidden_roots=host.all_harness_roots(),
+        )
+    except InsideHarness as error:
+        print(f"agdash: refusing to start: {error}", file=sys.stderr)
+        return 2
+    if held is None:
+        print(
+            "agdash: refusing to start: another agdash service already has this store,"
+            " or the store is being compacted",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        return _serve(settings)
+    finally:
+        held.release()
+
+
+def _serve(settings: Settings) -> int:
+    """The service itself, once this process has the store's lock."""
+    store = prepare(compact=True)
     collector, engine = collector_for(store)
     stop = threading.Event()
     threads = collector.run(stop)

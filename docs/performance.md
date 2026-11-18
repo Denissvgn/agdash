@@ -106,6 +106,11 @@ quarter of the store's file and 256 MB are free, the service writes the store
 anew without it as it starts, before anything else opens it. That takes some
 minutes on a large store and room on the volume for twice what the store will
 hold; without that room it leaves the store as it is and says so in its log.
+The temporary copy is written in the store's own folder, not in the system's
+temporary folder. Only the service compacts by itself: a command run beside it,
+such as `agdash backfill`, never does. While the service brings a large store
+up to date it holds a lock beside the store, so a second service started
+meanwhile ends at once instead of working on the same store.
 From then on the store gives free room back a little at a time after sessions
 are removed or the archive is trimmed. `agdash compact` says how much is free,
 and `agdash compact --apply` compacts with the service stopped.
