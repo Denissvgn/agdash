@@ -55,8 +55,10 @@
   .button-ghost {
     @apply inline-flex h-control shrink-0 items-center justify-center gap-sm rounded-control px-[12px] text-body transition-colors duration-state pointer-coarse:h-touch;
   }
+  /* The dark hover leaves a disabled button alone: its selector outranks the disabled
+     rule below, and its fill is the disabled text's colour. A link is never disabled. */
   .button-primary {
-    @apply bg-primary-ink text-working-paper hover:bg-conductor-panel dark:hover:bg-secondary-ink;
+    @apply bg-primary-ink text-working-paper hover:bg-conductor-panel dark:[&:not(:disabled)]:hover:bg-secondary-ink;
   }
   .button-secondary {
     @apply border border-hairline bg-working-paper text-primary-ink hover:bg-canvas-mist;
