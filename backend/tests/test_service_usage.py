@@ -322,6 +322,39 @@ def test_each_minute_is_kept_once_it_is_over(store):
     assert kept[1].read_bytes == 6 * MB and kept[1].footprint_bytes == 100 * MB
 
 
+def test_a_write_that_fails_loses_no_samples(store, caplog):
+    class Busy:
+        """The store, held by another process for the first two writes."""
+
+        def __init__(self) -> None:
+            self.refused = 0
+
+        def begin(self):
+            if self.refused < 2:
+                self.refused += 1
+                raise RuntimeError("database is locked: INSERT INTO service_usage ...")
+            return store.begin()
+
+    machine = Machine()
+    sampler = machine.sampler(store)
+    sampler._sessions = Busy()
+    sampler.sample()
+    with caplog.at_level("WARNING", logger="agdash.usage"):
+        run_for(machine, sampler, 18, cpu=0.5, t2=0.5)  # 12:00:10 to 12:03:00
+    assert sampler._sessions.refused == 2, "tried once a minute, not at every sample"
+    said = [record.getMessage() for record in caplog.records]
+    assert len(said) == 2 and all("RuntimeError" in line for line in said)
+    assert not any("INSERT" in line for line in said), "the statement is never logged"
+    kept = rows(store, MINUTE)
+    assert [(row.started_at, row.seconds) for row in kept] == [
+        (NOON, 50.0),
+        (NOON + timedelta(minutes=1), 60.0),
+        (NOON + timedelta(minutes=2), 60.0),
+    ]
+    sampler.flush()
+    assert rows(store, MINUTE)[-1].seconds == 10.0, "and stopping writes the rest"
+
+
 def test_a_minute_the_service_stopped_and_started_in_is_one_row(store):
     machine = Machine()
     first = machine.sampler(store)
