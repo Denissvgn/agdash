@@ -72,7 +72,10 @@ export function StoreParts() {
           </tbody>
         </table>
       </div>
-      <p className="max-w-[70ch] text-label text-secondary-ink">{t('storage.parts.note')}</p>
+      <p className="max-w-[70ch] text-label text-secondary-ink">
+        {t('storage.parts.note')}{' '}
+        {parts.compacts_at_start ? t('storage.parts.atStart') : parts.releases ? t('storage.parts.released') : ''}
+      </p>
     </div>
   )
 }

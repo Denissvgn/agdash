@@ -26,6 +26,7 @@ from agdash import saved
 from agdash.api.security import NotLoopback, ensure_loopback
 from agdash.archive import Trimmer
 from agdash.collector.run import Collector
+from agdash.compact import compact_if_worth_it
 from agdash.config import Settings, database_url, get_settings
 from agdash.connectors.mirror import MirrorSync
 from agdash.connectors.webhook import create_receiver
@@ -82,6 +83,11 @@ def prepare(host: Host | None = None) -> Store:
     if path is not None:
         path.parent.mkdir(mode=PRIVATE_DIR, parents=True, exist_ok=True)
     upgrade(url)
+    try:
+        # Before anything else opens the store: compacting needs it to itself.
+        compact_if_worth_it(url)
+    except Exception:
+        log.exception("could not compact the store; it stays as it is")
     if path is not None and path.exists():
         path.chmod(PRIVATE_FILE)
     (data_dir / "snapshots").mkdir(mode=PRIVATE_DIR, exist_ok=True)
