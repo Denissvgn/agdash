@@ -222,8 +222,12 @@ def test_trimming_goes_a_few_chunks_at_a_time_and_can_be_stopped(store, monkeypa
     assert (done.chunks, done.finished) == (2, False)
     with store() as db:
         assert untrimmed(db) == 4 and saved.last_trim(db)["through"] == 2
-    # Asked again, it goes on from where it stopped.
+    # Asked again, it goes on from where it stopped. With nothing to stop it, as from
+    # the command line, it still pauses between steps, so a service's writes get in.
+    pauses: list[float] = []
+    monkeypatch.setattr(archive_module.time, "sleep", pauses.append)
     assert trim_in_steps(store, clock=lambda: NOW).chunks == 4
+    assert pauses and set(pauses) == {archive_module.TRIM_PAUSE_SECONDS}
     with store() as db:
         assert saved.last_trim(db)["chunks"] == 6
 

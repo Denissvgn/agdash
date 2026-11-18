@@ -33,13 +33,14 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import AwareDatetime, BaseModel, Field, model_validator
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
 from agdash import saved
 from agdash.api.routes import Db
 from agdash.api.workchord import Writer
 from agdash.archive import Trimmer, untrimmed
+from agdash.compact import room
 from agdash.db.migrate import sqlite_file
 from agdash.db.models import RawChunk, Session
 from agdash.retention import Keeper, removable
@@ -154,6 +155,12 @@ class StoreParts(BaseModel):
     rest_bytes: int | None = Field(
         description="Everything else: the events, their search index and the rest."
     )
+    compacts_at_start: bool = Field(
+        description="Whether so much is free that the service compacts the store at its next start."
+    )
+    releases: bool = Field(
+        description="Whether the store gives free room back to the disk as the service runs."
+    )
 
 
 class RemovalIn(BaseModel):
@@ -244,20 +251,24 @@ def archive_size(db: Db) -> dict[str, int]:
 
 
 @router.get("/storage/parts", response_model=StoreParts, summary="What the store is made of")
-def store_parts(request: Request, db: Db) -> dict[str, int | None]:
+def store_parts(request: Request, db: Db) -> dict[str, Any]:
     """The store's file by what fills it: the archive, the room free inside it, and
     what remains, which is the events, their search index and everything else. The
     search index is not told apart: sizing it would read all of it."""
     path = sqlite_file(request.app.state.store.database_url)
     total = _size(path) if path is not None else None
     archive = db.scalar(select(func.coalesce(func.sum(func.length(RawChunk.data)), 0))) or 0
-    free = None
-    if path is not None:
-        free = (db.scalar(text("PRAGMA freelist_count")) or 0) * (
-            db.scalar(text("PRAGMA page_size")) or 0
-        )
+    found = room(db.connection()) if path is not None else None
+    free = found.free_bytes if found is not None else None
     rest = None if total is None else max(0, total - archive - (free or 0))
-    return {"bytes": total, "archive_bytes": archive, "free_bytes": free, "rest_bytes": rest}
+    return {
+        "bytes": total,
+        "archive_bytes": archive,
+        "free_bytes": free,
+        "rest_bytes": rest,
+        "compacts_at_start": bool(found and found.worth_compacting),
+        "releases": bool(found and found.releases),
+    }
 
 
 @router.get(

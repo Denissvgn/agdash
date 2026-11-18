@@ -75,6 +75,10 @@ EXEMPT = {
     # Creates agdash's own data directory and store, readable by their owner only, and
     # handles the stop signals sent to agdash's own process. It never sends a signal.
     "runtime.py": {"mkdir", "chmod", "signal"},
+    # Makes and locks one empty file beside agdash's own store, so that only one
+    # service at a time works on that store. It refuses a path inside a harness
+    # directory and never locks a file a harness wrote.
+    "storelock.py": {"fcntl", "flock", "os.open"},
     # Creates agdash's own data directory for its database, when no database URL is set.
     "connectors/cli.py": {"mkdir"},
     # Uses only sqlite3's authorizer constants, to let the API's settings writer change

@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import sessionmaker
 
 from agdash import saved
+from agdash.compact import release
 from agdash.config import database_url
 from agdash.db.base import UTCDateTime
 from agdash.db.migrate import sync_database_url
@@ -313,6 +314,7 @@ class Keeper:
                 self._sessions, days, now=self._clock(), not_after=before, stop=stop
             )
             self._note(outcome.sessions, outcome.events, automatic, None)
+            self._release(stop)
             log.info(
                 "retention: removed %d sessions and %d events last active before %s",
                 outcome.sessions,
@@ -327,6 +329,16 @@ class Keeper:
         finally:
             with self._lock:
                 self._running = False
+
+    def _release(self, stop: threading.Event | None) -> None:
+        """Give the room the removed sessions left back to the disk, where the store can."""
+        engine = self._sessions.kw.get("bind")
+        if engine is None:
+            return
+        try:
+            release(engine, stop=stop)
+        except Exception:
+            log.exception("could not give freed room back to the disk; the next removal retries")
 
     def _note(self, sessions: int, events: int, automatic: bool, error: str | None) -> None:
         with self._sessions.begin() as db:

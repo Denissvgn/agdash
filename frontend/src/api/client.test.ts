@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { adoptLinkToken, ApiError, getJson, localToken, REQUEST_TIMEOUT_MS } from './client'
+import { adoptLinkToken, ApiError, getBlob, getJson, localToken, REQUEST_TIMEOUT_MS, sendJson } from './client'
 
 beforeEach(() => {
   window.sessionStorage.clear()
@@ -71,6 +71,25 @@ test.each([502, 503, 504])('a gateway that cannot reach the service (%i) reads a
   const error = await getJson('/api/sessions').catch((caught: unknown) => caught)
   expect(error).toBeInstanceOf(ApiError)
   expect((error as ApiError).kind).toBe('unreachable')
+})
+
+test('the service saying it is preparing its store reads as that, not as unreachable', async () => {
+  const answer = () =>
+    new Response(JSON.stringify({ detail: 'the service is preparing its store', status: 'preparing' }), { status: 503 })
+  vi.stubGlobal('fetch', vi.fn(async () => answer()))
+  for (const ask of [() => getJson('/api/sessions'), () => getBlob('/api/sessions/1/export'), () => sendJson('POST', '/api/storage/settings', {})]) {
+    const error = await ask().catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).kind).toBe('preparing')
+    expect((error as ApiError).status).toBe(503)
+  }
+})
+
+test('a write that is refused still carries the service’s own words', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'no limit is set' }), { status: 409 })))
+  const error = await sendJson('POST', '/api/storage/retention/removal').catch((caught: unknown) => caught)
+  expect((error as ApiError).kind).toBe('server')
+  expect((error as ApiError).detail).toBe('no limit is set')
 })
 
 test("the caller's cancel is still a cancel, not an error, and clears the timeout", async () => {

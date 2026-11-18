@@ -5,6 +5,7 @@ import { unnamedControls } from '../test/controls'
 import { newQueryClient } from '../api/queryClient'
 import type { Facets, Page, SessionHit, SessionSummary } from '../api/types'
 import { apiParams, isFiltered, NO_FILTERS, readFilters, writeFilters } from './filters'
+import { PREPARING_ASK_MS } from '../api/preparing'
 
 // Synthetic sessions: no real transcript content appears in tests.
 const session = (id: number, patch: Partial<SessionSummary> = {}): SessionSummary => ({
@@ -255,6 +256,29 @@ describe('the sessions list', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Try again' })))
     expect(await screen.findByText('Synthetic session 1')).toBeInTheDocument()
   })
+
+  test(
+    'a service still preparing its store is said so, and the page loads by itself once it is ready',
+    async () => {
+      let preparing = true
+      serve(() =>
+        preparing
+          ? { status: 503, body: { detail: 'the service is preparing its store', status: 'preparing' } }
+          : { body: page([session(1)]) },
+      )
+      open('#/history')
+      expect(
+        await screen.findByRole('heading', { name: 'The service is preparing its store' }, { timeout: 3000 }),
+      ).toBeInTheDocument()
+      expect(screen.queryByText("Can't reach the agdash service")).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Check now' })).toBeInTheDocument()
+      preparing = false
+      // Nothing is clicked: the app asks again by itself, for the list and every figure.
+      expect(await screen.findByText('Synthetic session 1', {}, { timeout: PREPARING_ASK_MS + 4000 })).toBeInTheDocument()
+      expect(screen.queryByText('The service is preparing its store')).not.toBeInTheDocument()
+    },
+    PREPARING_ASK_MS + 10_000,
+  )
 })
 
 describe('search', () => {

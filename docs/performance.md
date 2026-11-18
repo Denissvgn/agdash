@@ -89,13 +89,35 @@ What keeps it there:
 The service measures this itself. Every ten seconds it asks the operating
 system about its own process: processor time in all and for each of its
 threads, memory, and the bytes it read from and wrote to storage. `agdash
-usage` prints the current figures, and Settings · Service shows them over the
-last hour, day or 90 days, with the processor time each part of the service
-took. The memory it shows is the footprint, which counts memory the system has
+usage` prints the last minute the service kept, read from the store itself: it
+asks neither the service nor the system keyring, so it is safe to run as often
+as you like. Settings · Service shows the figures over the last hour, day or 90
+days, with the processor time each part of the service took. The memory it shows is the footprint, which counts memory the system has
 compressed or swapped out; resident size alone leaves that out and reads
 several times lower on a machine under memory pressure. One row a minute is
 kept for two days and one an hour for ninety, under a megabyte in all, and a
 sample costs well under a millisecond.
+
+## Giving freed room back to the disk
+
+A SQLite file stays the size it once grew to: what removed data leaves is room
+inside the file, which new data fills before the file grows. When at least a
+quarter of the store's file and 256 MB are free, the service writes the store
+anew without it as it starts, before anything else opens it. That takes some
+minutes on a large store and room on the volume for twice what the store will
+hold; without that room it leaves the store as it is and says so in its log.
+The temporary copy is written in the store's own folder, not in the system's
+temporary folder. Only the service compacts by itself: a command run beside it,
+such as `agdash backfill`, never does. While the service brings a large store
+up to date it holds a lock beside the store, so a second service started
+meanwhile ends at once instead of working on the same store. When that work
+takes longer than a second, the service's port answers meanwhile: `/health`
+says `preparing` and every other request gets 503 with the same word, so the
+app and the UI say that the store is being prepared and load by themselves once
+it is ready. `agdash status` says the same.
+From then on the store gives free room back a little at a time after sessions
+are removed or the archive is trimmed. `agdash compact` says how much is free,
+and `agdash compact --apply` compacts with the service stopped.
 
 ## Peak memory against transcript size
 

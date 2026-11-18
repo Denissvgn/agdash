@@ -22,6 +22,7 @@ import logging
 import re
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -31,6 +32,7 @@ from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import sessionmaker
 
 from agdash import saved
+from agdash.compact import release
 from agdash.config import database_url
 from agdash.db.migrate import sync_database_url
 from agdash.db.models import RawChunk, SessionFile
@@ -213,8 +215,13 @@ def trim_in_steps(
         chunks, spared = chunks + step.chunks, spared + step.saved_bytes
         if step.finished:
             return Trimmed(chunks, spared, True)
+        # Also from the command line, which has no stop to wait on: run beside a
+        # service, steps with no pause between them would keep its writes waiting.
+        wait = TRIM_PAUSE_SECONDS if pause is None else pause
         if stop is not None:
-            stop.wait(TRIM_PAUSE_SECONDS if pause is None else pause)
+            stop.wait(wait)
+        elif wait:
+            time.sleep(wait)
     return Trimmed(chunks, spared, False)
 
 
@@ -246,6 +253,9 @@ class Trimmer:
                     log.info(
                         "archive: looked at %d chunks, %d bytes less", done.chunks, done.saved_bytes
                     )
+                    engine = self._sessions.kw.get("bind")
+                    if engine is not None:
+                        release(engine, stop=stop)
                 except Exception:
                     log.exception("trimming the archive failed; ask again to go on")
                 finally:

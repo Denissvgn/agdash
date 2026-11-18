@@ -322,6 +322,39 @@ def test_each_minute_is_kept_once_it_is_over(store):
     assert kept[1].read_bytes == 6 * MB and kept[1].footprint_bytes == 100 * MB
 
 
+def test_a_write_that_fails_loses_no_samples(store, caplog):
+    class Busy:
+        """The store, held by another process for the first two writes."""
+
+        def __init__(self) -> None:
+            self.refused = 0
+
+        def begin(self):
+            if self.refused < 2:
+                self.refused += 1
+                raise RuntimeError("database is locked: INSERT INTO service_usage ...")
+            return store.begin()
+
+    machine = Machine()
+    sampler = machine.sampler(store)
+    sampler._sessions = Busy()
+    sampler.sample()
+    with caplog.at_level("WARNING", logger="agdash.usage"):
+        run_for(machine, sampler, 18, cpu=0.5, t2=0.5)  # 12:00:10 to 12:03:00
+    assert sampler._sessions.refused == 2, "tried once a minute, not at every sample"
+    said = [record.getMessage() for record in caplog.records]
+    assert len(said) == 2 and all("RuntimeError" in line for line in said)
+    assert not any("INSERT" in line for line in said), "the statement is never logged"
+    kept = rows(store, MINUTE)
+    assert [(row.started_at, row.seconds) for row in kept] == [
+        (NOON, 50.0),
+        (NOON + timedelta(minutes=1), 60.0),
+        (NOON + timedelta(minutes=2), 60.0),
+    ]
+    sampler.flush()
+    assert rows(store, MINUTE)[-1].seconds == 10.0, "and stopping writes the rest"
+
+
 def test_a_minute_the_service_stopped_and_started_in_is_one_row(store):
     machine = Machine()
     first = machine.sampler(store)
@@ -510,6 +543,7 @@ def test_the_store_is_given_by_what_fills_it(url, store, tmp_path):
         )
     with client(url) as api:
         parts = api.get("/api/storage/parts").json()
+    assert parts.pop("compacts_at_start") is False and parts.pop("releases") is False
     assert set(parts) == {"bytes", "archive_bytes", "free_bytes", "rest_bytes"}
     assert parts["archive_bytes"] == 5000
     assert parts["free_bytes"] is not None and parts["free_bytes"] >= 0
@@ -520,44 +554,70 @@ def test_the_store_is_given_by_what_fills_it(url, store, tmp_path):
 # -- the command ----------------------------------------------------------------------
 
 
-def test_the_command_prints_what_the_service_says(tmp_path, monkeypatch):
-    host = Host(OperatingSystem.LINUX, tmp_path, {})
-    report = {
-        "since": "2026-11-17T11:00:00Z",
-        "measured_seconds": 3540.0,
-        "now": {
-            "at": "2026-11-17T12:00:00Z",
-            "cpu_percent": 5.7,
-            "footprint_bytes": 157 * MB,
-            "resident_bytes": 48 * MB,
-            "read_bytes_per_second": 1.04 * MB,
-            "written_bytes_per_second": None,
-            "store_bytes": 7720 * MB,
-            "free_bytes": 312_000 * MB,
-        },
-        "parts": [
-            {"part": "probe", "cpu_seconds": 110.0, "cpu_percent": 3.1},
-            {"part": "ingest", "cpu_seconds": 78.0, "cpu_percent": 2.2},
-        ],
-    }
-    asked = []
-    monkeypatch.setattr(cli, "_health", lambda: {"status": "ok"})
-    monkeypatch.setattr(cli, "_service_usage", lambda token: asked.append(token) or report)
-    monkeypatch.setattr("agdash.api.security.load_or_create_token", lambda secrets: "local-token")
-    monkeypatch.setattr(Host, "secret_store", lambda self, **options: object())
+def test_the_command_reads_what_the_service_kept_from_the_store(url, store, monkeypatch):
+    monkeypatch.setenv("AGDASH_DATABASE_URL", url)
+    get_settings.cache_clear()
+    with store.begin() as db:
+        db.add(
+            minute(
+                NOON - timedelta(minutes=2),
+                cpu=1.2,
+                parts={"probe": 1.2},
+                footprint_bytes=120 * MB,
+            )
+        )
+        db.add(
+            minute(
+                NOON - timedelta(minutes=1),
+                cpu=3.42,
+                parts={"probe": 1.86, "ingest": 1.56},
+                footprint_bytes=157 * MB,
+                resident_bytes=48 * MB,
+                read_bytes=62_400_000,
+                written_bytes=None,
+                store_bytes=7720 * MB,
+                free_bytes=312_000 * MB,
+            )
+        )
     lines: list[str] = []
-    assert cli.usage(host, out=lines.append) == 0
+    assert cli.usage(out=lines.append, now=NOON + timedelta(seconds=30)) == 0
     text = "\n".join(lines)
+    assert "Measured: the minute from 2026-11-17T11:59+00:00" in text
     assert "5.7% of one core" in text
     assert "157 MB (resident 48.0 MB)" in text
     assert "read 1.0 MB/s, written not reported" in text
     assert "7.7 GB, 312 GB free" in text
-    assert "probe      3.1% of one core" in text and "59 minutes" in text
-    assert asked == ["local-token"] and "local-token" not in text
+    assert "probe      2.5% of one core" in text and "ingest     1.3% of one core" in text
+    assert "last 2 minutes" in text and "not running" not in text
 
 
-def test_the_command_says_when_nothing_answers(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli, "_health", lambda: None)
+def test_the_command_never_asks_the_secret_store_or_the_service(url, store, monkeypatch):
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("agdash usage reads the store and nothing else")
+
+    monkeypatch.setenv("AGDASH_DATABASE_URL", url)
+    get_settings.cache_clear()
+    monkeypatch.setattr(Host, "secret_store", refuse)
+    monkeypatch.setattr("agdash.api.security.load_or_create_token", refuse)
+    monkeypatch.setattr(cli.urllib.request, "urlopen", refuse)
+    with store.begin() as db:
+        db.add(minute(NOON - timedelta(hours=3)))
+    lines: list[str] = []
+    assert cli.usage(out=lines.append, now=NOON) == 0
+    assert any("most likely not running" in line for line in lines), "its last row is hours old"
+    with store() as db:
+        assert db.scalar(select(func.count()).select_from(ServiceUsage)) == 1, "nothing written"
+
+
+def test_the_command_says_when_nothing_was_kept(url, tmp_path, monkeypatch):
+    monkeypatch.setenv("AGDASH_DATABASE_URL", url)
+    get_settings.cache_clear()
+    lines: list[str] = []
+    assert cli.usage(out=lines.append, now=NOON) == 0
+    assert "Nothing kept yet" in lines[0]
+    missing = tmp_path / "elsewhere" / "agdash.db"
+    monkeypatch.setenv("AGDASH_DATABASE_URL", f"sqlite:///{missing}")
+    get_settings.cache_clear()
     said: list[str] = []
-    assert cli.usage(Host(OperatingSystem.LINUX, tmp_path, {}), err=said.append) == 1
-    assert "not answering" in said[0]
+    assert cli.usage(err=said.append, now=NOON) == 1
+    assert "holds no usage" in said[0] and not missing.exists(), "no empty store is made"
