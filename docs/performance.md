@@ -89,9 +89,10 @@ What keeps it there:
 The service measures this itself. Every ten seconds it asks the operating
 system about its own process: processor time in all and for each of its
 threads, memory, and the bytes it read from and wrote to storage. `agdash
-usage` prints the current figures, and Settings · Service shows them over the
-last hour, day or 90 days, with the processor time each part of the service
-took. The memory it shows is the footprint, which counts memory the system has
+usage` prints the last minute the service kept, read from the store itself: it
+asks neither the service nor the system keyring, so it is safe to run as often
+as you like. Settings · Service shows the figures over the last hour, day or 90
+days, with the processor time each part of the service took. The memory it shows is the footprint, which counts memory the system has
 compressed or swapped out; resident size alone leaves that out and reads
 several times lower on a machine under memory pressure. One row a minute is
 kept for two days and one an hour for ninety, under a megabyte in all, and a

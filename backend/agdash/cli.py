@@ -11,7 +11,7 @@
     agdash retention    see or apply the retention setting
     agdash archive      what is archived, and take encoded data out of it
     agdash compact      give room freed inside the store back to the disk
-    agdash usage        what the running service itself uses: CPU, memory and disk
+    agdash usage        what the service itself uses: CPU, memory and disk, as it kept them
     agdash token        the local API token, for the desktop app, through a pipe only
     agdash open         a link that opens the UI in a browser, for a host with no app
 
@@ -29,7 +29,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import create_engine, func, select
 
@@ -137,54 +137,75 @@ def _percent(value: float | None) -> str:
     return "not reported" if value is None else f"{value:.1f}% of one core"
 
 
-def _service_usage(token: str, timeout: float = 5.0) -> dict | None:
-    settings = get_settings()
-    request = urllib.request.Request(  # noqa: S310 - our own loopback service
-        f"http://{settings.host}:{settings.port}{settings.api_prefix}/service/usage?range=hour",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+# A row is kept as its minute ends, so the newest is up to two minutes old while the
+# service runs. Older than this, and the service has most likely stopped.
+STALE = timedelta(minutes=5)
+
+
+def _kept_usage(url: str, now: datetime) -> dict | None:
+    """The usage the service kept in its store, read without asking the service.
+
+    Read-only, and with no token: nothing here reaches the secret store. None when the
+    store cannot be read or was made before usage was kept.
+    """
+    from sqlalchemy.orm import Session as DbSession
+
+    from agdash.api.service import usage_report
+    from agdash.api.store import read_only_engine
+    from agdash.db.migrate import sqlite_file
+
+    path = sqlite_file(url)
+    if path is not None and not path.exists():
+        return None  # opening it would make an empty one
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
-            return json.loads(response.read())
-    except (urllib.error.URLError, OSError, ValueError):
+        engine = read_only_engine(url)
+        try:
+            with DbSession(engine) as db:
+                return usage_report(db, None, "hour", now=now)
+        finally:
+            engine.dispose()
+    except Exception:
         return None
 
 
-def usage(host: Host, out=print, err=None) -> int:
-    """What the running service itself uses now, and over its last hour."""
+def usage(out=print, err=None, now: datetime | None = None) -> int:
+    """What the service itself used in the last minute it kept, and over its last hour."""
     err = err or (lambda text: print(text, file=sys.stderr))
-    settings = get_settings()
-    if _health() is None:
+    now = now or datetime.now(UTC)
+    report = _kept_usage(database_url(), now)
+    if report is None:
         err(
-            f"The service is not answering on http://{settings.host}:{settings.port}."
-            " Start it with `agdash serve`, or `agdash install` to start it at login."
+            "The store holds no usage: it is not created yet, or the service that made it"
+            " is an earlier version. Start the service with `agdash serve`."
         )
         return 1
-    from agdash.api.security import load_or_create_token
-
-    report = _service_usage(load_or_create_token(host.secret_store()))
-    if report is None:
-        err("The service answers but gave no usage: it may be an earlier version.")
-        return 1
-    now = report.get("now")
-    if now is None:
-        out("Nothing measured yet: the service takes its first sample ten seconds after it starts.")
+    latest = report.get("now")
+    if latest is None:
+        out("Nothing kept yet: the service keeps its first minute of usage as that minute ends.")
         return 0
+    measured = _aware(latest["at"])
+    # A row ends within the minute it holds, or exactly as that minute ends.
+    started = (measured - timedelta(microseconds=1)).replace(second=0, microsecond=0)
+    out(f"Measured: the minute from {started.isoformat(timespec='minutes')}")
+    if now - measured > STALE:
+        out("Nothing was kept since, so the service is most likely not running.")
+    out(f"CPU:      {_percent(latest['cpu_percent'])}")
     out(
-        f"Measured: {now['at']}"
-        + (f", sampling since {report['since']}" if report.get("since") else "")
+        f"Memory:   {_size(latest['footprint_bytes'])} (resident {_size(latest['resident_bytes'])})"
     )
-    out(f"CPU:      {_percent(now['cpu_percent'])}")
-    out(f"Memory:   {_size(now['footprint_bytes'])} (resident {_size(now['resident_bytes'])})")
     out(
-        f"Storage:  read {_size(now['read_bytes_per_second'], per_second=True)},"
-        f" written {_size(now['written_bytes_per_second'], per_second=True)}"
+        f"Storage:  read {_size(latest['read_bytes_per_second'], per_second=True)},"
+        f" written {_size(latest['written_bytes_per_second'], per_second=True)}"
     )
-    out(f"Store:    {_size(now['store_bytes'])}, {_size(now['free_bytes'])} free on its volume")
+    out(
+        f"Store:    {_size(latest['store_bytes'])},"
+        f" {_size(latest['free_bytes'])} free on its volume"
+    )
     parts = report.get("parts") or []
     if parts:
-        minutes = round(report["measured_seconds"] / 60)
-        out(f"CPU by part over the last {minutes} minutes measured:")
+        seconds = report["measured_seconds"]
+        span = f"{round(seconds / 60)} minutes" if seconds >= 90 else f"{round(seconds)} seconds"
+        out(f"CPU by part over the last {span} measured:")
         for part in parts:
             out(f"  {part['part']:<10} {_percent(part['cpu_percent'])}")
     return 0
@@ -467,7 +488,7 @@ def main(argv: Sequence[str] | None = None, *, host: Host | None = None, manager
         ("uninstall", "stop starting the service at login; data stays"),
         ("token", "the local API token, for the desktop app (pipe only)"),
         ("open", "a link that opens the UI in a browser"),
-        ("usage", "what the running service itself uses"),
+        ("usage", "what the service itself uses, as it kept it"),
     ):
         commands.add_parser(name, help=text)
     for name in ("connect", "export", "retention", "archive", "compact"):
@@ -495,7 +516,7 @@ def main(argv: Sequence[str] | None = None, *, host: Host | None = None, manager
     if args.command == "open":
         return open_ui(host)
     if args.command == "usage":
-        return usage(host)
+        return usage()
     if args.command == "backfill":
         from agdash.runtime import collector_for, prepare
 
