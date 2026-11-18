@@ -179,7 +179,7 @@ Cool paper neutrals, a deliberately scarce cobalt planning thread, and WorkChord
 ### Secondary
 
 - **Active Cyan, Resolved Emerald, Closed Violet, Planned Slate:** WorkChord's canonical record states. Planned Slate colours the dashed-circle icon of unavailable and empty notices, because a view that waits on its data has not begun. Session state chips map onto the four: active is cyan; ended is violet (closed, with no claim of success); waiting, idle and unknown are slate, since nothing is in progress that agdash can vouch for. The chip always carries the state's word, so colour is never the only signal. A source's chip on Settings · Sources takes the same two: cyan while agdash reads the harness, slate when its folder is not on this machine.
-- **Feedback Warning:** The icon of an error notice (the service could not be reached or refused the request), an actionable exception with a retry. **Danger** is the icon of the one question before something irreversible: removing sessions on Settings · Data.
+- **Feedback Warning:** The icon of an error notice (the service could not be reached or refused the request), an actionable exception with a retry; and the 1px border of a pill that flags one (a signal on Projects, a failed tool result in a timeline). It is never the colour of words: on working paper it is 3.19:1, enough for an icon or a border and not for text, so the words beside it are primary ink. **Danger** is the icon of the one question before something irreversible: removing sessions on Settings · Data.
 
 ### Neutral
 
@@ -230,7 +230,7 @@ WorkChord's DESIGN.md states the light values only. Its stylesheets hold the dar
 - **The derived roles keep their one value.** Hairline is strong rule at 20%, and strong rule does not change; over the dark working paper it is as quiet as over the light one. The scrim stays the light theme's primary ink at 30%: a veil is dark in either theme.
 - **Surfaces and inks trade places**, so a rule written with tokens holds in both themes: working paper is still the raised surface over canvas mist, and primary ink still the strongest text. The primary action is primary ink with working-paper text in both; only its hover differs, since conductor panel would be darker than its text: in the dark theme it is secondary ink, WorkChord's own hover for that button.
 - **Shadows** keep their shapes and are cast in black at 20 to 40%, WorkChord's dark values.
-- **Contrast** is checked on every build: each ink on each surface, the planning thread on its soft tint, the primary action's text and the inverse roles on the conductor bar are at least 4.5:1; notice icons, state marks and the strong-rule border of a field at least 3:1. The screen checks measure every piece of text on every figure screen as the dark theme draws it.
+- **Contrast** is checked on every build: each ink on each surface, the planning thread on its soft tint, the primary action's text and the inverse roles on the conductor bar are at least 4.5:1; notice icons, state marks and the strong-rule border of a field at least 3:1. The screen checks measure every piece of text on every figure screen as each theme draws it.
 
 ### Named Rules
 

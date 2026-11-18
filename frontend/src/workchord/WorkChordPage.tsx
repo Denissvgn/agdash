@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink, Plug, Trash2 } from 'lucide-react'
+import { CircleAlert, ExternalLink, Plug, Trash2 } from 'lucide-react'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getJson, sendJson } from '../api/client'
@@ -377,7 +377,10 @@ function ConnectionCard({ connection }: { connection: WorkChordConnection }) {
           {connection.publish && <span>{t('workchord.publishOn')}</span>}
         </p>
         {connection.last_error && (
-          <p className="text-label text-feedback-warning">{t('workchord.syncProblem', { problem: connection.last_error })}</p>
+          <p className="flex items-start gap-xs text-label text-primary-ink">
+            <CircleAlert aria-hidden="true" className="mt-[1px] shrink-0 text-feedback-warning" size={14} strokeWidth={1.75} />
+            {t('workchord.syncProblem', { problem: connection.last_error })}
+          </p>
         )}
       </header>
       {connection.objects.length > 0 && (

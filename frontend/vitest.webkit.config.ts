@@ -8,6 +8,7 @@ export const NODE_ONLY = [
   'src/charts/geometry.test.ts',
   'src/i18n/keys.test.ts',
   'src/i18n/literals.test.ts',
+  'src/theme/contrast.test.ts',
   'src/theme/dark.test.ts',
   'src/theme/figures.test.ts',
   'src/theme/tokens.test.ts',

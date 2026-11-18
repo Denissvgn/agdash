@@ -20,8 +20,8 @@ function number(value: number | null | undefined): string | null {
 function FlagChip({ code }: { code: FlagCode }) {
   const { t } = useTranslation()
   return (
-    <span className="inline-flex h-[22px] items-center gap-xs rounded-full border border-feedback-warning bg-working-paper px-sm text-label text-feedback-warning">
-      <TriangleAlert aria-hidden="true" size={13} strokeWidth={1.75} />
+    <span className="inline-flex h-[22px] items-center gap-xs rounded-full border border-feedback-warning bg-working-paper px-sm text-label text-primary-ink">
+      <TriangleAlert aria-hidden="true" className="text-feedback-warning" size={13} strokeWidth={1.75} />
       {t(`board.flags.${code}.short`)}
     </span>
   )

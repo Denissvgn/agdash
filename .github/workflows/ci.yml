@@ -157,11 +157,11 @@ jobs:
           nohup ../.venv/bin/python tests/screens.py --port 8790 --ui ../frontend/dist > "$RUNNER_TEMP/screens.log" 2>&1 &
           for _ in $(seq 1 60); do curl -sf http://127.0.0.1:8790/health && exit 0; sleep 1; done
           cat "$RUNNER_TEMP/screens.log"; exit 1
-      # Keyboard, labels, 200% zoom, 320px reflow and motion on every figure screen.
+      # Keyboard, labels, text contrast, 200% zoom, 320px reflow and motion on every figure screen.
       - name: Check every figure screen in WebKit
         working-directory: frontend
         run: node scripts/screens.mjs --engine webkit
-      # A dark system appearance: the dark canvas, and the contrast of every piece of text.
+      # A dark system appearance: the dark canvas, and the same text contrast on it.
       - name: Check every figure screen in the dark theme
         working-directory: frontend
         run: node scripts/screens.mjs --engine webkit --theme dark
