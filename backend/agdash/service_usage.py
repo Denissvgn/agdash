@@ -171,6 +171,7 @@ class Sampler:
         self._before: _Reading | None = None
         self._names: Mapping[int, str] = {}
         self._pending: list[Sample] = []
+        self._tried: datetime | None = None
         self.since = clock()
 
     # -- what the API reads -----------------------------------------------------------
@@ -224,21 +225,46 @@ class Sampler:
     # -- keeping ----------------------------------------------------------------------
 
     def keep(self, taken: Sample) -> None:
-        """Hold a sample for its minute's row; write the minute before once it is over."""
-        if self._pending and _minute(self._pending[0].at) != _minute(taken.at):
-            finished = _hour(self._pending[0].at) != _hour(taken.at)
-            self.flush()
-            if finished:
-                self.fold(taken.at)
-        self._pending.append(taken)
+        """Hold a sample for its minute's row; write the minutes before once they are over.
 
-    def flush(self) -> None:
-        """Write the samples held so far into their minute's row."""
-        pending, self._pending = self._pending, []
-        if not pending:
+        A write that fails, as when another process has the store for a while, loses
+        nothing: the samples stay held, up to an hour of them, and the write is tried
+        again a minute later.
+        """
+        now = _minute(taken.at)
+        over = bool(self._pending) and _minute(self._pending[0].at) != now
+        try:
+            if over and self._tried != now:
+                self._tried = now
+                finished = _hour(self._pending[0].at) != _hour(taken.at)
+                self.flush(before=taken.at)
+                if finished:
+                    self.fold(taken.at)
+        except Exception as error:
+            # The name of what went wrong, never its text: that can quote a statement.
+            log.warning(
+                "could not keep usage (%s); it is held and tried again in a minute",
+                type(error).__name__,
+            )
+        finally:
+            self._pending.append(taken)
+            del self._pending[:-RECENT_SAMPLES]
+
+    def flush(self, before: datetime | None = None) -> None:
+        """Write the samples held into their minutes' rows: those of the minutes before
+        ``before``, or all of them. A sample stays held until it is written."""
+        limit = None if before is None else _minute(before)
+        minutes: dict[datetime, list[Sample]] = {}
+        for sample in self._pending:
+            if limit is None or _minute(sample.at) < limit:
+                minutes.setdefault(_minute(sample.at), []).append(sample)
+        if not minutes:
             return
         with self._sessions.begin() as db:
-            _add(db, MINUTE, _minute(pending[0].at), pending)
+            for started_at, samples in minutes.items():
+                _add(db, MINUTE, started_at, samples)
+        written = {id(sample) for samples in minutes.values() for sample in samples}
+        self._pending = [sample for sample in self._pending if id(sample) not in written]
 
     def fold(self, now: datetime) -> None:
         """Make an hour's row of each finished hour's minutes, and drop rows past their time."""

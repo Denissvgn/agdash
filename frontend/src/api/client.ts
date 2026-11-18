@@ -41,7 +41,11 @@ export function localToken(): string | undefined {
   }
 }
 
-export type ApiErrorKind = 'unreachable' | 'refused' | 'missing' | 'invalid' | 'server'
+/**
+ * ``preparing`` is the service itself saying it is still bringing its store up to date:
+ * it runs, and will answer once that is done, so a page says so and asks again.
+ */
+export type ApiErrorKind = 'unreachable' | 'preparing' | 'refused' | 'missing' | 'invalid' | 'server'
 
 export class ApiError extends Error {
   readonly kind: ApiErrorKind
@@ -86,6 +90,23 @@ function kindFor(status: number): ApiErrorKind {
  */
 export const REQUEST_TIMEOUT_MS = 30_000
 
+/**
+ * What a failed answer means. A 503 whose body says ``preparing`` comes from the service,
+ * not from something in between that could not reach it.
+ */
+async function failureOf(response: Response, withDetail = false): Promise<ApiError> {
+  if (response.status !== 503 && !withDetail) return new ApiError(kindFor(response.status), response.status)
+  let body: { detail?: unknown; status?: unknown } = {}
+  try {
+    body = ((await response.json()) ?? {}) as typeof body
+  } catch {
+    // No body, or not JSON: only the status speaks.
+  }
+  const detail = typeof body.detail === 'string' ? body.detail : null
+  if (response.status === 503 && body.status === 'preparing') return new ApiError('preparing', 503, detail)
+  return new ApiError(kindFor(response.status), response.status, withDetail ? detail : null)
+}
+
 export async function getJson<T>(path: string, params: Params = {}, signal?: AbortSignal): Promise<T> {
   const config = window.__AGDASH__ ?? {}
   const headers: Record<string, string> = { Accept: 'application/json' }
@@ -106,7 +127,7 @@ export async function getJson<T>(path: string, params: Params = {}, signal?: Abo
       if (signal?.aborted) throw error
       throw new ApiError('unreachable', null)
     }
-    if (!response.ok) throw new ApiError(kindFor(response.status), response.status)
+    if (!response.ok) throw await failureOf(response)
     return (await response.json()) as T
   } catch (error) {
     // A body cut off by the timeout is a lost request too, unless the caller cancelled.
@@ -135,21 +156,12 @@ export async function getBlob(path: string, params: Params = {}, signal?: AbortS
     if (signal?.aborted) throw error
     throw new ApiError('unreachable', null)
   }
-  if (!response.ok) throw new ApiError(kindFor(response.status), response.status)
+  if (!response.ok) throw await failureOf(response)
   try {
     return await response.blob()
   } catch (error) {
     if (signal?.aborted) throw error
     throw new ApiError('unreachable', null)
-  }
-}
-
-async function detailOf(response: Response): Promise<string | null> {
-  try {
-    const body = (await response.json()) as { detail?: unknown }
-    return typeof body.detail === 'string' ? body.detail : null
-  } catch {
-    return null
   }
 }
 
@@ -175,7 +187,7 @@ export async function sendJson<T>(method: 'POST' | 'DELETE', path: string, body?
   } catch {
     throw new ApiError('unreachable', null)
   }
-  if (!response.ok) throw new ApiError(kindFor(response.status), response.status, await detailOf(response))
+  if (!response.ok) throw await failureOf(response, true)
   if (response.status === 204) return null
   return (await response.json()) as T
 }

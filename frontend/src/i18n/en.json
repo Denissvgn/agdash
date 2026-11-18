@@ -24,6 +24,12 @@
     "body": "This address is not part of agdash.",
     "action": "Go to the live board"
   },
+  "preparing": {
+    "title": "The service is preparing its store",
+    "body": "After an update, or to give freed room back to the disk, a large store takes a few minutes. This page loads by itself once the service is ready.",
+    "figure": "This figure loads by itself once the service is ready.",
+    "retry": "Check now"
+  },
   "workspaces": {
     "live": {
       "label": "Live",

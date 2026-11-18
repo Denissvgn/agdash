@@ -178,7 +178,12 @@ export function Notice({
   )
 }
 
-/** ``scope`` names the catalogue entry whose copy fits the page, such as "live.error". */
+/**
+ * ``scope`` names the catalogue entry whose copy fits the page, such as "live.error".
+ * A service that is still preparing its store is not a failure of the page: the notice
+ * is a quiet one with the same words everywhere, and the app asks again by itself
+ * (``api/preparing``).
+ */
 export function ErrorNotice({
   error,
   onRetry,
@@ -190,6 +195,14 @@ export function ErrorNotice({
 }) {
   const { t } = useTranslation()
   const kind = error instanceof ApiError ? error.kind : 'server'
+  if (kind === 'preparing')
+    return (
+      <Notice body={t('preparing.body')} title={t('preparing.title')}>
+        <button className="button-secondary" type="button" onClick={onRetry}>
+          {t('preparing.retry')}
+        </button>
+      </Notice>
+    )
   const key = kind === 'unreachable' ? 'unreachable' : kind === 'refused' ? 'refused' : 'server'
   return (
     <Notice body={t(`${scope}.${key}Body`)} title={t(`${scope}.${key}Title`)} tone="problem">

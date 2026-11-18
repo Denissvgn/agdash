@@ -8,7 +8,9 @@ smaller, that can be gigabytes. Two things return it:
   the store to itself and room on the volume for the new copy, and takes minutes
   on a large store, so the service does it only as it starts, and only when at
   least a quarter of the file is free. It also sets the store to give free pages
-  back a few at a time from then on.
+  back a few at a time from then on. SQLite is told to write its temporary copy
+  in the store's own folder, which is private and on the volume whose room was
+  checked; left alone it would use the system's temporary folder.
 * Releasing gives free pages back a few at a time while the service runs, after
   it has removed old sessions or trimmed the archive. It works once the store has
   been compacted once.
@@ -20,6 +22,7 @@ Only a store that is a SQLite file is compacted. Nothing here touches a harness.
 """
 
 import argparse
+import contextlib
 import logging
 import os
 import sys
@@ -33,6 +36,7 @@ from sqlalchemy import Engine, create_engine
 
 from agdash.config import database_url
 from agdash.db.migrate import sqlite_file, sync_database_url
+from agdash.storelock import InsideHarness, hold, lock_file
 
 log = logging.getLogger("agdash.compact")
 
@@ -41,7 +45,10 @@ MIN_FREE_SHARE = 0.25
 INCREMENTAL = 2  # what PRAGMA auto_vacuum answers for a store that releases a few pages at a time
 RELEASE_PAGES = 2000
 RELEASE_PAUSE_SECONDS = 0.2
-TEMPORARY = "SQLITE_TMPDIR"
+
+
+class CopyNotPlaced(RuntimeError):
+    """This SQLite did not take the folder it was given for its temporary copy."""
 
 
 @dataclass(frozen=True)
@@ -91,34 +98,51 @@ def _volume_free(path: Path) -> int:
     return volume.f_bavail * volume.f_frsize
 
 
-def compact(url: str) -> Compacted | None:
+def _place_copy(connection, folder: Path | None) -> bool:
+    """Tell SQLite where to write its temporary files, or with None to choose again
+    by itself; whether it took that.
+
+    The ``SQLITE_TMPDIR`` variable cannot do this here: SQLite reads it once, as the
+    library starts, long before a store is compacted. This setting holds for the whole
+    process, so it is set only around the compacting and put back after.
+    """
+    wanted = "" if folder is None else str(folder)
+    quoted = wanted.replace("'", "''")
+    connection.exec_driver_sql(f"PRAGMA temp_store_directory = '{quoted}'")
+    return (connection.exec_driver_sql("PRAGMA temp_store_directory").scalar() or "") == wanted
+
+
+def compact(url: str, *, temporary: Path | None = None) -> Compacted | None:
     """Write the store anew without its free pages. None for a store that is not a file.
 
-    The new copy is written beside the store, in its own private folder, and then
-    through the write-ahead log, so the volume needs room for twice what the store
-    will hold. SQLite takes the store for itself while it does this: another process
-    that has it open waits, or is told the store is busy.
+    The new copy is written in ``temporary``, by default the store's own private
+    folder, and then through the write-ahead log, so the volume needs room for twice
+    what the store will hold. SQLite takes the store for itself while it does this:
+    another process that has it open waits, or is told the store is busy.
     """
     path = sqlite_file(url)
     if path is None or not path.exists():
         return None
     engine = _engine(url)
-    earlier = os.environ.get(TEMPORARY)
-    os.environ[TEMPORARY] = str(path.parent)
     started = time.monotonic()
     try:
         with engine.connect() as connection:
             before = room(connection).file_bytes
-            connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
-            connection.exec_driver_sql("PRAGMA auto_vacuum = INCREMENTAL")
-            connection.exec_driver_sql("VACUUM")
-            connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
-            after = room(connection).file_bytes
+            try:
+                if not _place_copy(connection, temporary or path.parent):
+                    raise CopyNotPlaced(
+                        "this SQLite cannot be told where to write its temporary copy,"
+                        " so the store is not compacted"
+                    )
+                connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+                connection.exec_driver_sql("PRAGMA auto_vacuum = INCREMENTAL")
+                connection.exec_driver_sql("VACUUM")
+                connection.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+                after = room(connection).file_bytes
+            finally:
+                with contextlib.suppress(Exception):
+                    _place_copy(connection, None)
     finally:
-        if earlier is None:
-            os.environ.pop(TEMPORARY, None)
-        else:
-            os.environ[TEMPORARY] = earlier
         engine.dispose()
     return Compacted(before, after, time.monotonic() - started)
 
@@ -207,10 +231,28 @@ def main(argv: Sequence[str] | None = None, *, answering=None) -> int:
     if not args.apply:
         print("Pass --apply to compact it now, with the service stopped.")
         return 0
-    if answering is not None and answering():
+    # The lock tells of a service that is still starting, which does not answer yet.
+    from agdash.platform import current_host
+
+    try:
+        held = hold(
+            lock_file(path, path.parent), forbidden_roots=current_host().all_harness_roots()
+        )
+    except InsideHarness as error:
+        print(f"Not compacted: {error}.")
+        return 1
+    if held is None or (answering is not None and answering()):
+        if held is not None:
+            held.release()
         print("The service is running. Stop it first: compacting needs the store to itself.")
         return 1
-    done = compact(url)
+    try:
+        done = compact(url)
+    except CopyNotPlaced as error:
+        print(f"Not compacted: {error}.")
+        return 1
+    finally:
+        held.release()
     if done is not None:
         print(
             f"Compacted from {done.before_bytes // 1_000_000} MB"
