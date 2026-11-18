@@ -2,21 +2,17 @@
 //
 //   node scripts/figure-colours.mjs
 //
-// rewrites src/theme/agdash-figures.json from src/theme/workchord-tokens.json. Every
-// colour here is an upstream colour at a fixed opacity over a surface, composited the
-// way a browser composites it, so the layer adds no hue of its own. A test recomputes
-// the file and fails when it drifts.
+// rewrites src/theme/agdash-figures.json from src/theme/workchord-tokens.json and
+// src/theme/workchord-dark.json. Every colour here is an upstream colour at a fixed
+// opacity over a surface, composited the way a browser composites it, so the layer adds
+// no hue of its own. A test recomputes the file and fails when it drifts.
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// WorkChord's design system states no dark values in DESIGN.md; its frontend's dark
-// theme does. These two are its dark card surface and its dark cobalt (action).
-export const DARK_SURFACE = 'rgb(30 41 59)'
-export const DARK_COBALT = 'rgb(96 165 250)'
-
-// Light: conductor navy over working paper. Dark: working paper over the dark card.
+// Light: conductor navy over working paper. Dark: light working paper over the dark
+// theme's working paper (WorkChord's dark card surface), beside its dark cobalt.
 // The dark steps leave out the band around dark cobalt's lightness, so a selected mark
 // never looks like a figure value, and stop short of pure white, which has no hue.
 export const LIGHT_OPACITIES = [8, 16, 28, 42, 57, 76, 100]
@@ -63,8 +59,9 @@ export function distance(a, b) {
   return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]) * 100
 }
 
-export function figureColours(tokens) {
+export function figureColours(tokens, dark) {
   const colours = tokens.colors
+  const darkSurface = dark.colors['working-paper'].value
   const ramp = (base, background, opacities) =>
     Object.fromEntries(opacities.map((opacity, index) => [`ink-${index + 1}`, over(base, opacity / 100, background)]))
   return {
@@ -79,18 +76,19 @@ export function figureColours(tokens) {
       },
       dark: {
         base: 'working-paper',
-        over: DARK_SURFACE,
+        over: darkSurface,
         opacities: DARK_OPACITIES,
-        steps: ramp(colours['working-paper'], DARK_SURFACE, DARK_OPACITIES),
+        steps: ramp(colours['working-paper'], darkSurface, DARK_OPACITIES),
       },
     },
     roles: ROLES,
-    cobalt: { light: colours['planning-thread'], dark: DARK_COBALT },
+    cobalt: { light: colours['planning-thread'], dark: dark.colors['planning-thread'].value },
   }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const theme = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'theme')
-  const tokens = JSON.parse(readFileSync(join(theme, 'workchord-tokens.json'), 'utf8'))
-  writeFileSync(join(theme, 'agdash-figures.json'), `${JSON.stringify(figureColours(tokens), null, 2)}\n`)
+  const read = (name) => JSON.parse(readFileSync(join(theme, name), 'utf8'))
+  const figures = figureColours(read('workchord-tokens.json'), read('workchord-dark.json'))
+  writeFileSync(join(theme, 'agdash-figures.json'), `${JSON.stringify(figures, null, 2)}\n`)
 }

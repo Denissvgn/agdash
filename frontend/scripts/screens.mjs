@@ -4,6 +4,7 @@
 //   (cd backend && ../.venv/bin/python tests/screens.py --port 8790 --ui ../frontend/dist) &
 //   node scripts/screens.mjs --base http://127.0.0.1:8790 --engine webkit
 //   node scripts/screens.mjs --base http://127.0.0.1:8790 --engine chromium --forced-colors
+//   node scripts/screens.mjs --base http://127.0.0.1:8790 --engine webkit --theme dark
 //
 // At a desktop width, at 200% zoom (half the width at twice the density) and at 320px,
 // every screen is checked for sideways scroll, figure text cut off at a figure's edge
@@ -12,8 +13,14 @@
 // accessibility tree is written out for the screen-reader review. Every screen is
 // captured; with --forced-colors (Chromium only) the captures are in forced colours, each
 // figure is checked to keep its marks visible, and a chosen pill to look unlike the rest.
+// With --theme dark the browser reports a dark system appearance, as a desktop set to
+// dark does: every screen must then be drawn on the dark theme's canvas, and every piece
+// of text on it must stand at least 4.5:1 from what is behind it (3:1 when large). The
+// light run checks its canvas only: there the warning amber, upstream's value, is 3.19:1
+// as the text of a pill. The keyboard walk does not depend on colour, so it runs in the
+// light theme only.
 // Exits non-zero on any failure, after listing them all.
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -25,11 +32,20 @@ const { values } = parseArgs({
     token: { type: 'string', default: 'screens-token' },
     engine: { type: 'string', default: 'webkit' },
     'forced-colors': { type: 'boolean', default: false },
+    theme: { type: 'string', default: 'light' },
     out: { type: 'string', default: new URL('../specimen-shots/screens/', import.meta.url).pathname },
   },
 })
 const forced = values['forced-colors']
 if (forced && values.engine !== 'chromium') throw new Error('Forced colours can only be emulated in Chromium')
+const dark = values.theme === 'dark'
+if (!dark && values.theme !== 'light') throw new Error('The theme is light or dark')
+if (dark && forced) throw new Error('Forced colours replace the theme; check them without --theme')
+// The canvas each theme draws the page on, from the same files the styles are built from.
+const themeFile = (name) => JSON.parse(readFileSync(new URL(`../src/theme/${name}`, import.meta.url), 'utf8'))
+const CANVAS = dark
+  ? themeFile('workchord-dark.json').colors['canvas-mist'].value
+  : themeFile('workchord-tokens.json').colors['canvas-mist']
 
 const LONG_TITLE = 'Migrate the billing reports'
 // The desktop run allows motion, so a figure that animates at all is caught; the others
@@ -236,6 +252,67 @@ async function keyboard(page, where) {
   return trees
 }
 
+/** The page is on its theme's canvas and, in the dark theme, no text is too close to what is behind it. */
+async function appearance(page, where) {
+  const found = await page.evaluate(([canvas, text]) => {
+    const problems = []
+    const parse = (value) => {
+      const parts = (value.match(/[\d.]+/g) ?? []).map(Number)
+      return { rgb: parts.slice(0, 3), alpha: parts.length > 3 ? parts[3] : 1 }
+    }
+    const blend = (front, back) => front.rgb.map((channel, i) => front.alpha * channel + (1 - front.alpha) * back[i])
+    const luminance = (rgb) => {
+      const [r, g, b] = rgb.map((channel) => {
+        const part = channel / 255
+        return part <= 0.04045 ? part / 12.92 : ((part + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+    const ratio = (a, b) => {
+      const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+      return (high + 0.05) / (low + 0.05)
+    }
+    const page = getComputedStyle(document.documentElement).backgroundColor
+    if (parse(page).rgb.join(' ') !== parse(canvas).rgb.join(' ')) problems.push(`the page is on ${page}, not the theme's canvas ${canvas}`)
+    if (!text) return problems
+
+    /** What is painted behind an element: its ancestors' fills, composited from the page up. */
+    const behind = (element) => {
+      const layers = []
+      for (let at = element; at; at = at.parentElement) {
+        const fill = parse(getComputedStyle(at).backgroundColor)
+        if (fill.alpha > 0) layers.push(fill)
+        if (fill.alpha === 1) break
+      }
+      return layers.reduceRight((back, layer) => blend(layer, back), parse(canvas).rgb)
+    }
+    const seen = new Set()
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const element = node.parentElement
+      if (!node.textContent.trim() || !element || seen.has(element)) continue
+      seen.add(element)
+      if (element.closest('.sr-only, [aria-hidden="true"], :disabled, [aria-disabled="true"], details:not([open]) > :not(summary)')) continue
+      const box = element.getBoundingClientRect()
+      const style = getComputedStyle(element)
+      if (box.width <= 1 || box.height <= 1 || style.visibility === 'hidden' || Number(style.opacity) === 0) continue
+      const drawn = element instanceof SVGElement
+      // Text in a drawing is filled; its ground is the surface of the figure that holds it.
+      const ink = parse(drawn ? style.fill : style.color)
+      const ground = behind(drawn ? (element.closest('svg')?.parentElement ?? element) : element)
+      const size = parseFloat(style.fontSize)
+      const large = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700)
+      const got = ratio(blend(ink, ground), ground)
+      if (got < (large ? 3 : 4.5) - 0.005) {
+        const tone = (rgb) => `rgb(${rgb.map(Math.round).join(' ')})`
+        problems.push(`"${node.textContent.trim().slice(0, 40)}" is ${got.toFixed(2)}:1 (${tone(blend(ink, ground))} on ${tone(ground)})`)
+      }
+    }
+    return problems
+  }, [CANVAS, dark])
+  for (const message of found) fail(where, message)
+}
+
 /** In forced colours, every mark and texture must still be drawn in a colour unlike its surface. */
 async function forcedColours(page, where) {
   const found = await page.evaluate(() => {
@@ -265,7 +342,7 @@ async function forcedColours(page, where) {
 }
 
 const browser = await playwright[values.engine].launch()
-const engine = forced ? `${values.engine}-forced-colors` : values.engine
+const engine = forced ? `${values.engine}-forced-colors` : dark ? `${values.engine}-dark` : values.engine
 const out = join(values.out, engine)
 const trees = {}
 for (const mode of MODES) {
@@ -273,6 +350,8 @@ for (const mode of MODES) {
     viewport: { width: mode.width, height: mode.height },
     deviceScaleFactor: mode.scale,
     reducedMotion: mode.motion,
+    // The system appearance the browser reports; the app has no setting of its own to follow.
+    colorScheme: values.theme,
     ...(forced ? { forcedColors: 'active' } : {}),
   })
   const page = await context.newPage()
@@ -293,7 +372,8 @@ for (const mode of MODES) {
     await settle(page, screen)
     await layout(page, where, screen)
     if (forced) await forcedColours(page, where)
-    if (mode.keyboard && !forced && !screen.strips && !screen.plain) trees[screen.name] = await keyboard(page, where)
+    else await appearance(page, where)
+    if (mode.keyboard && !forced && !dark && !screen.strips && !screen.plain) trees[screen.name] = await keyboard(page, where)
     await page.screenshot({ path: join(out, mode.name, `${screen.name}.png`), fullPage: true })
     console.log(`${where}: checked`)
   }

@@ -1,9 +1,10 @@
 import { playwright } from '@vitest/browser-playwright'
 import { defineConfig } from 'vitest/config'
 
-// Screenshots of the chart-kit specimen in Chromium and WebKit, at a desktop and a
-// phone width. Each capture is saved under specimen-shots/ for review; the run fails
-// if a width scrolls the page sideways. The browser window is larger than any test
+// Screenshots of the chart-kit specimen in Chromium and WebKit, in the light and the
+// dark theme, at a desktop and a phone width. Each capture is saved under
+// specimen-shots/ for review; the run fails if a width scrolls the page sideways or a
+// theme does not draw its own surfaces. The browser window is larger than any test
 // frame, so captures are taken at full size (and at twice the pixel density) rather
 // than scaled down to fit.
 export default defineConfig({

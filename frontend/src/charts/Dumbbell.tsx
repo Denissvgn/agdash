@@ -27,7 +27,7 @@ const MIN_TOP = 4
 
 /**
  * The declared mark: a ring in the mark ink, wider than the dot so that when the two
- * values match the observed dot sits inside it. The observed mark: a filled dot, a step darker.
+ * values match the observed dot sits inside it. The observed mark: a filled dot, a step stronger.
  */
 const RING_R = DOT / 2 + 3
 

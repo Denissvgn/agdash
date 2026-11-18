@@ -20,6 +20,7 @@ colors:
   feedback-danger: "rgb(220 38 38)"
   # agdash derived roles: upstream colours at a fixed opacity (see Colors).
   hairline: "rgb(100 116 139 / 0.2)"
+  inverse-ink: "rgb(255 255 255 / 1)"
   inverse-muted: "rgb(255 255 255 / 0.75)"
   inverse-soft: "rgb(255 255 255 / 0.85)"
   inverse-rule: "rgb(255 255 255 / 0.2)"
@@ -150,13 +151,14 @@ components:
 
 **Creative North Star: "The Planning Thread, Observing"**
 
-agdash uses WorkChord's design system unchanged. WorkChord's DESIGN.md is the upstream authority for every token, rule and component pattern in this file: the colours, type ramp, radii, spacing, shadows, layout measurements and component tokens above are copied from it verbatim, and where this file and WorkChord's design system disagree, WorkChord's wins. agdash adds only the six derived colour roles and the one state duration listed under Colors and Components, each filling a role WorkChord names but gives no value for, and the figure layer for charts and diagrams, which WorkChord's design system does not cover. The figure layer is built the same way, from WorkChord's own colours at fixed opacities, and adds no hue (see Figures). The upstream token file in the frontend is generated from WorkChord's frontmatter, never edited by hand.
+agdash uses WorkChord's design system unchanged. WorkChord's DESIGN.md is the upstream authority for every token, rule and component pattern in this file: the colours, type ramp, radii, spacing, shadows, layout measurements and component tokens above are copied from it verbatim, and where this file and WorkChord's design system disagree, WorkChord's wins. agdash adds only the seven derived colour roles and the one state duration listed under Colors and Components, each filling a role WorkChord names but gives no value for, the dark value of each token, read from the dark theme of WorkChord's frontend (see Dark theme), and the figure layer for charts and diagrams, which WorkChord's design system does not cover. The figure layer is built the same way, from WorkChord's own colours at fixed opacities, and adds no hue (see Figures). The upstream token file in the frontend is generated from WorkChord's frontmatter, never edited by hand.
 
 Within that system agdash is a calm workspace that carries an observer, not a control room. A canvas-mist ground holds working-paper surfaces; a 52px conductor-navy bar owns workspace switching; the cobalt planning thread marks only where the person is. State and its evidence come first, and where nothing is known yet the page says so in words instead of showing an empty frame or a placeholder metric. Nothing in the shell may suggest that agdash can act on an agent.
 
 **Key Characteristics:**
 
-- WorkChord tokens unchanged; six fixed-opacity derived roles, each traced to a named gap.
+- WorkChord tokens unchanged; seven fixed-opacity derived roles, each traced to a named gap.
+- A light and a dark theme, both WorkChord's own values, following the system appearance.
 - Figures drawn in one navy ink ramp, with cobalt for selection and the status colours for state only; no new hues.
 - Inter Variable at a 14px operational base; hierarchy by weight, not by typeface.
 - A conductor bar of five workspaces, a 220px contextual sidebar, a page column capped at 1240px.
@@ -172,7 +174,7 @@ Cool paper neutrals, a deliberately scarce cobalt planning thread, and WorkChord
 ### Primary
 
 - **Planning Thread:** The active workspace underline, the selected sidebar row (soft tint, cobalt text and the 1px thread), focus rings, text selection tint and the text caret.
-- **Conductor Navy:** The conductor bar only. **Conductor Panel** fills the active workspace and is the hover fill for controls on the bar and for the primary-ink action.
+- **Conductor Navy:** The conductor bar only. **Conductor Panel** fills the active workspace and is the hover fill for controls on the bar and, in the light theme, for the primary-ink action.
 
 ### Secondary
 
@@ -182,7 +184,7 @@ Cool paper neutrals, a deliberately scarce cobalt planning thread, and WorkChord
 ### Neutral
 
 - **Canvas Mist:** The application ground and the hover fill for light-surface navigation rows.
-- **Working Paper:** The sidebar, the drawer panel, the unavailable-state panel, and inverse text on the conductor bar.
+- **Working Paper:** The sidebar, the drawer panel, the unavailable-state panel, and the text of the primary action.
 - **Primary Ink:** Page titles and main text; the fill of the single primary action.
 - **Secondary Ink:** Page purpose lines, field terms, inactive sidebar rows and group headings.
 - **Strong Rule:** The base of the hairline role and, at 45% opacity, the scrollbar thumb.
@@ -191,6 +193,7 @@ Cool paper neutrals, a deliberately scarce cobalt planning thread, and WorkChord
 
 Each is an upstream colour at a fixed opacity. They exist because WorkChord's design system names the role but states no value. No other colour may be added.
 
+- **Inverse Ink** (working-paper at 100%, the light value in both themes): the wordmark and the active or hovered workspace on the conductor bar. Fills Navigation: text on the conductor bar, with no inverse text token; working paper itself is a surface, and turns dark with the theme.
 - **Hairline** (strong-rule at 20%): every 1px structural border: the sidebar edge, the drawer header rule and the unavailable-state panel. Fills Shapes: "Structural containers use 1px semantic borders" with no border token given; strong-rule at full strength is kept for high-information input borders.
 - **Inverse Muted** (working-paper at 75%): inactive workspace labels on the conductor bar. Fills Navigation: no inverse secondary text token.
 - **Inverse Soft** (working-paper at 85%): the menu button and the read-only marker on the conductor bar. Fills Navigation: secondary controls and status on the bar.
@@ -198,13 +201,44 @@ Each is an upstream colour at a fixed opacity. They exist because WorkChord's de
 - **Conductor Hover** (conductor-panel at 60%): hover fill behind inactive workspaces. Fills Buttons: "Fast background and border shifts" over the conductor bar.
 - **Scrim** (primary-ink at 30%): the layer behind the open navigation drawer. Fills Elevation & Depth: drawers and temporary overlays, with no scrim token.
 
+### Dark theme
+
+Every token has a second value, taken from the dark theme of WorkChord's frontend, and the app shows whichever the system appearance asks for: in a browser, and in the desktop window, which takes its appearance from the system too. There is no switch in agdash; a `data-theme` attribute of `light` or `dark` pins one theme, for tests and captures.
+
+WorkChord's DESIGN.md states the light values only. Its stylesheets hold the dark ones, as colour roles, so `frontend/scripts/dark-tokens.mjs` ties each token to the role that carries it and refuses unless that role's light value is the token's value in DESIGN.md. The result, `workchord-dark.json`, is never edited by hand.
+
+| Token | WorkChord role | Dark value |
+|---|---|---|
+| planning-thread | action primary | `rgb(96 165 250)` |
+| planning-thread-hover | action primary, hover | `rgb(147 197 253)` |
+| planning-thread-soft | action muted | `rgb(30 58 95)` |
+| conductor-navy | shell | `rgb(14 30 64)`, unchanged |
+| conductor-panel | shell panel | `rgb(24 48 91)`, unchanged |
+| canvas-mist | surface canvas | `rgb(15 23 42)` |
+| working-paper | surface card | `rgb(30 41 59)` |
+| primary-ink | content primary | `rgb(248 250 252)` |
+| secondary-ink | content secondary | `rgb(203 213 225)` |
+| strong-rule | border strong | `rgb(100 116 139)`, unchanged |
+| status-planned | planned, solid | `rgb(148 163 184)` |
+| status-active | active, solid | `rgb(34 211 238)` |
+| status-resolved | resolved, solid | `rgb(52 211 153)` |
+| status-closed | closed, solid | `rgb(192 132 252)` |
+| feedback-warning | warning | `rgb(251 191 36)` |
+| feedback-danger | danger | `rgb(248 113 113)` |
+
+- **The conductor bar is one navy in both themes**, as WorkChord's is, so everything on it keeps its light value: the inverse roles, the conductor hover fill and the read-only marker. Only its planning-thread underline and focus outline take the dark cobalt.
+- **The derived roles keep their one value.** Hairline is strong rule at 20%, and strong rule does not change; over the dark working paper it is as quiet as over the light one. The scrim stays the light theme's primary ink at 30%: a veil is dark in either theme.
+- **Surfaces and inks trade places**, so a rule written with tokens holds in both themes: working paper is still the raised surface over canvas mist, and primary ink still the strongest text. The primary action is primary ink with working-paper text in both; only its hover differs, since conductor panel would be darker than its text: in the dark theme it is secondary ink, WorkChord's own hover for that button.
+- **Shadows** keep their shapes and are cast in black at 20 to 40%, WorkChord's dark values.
+- **Contrast** is checked on every build: each ink on each surface, the planning thread on its soft tint, the primary action's text and the inverse roles on the conductor bar are at least 4.5:1; notice icons, state marks and the strong-rule border of a field at least 3:1. The screen checks measure every piece of text on every figure screen as the dark theme draws it.
+
 ### Named Rules
 
 **The Planning Thread Rule.** (Upstream.) Cobalt marks location, selection and focus; it never stands in for record status or feedback.
 
 **The Canonical Status Rule.** (Upstream.) Planned is slate, active is cyan, resolved is emerald, closed is violet, everywhere.
 
-**The Closed Palette Rule.** The frontend's colour scale contains only the upstream tokens, the six derived roles and the figure layer's ink steps and roles; Tailwind's default palette is removed, so an off-palette colour cannot be written by accident. A new derived role needs a cited upstream gap; a new figure colour must be an upstream colour at a fixed opacity and pass the figure checks.
+**The Closed Palette Rule.** The frontend's colour scale contains only the upstream tokens, the seven derived roles and the figure layer's ink steps and roles; Tailwind's default palette is removed, so an off-palette colour cannot be written by accident. A new derived role needs a cited upstream gap; a new figure colour must be an upstream colour at a fixed opacity and pass the figure checks.
 
 ## Typography
 
@@ -245,7 +279,7 @@ At 1180px and below the sidebar and the workspace switcher leave the layout enti
 
 ## Elevation & Depth
 
-Depth is structural and low-amplitude, exactly as upstream. Borders (the hairline role) and tonal layering (working paper over canvas mist) carry most separation. Three shadows exist, with the upstream values: Resting on the unavailable-state panel; Raised for deliberately raised hover or focused work (not yet used by the shell); Popover on the navigation drawer panel and the skip link when it appears. Open overlays sit over the scrim.
+Depth is structural and low-amplitude, exactly as upstream. Borders (the hairline role) and tonal layering (working paper over canvas mist) carry most separation. Three shadows exist, with the upstream values in each theme: Resting on the unavailable-state panel; Raised for deliberately raised hover or focused work (not yet used by the shell); Popover on the navigation drawer panel and the skip link when it appears. Open overlays sit over the scrim.
 
 ### Named Rules
 
@@ -259,12 +293,12 @@ Gently compact corners from the upstream scale: 6px for every control and naviga
 
 ### Conductor bar and workspace switcher
 
-The global workspace layer, in conductor navy with working-paper text.
+The global workspace layer, in conductor navy with inverse-ink text, the same in both themes.
 
 - **Order:** Menu button (narrow windows only), the mark and the agdash wordmark, the five workspaces, and the read-only marker pushed to the right edge.
 - **Workspace items:** 36px tall, 6px corners, 10px side padding, a 16px outline icon (1.75 stroke) and a Body label, 4px apart.
-- **Active:** Conductor panel fill, working-paper text and a 2px planning-thread inset underline. It stays active on every inner page of its workspace and carries `aria-current`.
-- **Inactive / Hover:** Inverse muted text; on hover the conductor hover fill and working-paper text.
+- **Active:** Conductor panel fill, inverse-ink text and a 2px planning-thread inset underline. It stays active on every inner page of its workspace and carries `aria-current`.
+- **Inactive / Hover:** Inverse muted text; on hover the conductor hover fill and inverse-ink text.
 
 ### Sidebar destinations
 
@@ -348,7 +382,7 @@ Every session running now on one screen: slim rows on a shared clock, never tile
 - **Row:** one line, 28px, or 24px once the board has more than twenty rows (and 28px again only once it has fewer than sixteen, so a count near twenty does not change every row's height back and forth): the state chip; the title in Label size and semibold, truncated; the harness in secondary ink; the lane; and how long ago the session was last active, short ("now", "4m", "2h", "3d"), with the full words ("Last active 4 minutes ago") visually hidden beside it. The title is a link that covers the row: it picks the session for the panel and puts it in the address (`?session=12`), so a pick can be linked to and Back undoes it. The link's name is the title alone; its state, its time and its lane's words are its description. Up and Down move through the rows in order and take the panel along; Home and End jump to the ends. The picked row wears planning thread soft with a 2px planning thread bar on its left edge and `aria-current`; in forced colours it is outlined in the system's selection colour. On a coarse pointer every row is the touch target's height.
 - **Groups:** each group is a 28px heading line on canvas mist over its rows: the folder in 12px monospace cut from its start, or the harness name, in primary ink, then a count in secondary ink with tabular numerals. Grouped by harness, the count is that harness's own sessions, and nested sessions running on another harness are named separately ("4 sessions, 1 started on another harness"). A missing folder or harness reads "Folder not recorded" or "Harness not recorded".
 - **Nesting:** a session another one started sits in the rows right under it, its title inset 16px a level behind a small hairline elbow. How the link is known is said in the panel and drawn on Agent graph.
-- **Lane:** each live session's last 30 minutes in its row, 208px wide and 18px tall: events per minute above (30 cells of 5px, parted by the 2px gap, on one scale for the whole board, darker for more) and its states below in the state strips' forms. Every lane covers the same 30 minutes, so the rows read against each other. The lane is hidden from assistive technology and the row says the same in words ("Last 30 minutes: 34 events; Waiting for 20 min, then Active for 10 min."); it takes no tab stop and needs no table twin. A session with nothing recorded in the window shows an empty hairline baseline. A key under the board names the events ramp and the forms of the states some lane draws. Lanes are replaced in place when the stream reports a new minute or a session's writes, with no animation.
+- **Lane:** each live session's last 30 minutes in its row, 208px wide and 18px tall: events per minute above (30 cells of 5px, parted by the 2px gap, on one scale for the whole board, stronger for more: darker in the light theme, lighter in the dark one) and its states below in the state strips' forms. Every lane covers the same 30 minutes, so the rows read against each other. The lane is hidden from assistive technology and the row says the same in words ("Last 30 minutes: 34 events; Waiting for 20 min, then Active for 10 min."); it takes no tab stop and needs no table twin. A session with nothing recorded in the window shows an empty hairline baseline. A key under the board names the events ramp and the forms of the states some lane draws. Lanes are replaced in place when the stream reports a new minute or a session's writes, with no animation.
 - **Panel:** beside the board from 1024px (18rem wide, 20rem from 1340px), on working paper with the board's border and shadow, staying in view as the page scrolls. It always shows a session: the one picked, or else the first row, which the steady order keeps the same from one update to the next. From the top: the title in Title size, the state chip with "Last active" and a relative time in words; then labelled facts, each a Label-size label in secondary ink over a Body value, what the session is doing before where it runs: why the state was chosen; the latest prompt, clamped to six lines, with a still canvas-mist bar while it loads; the last 30 minutes at full size (the events strip with its count, the state strip, each on its own line, or "No events in the last 30 minutes", and under them the states in words, "Waiting for 20 min, then Active for 10 min", since no key sits beside the panel); the session that started it, as a link that picks it, with how the link is known ("Started from Claude Code, known from the process tree", or "Known from the harness's record" within one harness); the sessions it started, each a state chip and a link that wraps; harness, surface, latest model and effort; and the folder. Last, a secondary button, "Open session", to the session's page. Below 1024px the panel takes the board's place once a session is picked, under a link back, "All live sessions"; the counts and switches leave with the board, focus moves to the panel's title, and going back returns it to the row.
 - **Agent graph:** the second destination, headed "Live agent graph": the same sessions drawn as a graph inside the board's container, in the same groups: a node a session (a hairline box 24px tall holding the state's dot and word in secondary ink and the title in semibold; a dot and word, not a chip, so there is no pill inside a box), with a line from each session to those it started, solid where the harness recorded the link and dashed where it is known from the process tree, and a key under the graph naming the line styles in use. Sessions that started others stand in the first column, level with the first session they started; the rest stand alone in that column. Where a column would be narrower than 200px the started sessions indent 20px under their parent instead, joined by an elbow. A node is the same link as a row, in the same order, with the same keys and the same pick; it adds, for assistive technology, who started it and how that is known. The Board is this drawing's table, so it has no other.
 - **Long quiet:** sessions left open with nothing written for a day, none of them working or waiting, are folded into one line under the groups, a native disclosure on a group heading's line, led by a 14px chevron that turns down when open, reading "3 sessions open but quiet for over a day", closed by default; opened, it lists them as rows. They still count as live.
@@ -366,7 +400,7 @@ Every session running now on one screen: slim rows on a shared clock, never tile
 ### Projects figures
 
 - **Activity by project:** on Projects · Board, under the attention list, a time-lanes figure with a lane per project (by name, sessions mapped to none last) and each session active in the range as a span from its start to its last activity, the "now" line in the planning thread. A Range switch above it picks the last 7 or 30 days; it lives in the address (`days=30`; 7, the default, leaves it). Over 7 days, idle stretches of over 2 hours are compressed into breaks, so several days still fit; over 30 days the axis stays linear with a label each week, since a break for every night would leave no room to read it. Wherever breaks are used they take at most a third of the axis: past that, the shortest gaps stay to scale. A time label names its day whenever the day differs from the label before it, and labels that would touch are dropped. The now line sits under the marks, so a session live now keeps its ring on it. Sessions are placed by the same resolver as the board, so a conflict or no evidence leaves a session in the unmapped lane.
-- **Declared and observed:** each mapped project's group leads with a dumbbell, one row per agent: its current assignments in the project (declared, a ring in the mark ink, wider than the dot so that equal values read as a dot inside its ring) against the live sessions mapped to it (observed, a dot one step darker), joined by a 2px context-ink line on a shared count scale that spans at least 0 to 4, so small counts sit near the names. Each row ends with its pair in words ("2 assigned · 3 live"). Focus or hover on a row says how each observed session was mapped ("Its run: 2, Its own WorkChord call: 1"); its table twin lists the same. It replaces the earlier row of agent pills.
+- **Declared and observed:** each mapped project's group leads with a dumbbell, one row per agent: its current assignments in the project (declared, a ring in the mark ink, wider than the dot so that equal values read as a dot inside its ring) against the live sessions mapped to it (observed, a dot one step stronger), joined by a 2px context-ink line on a shared count scale that spans at least 0 to 4, so small counts sit near the names. Each row ends with its pair in words ("2 assigned · 3 live"). Focus or hover on a row says how each observed session was mapped ("Its run: 2, Its own WorkChord call: 1"); its table twin lists the same. It replaces the earlier row of agent pills.
 - **A session's mapping:** on a session's page, under its header, a tree from the session to its agent, its project and each of its runs with their tasks. Each edge's line follows how the link is known, named in the legend, which shows even when every link is known the same way: a recorded link (a pin, the session's own run or task, or a run's tool call) is solid; a matching record (the agent's own call, its assignments, a runtime rule, a trace id) long dashes; a folder or repository rule, or an MCP configuration, short dashes; and a heuristic run link, or the best guess on conflicting evidence, dots and is labelled "Suggestion", never shown as the mapping. A session nothing maps says "Not mapped" with how to map it; with no WorkChord server connected the figure is left out. A leaf's name is clipped to the room left to the card's edge; the tooltip and table twin carry it in full.
 
 ### Settings · Sources
@@ -463,7 +497,7 @@ On the Analytics pages the ledger stays the authoritative object: one table per 
 
 ### Primary action
 
-Used once per page or protected decision area, per upstream: primary-ink fill, working-paper text, 34px tall (44px on coarse pointers), 12px side padding, 6px corners, an optional 16px icon. Hover shifts the fill to conductor panel. It appears on the page-not-found view, leading back to the live board, as "Search" on the search page, and on Settings · Data as "Save limit" and, inside its question, as the removal.
+Used once per page or protected decision area, per upstream: primary-ink fill, working-paper text, 34px tall (44px on coarse pointers), 12px side padding, 6px corners, an optional 16px icon. Hover shifts the fill to conductor panel, or to secondary ink in the dark theme. It appears on the page-not-found view, leading back to the live board, as "Search" on the search page, and on Settings · Data as "Save limit" and, inside its question, as the removal.
 
 ### Skip link
 
@@ -499,7 +533,7 @@ Charts and diagrams, which WorkChord's design system does not cover. They follow
 
 ### Roles
 
-- **Ink ramp:** seven steps of conductor navy over working paper at fixed opacities (8, 16, 28, 42, 57, 76 and 100%), `figure-ink-1` nearest the surface to `figure-ink-7`. It carries magnitude: bars, columns, areas, heatmap cells and activity strips. Its dark values, working paper over WorkChord's dark card surface (4, 8, 18, 28, 38, 75 and 87%), are set now and switch with the dark theme; they leave out the band around dark cobalt's lightness, and stop short of pure white, which has no hue.
+- **Ink ramp:** seven steps of conductor navy over working paper at fixed opacities (8, 16, 28, 42, 57, 76 and 100%), `figure-ink-1` nearest the surface to `figure-ink-7`. It carries magnitude: bars, columns, areas, heatmap cells and activity strips. Its dark values, working paper over WorkChord's dark card surface (4, 8, 18, 28, 38, 75 and 87%), switch with the theme; they leave out the band around dark cobalt's lightness, and stop short of pure white, which has no hue.
 - **Mark** (`figure-mark`, ink step 6) is the default mark; **mark hover** (step 7) lifts a hovered or focused mark; **context** and **Other** (step 3) carry de-emphasised series and folded tails.
 - **Identity:** a harness, model, folder or tool is told apart by position and label (lanes, small multiples, row labels), never by a hue of its own. Many entities are ranked bars, or the first six as small multiples with the rest folded into Other.
 - **Selection and location:** the planning thread, as everywhere: a selected mark or series, the part of a session in view, the "now" line on a time axis. Keyboard focus keeps the 2px cobalt outline.
@@ -527,7 +561,7 @@ Charts and diagrams, which WorkChord's design system does not cover. They follow
 
 ### Checks
 
-The values are generated by `frontend/scripts/figure-colours.mjs` from WorkChord's tokens and tested on every build: each ink step is at least ΔE 18 (OKLab × 100) from cobalt in its mode (19.1 at the closest in light, 18.5 in dark); the steps read in order away from the surface; the steps that carry marks (4 to 7) are at least 0.06 apart in lightness; and each mode keeps one hue. The ordinal checks of the dataviz palette validator pass for steps 4 to 7 on working paper (lightest 2.62:1) and on the dark card surface (2.49:1). Step 5 in light sits ΔE 4.3 from planned slate, which WorkChord also uses as its strong rule; a state is never told by that colour alone, since it always carries a dot and a word.
+The values are generated by `frontend/scripts/figure-colours.mjs` from WorkChord's tokens and tested on every build: each ink step is at least ΔE 18 (OKLab × 100) from cobalt in its mode (19.1 at the closest in light, 18.5 in dark); the steps read in order away from the surface; the steps that carry marks (4 to 7) are at least 0.06 apart in lightness; and each mode keeps one hue. The ordinal checks of the dataviz palette validator pass for steps 4 to 7 on working paper (lightest 2.62:1) and on the dark working paper (2.49:1), and in both themes the mark ink stands more than 3:1 from its surface and from the selection window's soft tint. Step 5 in light sits ΔE 4.3 from planned slate, which WorkChord also uses as its strong rule; a state is never told by that colour alone, since it always carries a dot and a word.
 
 The chart kit in `frontend/src/charts` draws by these rules, and its geometry tests read the mark values from this section. The development server's `/specimen.html` shows every component in every state from synthetic data; the production build leaves it out.
 
@@ -547,7 +581,7 @@ The chart kit in `frontend/src/charts` draws by these rules, and its geometry te
 
 ### Don't:
 
-- **Don't** add colours outside the upstream tokens and the six derived roles.
+- **Don't** add colours outside the upstream tokens and the seven derived roles.
 - **Don't** build metric tiles, gauges or placeholder numbers where real data is absent.
 - **Don't** give a harness, model, folder or tool a colour of its own, and don't draw a number that was not reported as zero.
 - **Don't** add controls, wording or affordances that suggest agdash can start, stop, message or change an agent.

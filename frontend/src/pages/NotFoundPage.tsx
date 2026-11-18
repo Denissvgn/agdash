@@ -16,7 +16,7 @@ export function NotFoundPage() {
       <p>
         <Link
           to={HOME_PATH}
-          className="inline-flex h-control items-center gap-sm rounded-control bg-primary-ink px-[12px] text-body text-working-paper transition-colors duration-state hover:bg-conductor-panel pointer-coarse:h-touch"
+          className="inline-flex h-control items-center gap-sm rounded-control bg-primary-ink px-[12px] text-body text-working-paper transition-colors duration-state hover:bg-conductor-panel dark:hover:bg-secondary-ink pointer-coarse:h-touch"
         >
           {t('notFound.action')}
           <ArrowRight aria-hidden="true" size={16} strokeWidth={1.75} />

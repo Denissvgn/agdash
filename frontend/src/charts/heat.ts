@@ -16,7 +16,7 @@ export function niceTop(max: number): number {
 
 /**
  * A reported zero takes the lightest step. Whole counts up to six get a step each,
- * spread over the ramp and ending at the darkest; anything else is cut into six
+ * spread over the ramp and ending at the strongest; anything else is cut into six
  * equal bins up to a rounded top.
  */
 export function heatScale(values: number[]): HeatScale {

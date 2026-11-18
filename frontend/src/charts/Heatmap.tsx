@@ -25,7 +25,7 @@ const MIN_CELL = 6
 /** A row is never shorter than this, so the row names beside it stay apart. */
 const MIN_ROW = 14
 /**
- * A grid of cells in the ink ramp, darker for more, with a scale legend; a cell
+ * A grid of cells in the ink ramp, stronger for more, with a scale legend; a cell
  * that was not reported is hatched. Arrow keys move along a row, up and down
  * between rows.
  */

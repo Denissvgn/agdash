@@ -15,7 +15,7 @@ const MINUTES = 30
 export const STRIP_WIDTH = MINUTES * (CELL + GAP) - GAP
 const HEIGHT = 12
 
-/** Events per minute, oldest on the left: one cell a minute in the ink ramp, darker for more. */
+/** Events per minute, oldest on the left: one cell a minute in the ink ramp, stronger for more. */
 function EventStrip({ events, scale }: { events: number[]; scale: HeatScale }) {
   return (
     <svg aria-hidden="true" className="block shrink-0" data-strip="events" height={HEIGHT} width={STRIP_WIDTH}>

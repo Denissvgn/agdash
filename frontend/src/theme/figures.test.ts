@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { DARK_COBALT, distance, figureColours, oklab } from '../../scripts/figure-colours.mjs'
+import { distance, figureColours, oklab } from '../../scripts/figure-colours.mjs'
 import figures from './agdash-figures.json'
+import dark from './workchord-dark.json'
 import tokens from './workchord-tokens.json'
 
 const modes = ['light', 'dark'] as const
@@ -10,13 +11,13 @@ const steps = (mode: (typeof modes)[number]) => Object.values(figures.ink[mode].
 const lightness = (value: string) => oklab(value)[0]
 
 describe('the figure layer', () => {
-  test('is exactly what the script derives from the WorkChord tokens', () => {
-    expect(figures).toEqual(figureColours(tokens))
+  test('is exactly what the script derives from the WorkChord tokens and their dark values', () => {
+    expect(figures).toEqual(figureColours(tokens, dark))
   })
 
   test('keeps every ink step at least ΔE 18 from cobalt, in each mode', () => {
     for (const mode of modes) {
-      const cobalt = mode === 'light' ? tokens.colors['planning-thread'] : DARK_COBALT
+      const cobalt = mode === 'light' ? tokens.colors['planning-thread'] : dark.colors['planning-thread'].value
       for (const value of steps(mode)) expect(distance(value, cobalt)).toBeGreaterThanOrEqual(18)
     }
   })

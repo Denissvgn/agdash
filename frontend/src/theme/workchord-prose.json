@@ -30,12 +30,17 @@
     "small": "30px"
   },
   "derived": {
-    "section": "Not stated in DESIGN.md. Each value is a token colour at a fixed opacity, filling a role DESIGN.md names but gives no value for.",
+    "section": "Not stated in DESIGN.md. Each value is a token colour at a fixed opacity, filling a role DESIGN.md names but gives no value for. The values are the light theme's and hold in the dark theme too: the conductor bar and the scrim do not change with it, and the hairline's base has one value in both.",
     "colors": {
       "hairline": {
         "value": "rgb(100 116 139 / 0.2)",
         "base": "strong-rule",
         "fills": "Shapes: \"Structural containers use 1px semantic borders\"; no border token is given, and strong-rule at full strength is for high-information input borders."
+      },
+      "inverse-ink": {
+        "value": "rgb(255 255 255 / 1)",
+        "base": "working-paper",
+        "fills": "Navigation: text on the conductor bar, which is one navy in every theme; working paper is a surface, dark in the dark theme, and no inverse text token is given."
       },
       "inverse-muted": {
         "value": "rgb(255 255 255 / 0.75)",
