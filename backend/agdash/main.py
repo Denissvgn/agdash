@@ -45,6 +45,7 @@ def create_app(
     host: Host | None = None,
     retention: object | None = None,
     usage: object | None = None,
+    trimmer: object | None = None,
 ) -> FastAPI:
     """The service's API. Nothing touches the database or the keyring until the first request.
 
@@ -53,6 +54,7 @@ def create_app(
     reported; left out, it is this one. ``retention`` is the service's keeper, which
     removes sessions past the limit; without one this process only reports. ``usage`` is
     the service's sampler of its own process; without one only the rows it kept are served.
+    ``trimmer`` takes encoded data out of what is archived when a person asks.
     """
     settings = get_settings()
     store = Store(database_url or settings.database_url or default_database_url())
@@ -76,6 +78,7 @@ def create_app(
     app.state.host = host
     app.state.retention = retention
     app.state.service_usage = usage
+    app.state.trimmer = trimmer
     app.include_router(router, prefix=settings.api_prefix)
     app.include_router(stream.router, prefix=settings.api_prefix)
     app.include_router(exports.router, prefix=settings.api_prefix)

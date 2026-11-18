@@ -9,6 +9,7 @@
     agdash connect ...  connect a WorkChord server (see agdash connect --help)
     agdash export ...   export a session to a file you name
     agdash retention    see or apply the retention setting
+    agdash archive      what is archived, and take encoded data out of it
     agdash usage        what the running service itself uses: CPU, memory and disk
     agdash token        the local API token, for the desktop app, through a pipe only
     agdash open         a link that opens the UI in a browser, for a host with no app
@@ -435,6 +436,10 @@ def _pass_through(name: str) -> Callable[[list[str]], int]:
             from agdash.export import main as export
 
             return export(argv)
+        if name == "archive":
+            from agdash.archive import main as archive
+
+            return archive(argv)
         from agdash.retention import main as retention
 
         return retention(argv)
@@ -444,7 +449,7 @@ def _pass_through(name: str) -> Callable[[list[str]], int]:
 
 def main(argv: Sequence[str] | None = None, *, host: Host | None = None, manager=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] in ("connect", "export", "retention"):
+    if argv and argv[0] in ("connect", "export", "retention", "archive"):
         return _pass_through(argv[0])(argv[1:])
     parser = argparse.ArgumentParser(prog="agdash", description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -460,7 +465,7 @@ def main(argv: Sequence[str] | None = None, *, host: Host | None = None, manager
         ("usage", "what the running service itself uses"),
     ):
         commands.add_parser(name, help=text)
-    for name in ("connect", "export", "retention"):
+    for name in ("connect", "export", "retention", "archive"):
         commands.add_parser(name, help=f"see `agdash {name} --help`", add_help=False)
     args = parser.parse_args(argv)
     host = host or current_host()

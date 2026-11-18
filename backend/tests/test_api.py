@@ -277,6 +277,7 @@ def test_the_openapi_document_describes_every_endpoint(client):
         "/api/service/usage",
         "/api/storage/settings",
         "/api/storage/retention/removal",
+        "/api/storage/archive/trim",
     }
     # Only the settings routes change anything, the WorkChord connector's and agdash's
     # own; every other route reads.

@@ -12,14 +12,17 @@
   for the same reason.
 * ``GET /api/storage/retention/preview``: what a limit would remove, before it
   is saved.
-* ``POST /api/storage/settings``: save the retention limit, or whether original
-  lines are kept. Saving removes nothing.
+* ``POST /api/storage/settings``: save the retention limit, whether original
+  lines are kept, or whether the encoded data in them is. Saving removes nothing.
+* ``POST /api/storage/archive/trim``: take encoded data out of the lines already
+  archived. The service's trimmer does it, a few chunks at a time; this only asks.
 * ``POST /api/storage/retention/removal``: remove what is past the limit now,
   and nothing last active after the time the person was shown. The service's
   keeper does it, a few sessions at a time; this only asks.
 
-The two that write change agdash's own store and nothing else: a row in
-``settings``, and, through the keeper, sessions agdash itself collected. The
+Those that write change agdash's own store and nothing else: a row in
+``settings``, and, through the keeper and the trimmer, what agdash itself
+collected. The
 store's address is never returned, since it can hold a password; only the path
 of a store that is a file.
 """
@@ -36,6 +39,7 @@ from sqlalchemy.orm import Session as DbSession
 from agdash import saved
 from agdash.api.routes import Db
 from agdash.api.workchord import Writer
+from agdash.archive import Trimmer, untrimmed
 from agdash.db.migrate import sqlite_file
 from agdash.db.models import RawChunk, Session
 from agdash.retention import Keeper, removable
@@ -46,6 +50,7 @@ WRITE_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/storage/settings"),
         ("POST", "/storage/retention/removal"),
+        ("POST", "/storage/archive/trim"),
     }
 )
 """The routes here that change anything, beside the WorkChord connector's own."""
@@ -64,6 +69,17 @@ class Archive(BaseModel):
     enabled: bool = Field(description="Whether lines read from now on are archived.")
     source: Source = Field(description="Where that comes from: the Data page, or the service.")
     chunks: int
+    keep_encoded: bool = Field(
+        description="Whether long runs of encoded data stay in the lines archived from now on."
+    )
+    keep_encoded_source: Source
+    untrimmed_chunks: int = Field(
+        description="Chunks archived before, not yet looked at for encoded data."
+    )
+    trimming: bool = Field(description="Whether the service is trimming them now.")
+    last_trim: dict[str, Any] | None = Field(
+        description="When the archive was last trimmed, of how many chunks, and the bytes saved."
+    )
 
 
 class Removal(BaseModel):
@@ -117,13 +133,15 @@ class SettingsIn(BaseModel):
 
     retention_days: int | None = Field(default=None, ge=1, le=saved.MAX_DAYS)
     keep_raw: bool | None = None
+    keep_encoded: bool | None = None
 
     @model_validator(mode="after")
     def something_named(self) -> "SettingsIn":
-        if not self.model_fields_set & {"retention_days", "keep_raw"}:
-            raise ValueError("name retention_days or keep_raw")
-        if "keep_raw" in self.model_fields_set and self.keep_raw is None:
-            raise ValueError("keep_raw is true or false")
+        if not self.model_fields_set & {"retention_days", "keep_raw", "keep_encoded"}:
+            raise ValueError("name retention_days, keep_raw or keep_encoded")
+        for name in ("keep_raw", "keep_encoded"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} is true or false")
         return self
 
 
@@ -158,6 +176,10 @@ def _keeper(request: Request) -> Keeper | None:
     return getattr(request.app.state, "retention", None)
 
 
+def _trimmer(request: Request) -> Trimmer | None:
+    return getattr(request.app.state, "trimmer", None)
+
+
 def _reach(db: DbSession, days: int) -> dict[str, Any]:
     cutoff = datetime.now(UTC) - timedelta(days=days)
     chosen, kept = removable(db, cutoff)
@@ -168,6 +190,8 @@ def _storage(request: Request, db: DbSession) -> dict[str, dict]:
     path = sqlite_file(request.app.state.store.database_url)
     days, source = saved.retention_days(db)
     keep, keep_source = saved.keep_raw(db)
+    encoded, encoded_source = saved.keep_encoded(db)
+    trimmer = _trimmer(request)
     keeper = _keeper(request)
     standing = keeper.standing() if keeper is not None else None
     retention: dict[str, Any] = {
@@ -194,6 +218,11 @@ def _storage(request: Request, db: DbSession) -> dict[str, dict]:
             "enabled": keep,
             "source": keep_source,
             "chunks": db.scalar(select(func.count()).select_from(RawChunk)) or 0,
+            "keep_encoded": encoded,
+            "keep_encoded_source": encoded_source,
+            "untrimmed_chunks": untrimmed(db),
+            "trimming": bool(trimmer and trimmer.running()),
+            "last_trim": saved.last_trim(db),
         },
         "retention": retention,
     }
@@ -246,6 +275,8 @@ def save(request: Request, body: SettingsIn, db: Writer) -> dict[str, dict]:
         saved.save_retention(db, body.retention_days)
     if body.keep_raw is not None:
         saved.save_keep_raw(db, body.keep_raw)
+    if body.keep_encoded is not None:
+        saved.save_keep_encoded(db, body.keep_encoded)
     db.commit()
     keeper = _keeper(request)
     if keeper is not None and "retention_days" in body.model_fields_set:
@@ -269,4 +300,24 @@ def remove_now(request: Request, db: Db, body: RemovalIn | None = None) -> dict[
     if saved.retention_days(db)[0] is None:
         raise HTTPException(409, "no limit is set, so there is nothing to remove")
     keeper.ask(body.before if body is not None else None)
+    return _storage(request, db)
+
+
+@router.post(
+    "/storage/archive/trim",
+    response_model=Storage,
+    status_code=202,
+    summary="Take encoded data out of what is archived",
+    responses={409: {"description": "Encoded data is kept."}, 503: {"description": "No trimmer."}},
+)
+def trim_now(request: Request, db: Db) -> dict[str, dict]:
+    """Ask the service to take long runs of encoded data out of the lines archived
+    before. It cannot be undone. It answers at once; ``archive.trimming`` says while it
+    is under way and ``archive.untrimmed_chunks`` how many are left."""
+    trimmer = _trimmer(request)
+    if trimmer is None:
+        raise HTTPException(503, "this service trims nothing by itself; use agdash archive")
+    if saved.keep_encoded(db)[0]:
+        raise HTTPException(409, "encoded data is kept, so there is nothing to take out")
+    trimmer.ask()
     return _storage(request, db)

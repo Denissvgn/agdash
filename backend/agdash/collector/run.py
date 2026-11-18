@@ -127,6 +127,7 @@ class Collector:
         *,
         snapshot_dir: Path,
         keep_raw: bool | Callable[[DbSession], bool] = True,
+        keep_encoded: bool | Callable[[DbSession], bool] = False,
         probe=None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -163,7 +164,12 @@ class Collector:
             ),
         ]
         for source in sources:
-            writer = Archiving(source.writer(), source.harness.value, enabled=keep_raw)
+            writer = Archiving(
+                source.writer(),
+                source.harness.value,
+                enabled=keep_raw,
+                keep_encoded=keep_encoded,
+            )
             source.ingestor = Ingestor(
                 self._access, SqlLedger(sessions, writer), harness=source.harness.value
             )

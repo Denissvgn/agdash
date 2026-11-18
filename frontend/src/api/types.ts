@@ -158,7 +158,18 @@ export type SettingSource = 'page' | 'environment' | 'default'
 /** What agdash keeps: its store, the archive of original lines, and retention. */
 export interface StorageReport {
   store: { file: string | null; bytes: number | null; sessions: number; first_started_at: string | null }
-  archive: { enabled: boolean; source: SettingSource; chunks: number }
+  archive: {
+    enabled: boolean
+    source: SettingSource
+    chunks: number
+    /** Whether long runs of encoded data stay in the lines archived from now on. */
+    keep_encoded: boolean
+    keep_encoded_source: SettingSource
+    /** Chunks archived before, not yet looked at for encoded data. */
+    untrimmed_chunks: number
+    trimming: boolean
+    last_trim: { at: string; through: number; chunks: number; saved_bytes: number } | null
+  }
   retention: {
     /** Null keeps everything. */
     days: number | null

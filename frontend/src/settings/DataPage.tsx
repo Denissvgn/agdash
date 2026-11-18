@@ -14,6 +14,7 @@ import { Code, Fact, Facts } from './Facts'
 import { formatCount, formatDay, useSize } from './format'
 import { PathText } from './PathText'
 import { StoreParts } from './StoreParts'
+import { TrimArchive } from './TrimArchive'
 
 const BASE = 'workspaces.settings.destinations.data'
 // The archive's size takes seconds to measure on a large store, so it is not asked again
@@ -35,7 +36,7 @@ type Retention = StorageReport['retention']
 function useSave() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (body: { retention_days?: number | null; keep_raw?: boolean }) =>
+    mutationFn: (body: { retention_days?: number | null; keep_raw?: boolean; keep_encoded?: boolean }) =>
       sendJson<StorageReport>('POST', '/api/storage/settings', body),
     onSuccess: (answer) => {
       if (answer) client.setQueryData(STORAGE, answer)
@@ -80,6 +81,7 @@ function StoreSection({ report }: { report: StorageReport }) {
           ? t('storage.archive.unmeasured')
           : t('storage.archive.size', { size: size(measured.data.bytes) })
   const keep = useSave()
+  const encoded = useSave()
   return (
     <Section labelledBy="store-title" title={t('storage.store.title')}>
       <p className="max-w-[70ch] text-body text-secondary-ink">{t('storage.store.lead')}</p>
@@ -131,6 +133,29 @@ function StoreSection({ report }: { report: StorageReport }) {
           <span aria-live="polite" className="text-label text-secondary-ink" role="status">
             {keep.isError ? t('storage.archive.failed') : keep.isSuccess ? t('storage.archive.saved') : ''}
           </span>
+        </Fact>
+        <Fact term={t('storage.encoded.term')}>
+          <label className="flex cursor-pointer items-center gap-sm pointer-coarse:min-h-touch">
+            <input
+              checked={archive.keep_encoded}
+              className="size-[16px] shrink-0 cursor-pointer accent-planning-thread"
+              disabled={encoded.isPending}
+              type="checkbox"
+              onChange={(event) => encoded.mutate({ keep_encoded: event.target.checked })}
+            />
+            {t('storage.encoded.keep')}
+          </label>
+          <span className="data">{t(archive.keep_encoded ? 'storage.encoded.on' : 'storage.encoded.off')}</span>
+          <span className="text-label text-secondary-ink">{t('storage.encoded.about')}</span>
+          {archive.keep_encoded_source === 'environment' && (
+            <span className="flex flex-wrap items-baseline gap-x-sm text-label text-secondary-ink">
+              {t('storage.archive.started')} <Code>{t('storage.names.keepEncoded')}</Code>
+            </span>
+          )}
+          <span aria-live="polite" className="text-label text-secondary-ink" role="status">
+            {encoded.isError ? t('storage.archive.failed') : encoded.isSuccess ? t('storage.encoded.saved') : ''}
+          </span>
+          {!archive.keep_encoded && <TrimArchive archive={archive} />}
         </Fact>
       </Facts>
       {store.bytes !== null && <StoreParts />}
@@ -441,7 +466,7 @@ export function DataPage() {
     queryKey: STORAGE,
     queryFn: ({ signal }) => getJson<StorageReport>('/api/storage', {}, signal),
     // While sessions are being removed the page follows it, and stops asking once it is over.
-    refetchInterval: ({ state }) => (state.data?.retention.running ? FOLLOW_MS : false),
+    refetchInterval: ({ state }) => (state.data?.retention.running || state.data?.archive.trimming ? FOLLOW_MS : false),
   })
   // Once a removal is over, every list fetched before it holds sessions that are gone.
   const running = report.data?.retention.running === true

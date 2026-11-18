@@ -726,6 +726,7 @@ def main() -> None:
 
     import uvicorn
 
+    from agdash.archive import Trimmer
     from agdash.collector.run import Reading
     from agdash.main import create_app
     from agdash.platform import Host, current_host
@@ -746,8 +747,11 @@ def main() -> None:
     for found in HOME_FOLDERS:
         (home / found).mkdir(parents=True)
     host = Host(current_host().os, home, {})
-    keeper = Keeper(sessionmaker(writer_engine(url), expire_on_commit=False))
+    writing = sessionmaker(writer_engine(url), expire_on_commit=False)
+    keeper = Keeper(writing)
     keeper.run(threading.Event())
+    trimmer = Trimmer(writing)
+    trimmer.run(threading.Event())
     app = create_app(
         url,
         token=TOKEN,
@@ -756,6 +760,7 @@ def main() -> None:
         reading=reading,
         host=host,
         retention=keeper,
+        trimmer=trimmer,
     )
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 

@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     retention_days: int | None = None
     # Keep the original harness lines, redacted and compressed, besides the events.
     keep_raw: bool = True
+    # Keep long runs of encoded data (images, signatures, encrypted reasoning) in those
+    # lines too. Left out by default: nothing shows them, and they are most of the archive.
+    keep_encoded: bool = False
     # A port for the WorkChord webhook receiver, on the same loopback address; unset is off.
     webhook_port: int | None = None
     # The built UI to serve, for a host with no desktop app; unset uses the copy frozen into
