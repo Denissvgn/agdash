@@ -564,8 +564,9 @@ describe('Settings · Data', () => {
     expect(await retention.findByText(/^Removing the sessions past the limit\./)).toBeInTheDocument()
     // The time the question showed goes with the request, so nothing later can be taken.
     expect(sent).toEqual([{ path: '/api/storage/retention/removal', body: { before: '2026-10-17T12:00:00Z' } }])
-    // With the question gone, the focus stays where it was asked.
-    expect(retention.getByRole('heading', { name: 'Remove now' })).toHaveFocus()
+    // With the question gone, the focus stays where it was asked. The page can show that the
+    // removal runs, from a look it had already begun, a moment before the answer moves the focus.
+    await waitFor(() => expect(retention.getByRole('heading', { name: 'Remove now' })).toHaveFocus())
     // The page asks again by itself until it is over, then says what went.
     expect(await retention.findByText(/: 1,204 sessions with 52,000 events$/, {}, { timeout: 6000 })).toBeInTheDocument()
     expect(retention.getByText('Nothing is past the limit now.')).toBeInTheDocument()
