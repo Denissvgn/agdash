@@ -85,7 +85,9 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       # WebKit is the engine of the app's web view on both systems.
-      - run: npx playwright install --with-deps webkit
+      - name: Install the browsers
+        timeout-minutes: 14
+        run: ../.github/scripts/install-browsers.sh webkit
       - run: npm run test:webkit
 
   specimen:
@@ -103,7 +105,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npx playwright install --with-deps chromium webkit
+      - name: Install the browsers
+        timeout-minutes: 14
+        run: ../.github/scripts/install-browsers.sh chromium webkit
       # Every chart-kit component in every state, at 1440px and 390px; fails on sideways scroll.
       - run: npm run test:specimen
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -141,7 +145,8 @@ jobs:
       # WebKit everywhere; Chromium on Linux too, the one engine that emulates forced colours.
       - name: Install the browsers
         working-directory: frontend
-        run: npx playwright install --with-deps webkit ${{ runner.os == 'Linux' && 'chromium' || '' }}
+        timeout-minutes: 14
+        run: ../.github/scripts/install-browsers.sh webkit ${{ runner.os == 'Linux' && 'chromium' || '' }}
       # The built app over a synthetic store, on loopback, with no keyring and an empty home.
       - name: Serve the synthetic store
         working-directory: backend
