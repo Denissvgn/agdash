@@ -124,6 +124,50 @@ describe('the styles carry both themes', () => {
   })
 })
 
+describe('a disabled primary action keeps its disabled look under the pointer', () => {
+  const rules: { selector: string; declared: Record<string, string> }[] = []
+
+  beforeAll(async () => {
+    const source = readFileSync(resolve(__dirname, '../index.css'), 'utf8')
+    // The button classes are kept only where the content uses them.
+    const content = [{ raw: '<button class="button-primary button-secondary"></button>' }]
+    const built = await postcss([tailwindcss({ ...tailwindConfig, content })]).process(source, { from: undefined })
+    built.root.walkRules((rule: Rule) => {
+      const declared: Record<string, string> = {}
+      rule.walkDecls((declaration) => {
+        declared[declaration.prop] = declaration.value
+      })
+      for (const selector of rule.selectors) rules.push({ selector, declared })
+    })
+  })
+
+  // Classes, attributes and pseudo-classes, counting the most specific part of :not() and :is().
+  const weight = (selector: string) => (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!not\(|is\()[\w-]+/g) ?? []).length
+
+  test('no hover fill outranks the disabled rule unless it leaves disabled buttons out', () => {
+    for (const button of ['.button-primary', '.button-secondary']) {
+      const disabled = rules.find((rule) => rule.selector === `${button}:disabled`)
+      expect(disabled?.declared['background-color'], button).toBeDefined()
+      const hovers = rules.filter(
+        (rule) => rule.selector.startsWith(button) && rule.selector.includes(':hover') && 'background-color' in rule.declared,
+      )
+      expect(hovers.length, `${button} has hover fills`).toBeGreaterThan(0)
+      for (const hover of hovers) {
+        const spares = hover.selector.includes(':not(:disabled)')
+        expect(spares || weight(hover.selector) <= weight(disabled!.selector), hover.selector).toBe(true)
+      }
+    }
+  })
+
+  test('the dark hover of the primary action is one of those, in both ways the theme is chosen', () => {
+    const dark = rules.filter((rule) => rule.selector.startsWith('.button-primary') && rule.selector.includes('data-theme'))
+    expect(dark.map((rule) => rule.selector.replace('.button-primary:hover:not(:disabled)', '')).sort()).toEqual([
+      ':is([data-theme="dark"] *)',
+      ':not([data-theme="light"] *)',
+    ])
+  })
+})
+
 describe('the dark theme keeps text readable (WCAG AA)', () => {
   const surfaces: Name[] = ['canvas-mist', 'working-paper']
   const AA = 4.5
