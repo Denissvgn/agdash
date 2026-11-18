@@ -24,6 +24,12 @@
     "body": "This address is not part of agdash.",
     "action": "Go to the live board"
   },
+  "preparing": {
+    "title": "The service is preparing its store",
+    "body": "After an update, or to give freed room back to the disk, a large store takes a few minutes. This page loads by itself once the service is ready.",
+    "figure": "This figure loads by itself once the service is ready.",
+    "retry": "Check now"
+  },
   "workspaces": {
     "live": {
       "label": "Live",
@@ -1075,7 +1081,9 @@
         "archive": "Original lines",
         "free": "Free inside the file"
       },
-      "note": "Free space inside the file is room that removed data left. New data fills it before the file grows."
+      "note": "Free space inside the file is room that removed data left. New data fills it before the file grows.",
+      "atStart": "So much is free that the service writes the store anew without it when it next starts, which takes some minutes.",
+      "released": "After a removal the service gives it back to the disk, a little at a time."
     },
     "encoded": {
       "term": "Encoded data",

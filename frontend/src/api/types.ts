@@ -206,6 +206,10 @@ export interface StoreParts {
   archive_bytes: number
   free_bytes: number | null
   rest_bytes: number | null
+  /** So much is free that the service compacts the store when it next starts. */
+  compacts_at_start: boolean
+  /** The store gives free room back to the disk as the service runs. */
+  releases: boolean
 }
 
 export type ServiceRange = 'hour' | 'day' | 'quarter'

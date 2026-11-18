@@ -23,12 +23,30 @@ pub fn port_from(value: Option<String>) -> u16 {
         .unwrap_or(DEFAULT_PORT)
 }
 
+/// What the service's port says when asked for its health.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Answer {
+    /// The service runs and answers.
+    Ready,
+    /// The service runs but is still bringing its store up to date, which takes
+    /// minutes on a large one. It answers every other request with "ask again".
+    Preparing,
+    /// Nothing answers, or not as agdash does.
+    Nothing,
+}
+
+/// Ask the port for the service's health.
+pub fn answer(port: u16) -> Answer {
+    match http::get(port, "/health", None, Duration::from_secs(2)) {
+        Ok((200, body)) if body.contains("\"ok\"") => Answer::Ready,
+        Ok((200, body)) if body.contains("\"preparing\"") => Answer::Preparing,
+        _ => Answer::Nothing,
+    }
+}
+
 /// Whether the service answers its health check.
 pub fn healthy(port: u16) -> bool {
-    matches!(
-        http::get(port, "/health", None, Duration::from_secs(2)),
-        Ok((200, body)) if body.contains("\"ok\"")
-    )
+    answer(port) == Answer::Ready
 }
 
 /// The agdash command: `AGDASH_BIN`, else the one bundled next to the app, else `agdash`.
@@ -122,6 +140,9 @@ pub enum Running {
     Already,
     StartedByManager,
     StartedHere,
+    /// A service runs and is preparing its store. Nothing more is started and nothing
+    /// is waited for: the UI says so and loads by itself once the service is ready.
+    Preparing,
 }
 
 /// Attach to a running service, or start it and wait until it answers.
@@ -130,8 +151,10 @@ pub fn ensure_running(
     bin: &Path,
     manager: Option<Vec<String>>,
 ) -> Result<Running, String> {
-    if healthy(port) {
-        return Ok(Running::Already);
+    match answer(port) {
+        Answer::Ready => return Ok(Running::Already),
+        Answer::Preparing => return Ok(Running::Preparing),
+        Answer::Nothing => {}
     }
     let how = match manager {
         Some(command) => {
@@ -154,10 +177,11 @@ pub fn ensure_running(
     };
     let deadline = Instant::now() + START_WAIT;
     while Instant::now() < deadline {
-        if healthy(port) {
-            return Ok(how);
+        match answer(port) {
+            Answer::Ready => return Ok(how),
+            Answer::Preparing => return Ok(Running::Preparing),
+            Answer::Nothing => sleep(Duration::from_millis(250)),
         }
-        sleep(Duration::from_millis(250));
     }
     Err("the service did not answer in time".into())
 }
@@ -389,5 +413,32 @@ mod tests {
         let missing = PathBuf::from("/nonexistent/agdash");
         assert_eq!(ensure_running(port, &missing, None), Ok(Running::Already));
         server.join().unwrap();
+    }
+
+    #[test]
+    fn a_service_preparing_its_store_is_neither_started_again_nor_waited_for() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0u8; 1024];
+                let _ = stream.read(&mut buffer);
+                stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\ncontent-length: 22\r\n\r\n{\"status\":\"preparing\"}",
+                    )
+                    .unwrap();
+            }
+        });
+        assert_eq!(answer(port), Answer::Preparing);
+        let missing = PathBuf::from("/nonexistent/agdash");
+        let started = Instant::now();
+        assert_eq!(ensure_running(port, &missing, None), Ok(Running::Preparing));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        server.join().unwrap();
+        // With nothing on the port there is no answer at all.
+        assert_eq!(answer(port), Answer::Nothing);
     }
 }

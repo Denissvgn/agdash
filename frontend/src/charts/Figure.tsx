@@ -1,6 +1,7 @@
 import { CircleAlert, CircleDashed } from 'lucide-react'
 import { useId, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { usePreparing } from '../api/preparing'
 import { HAIRLINE, HATCH_OPACITY, HATCH_SPACING, svgId } from './geometry'
 import { FILL, STROKE, type Ink } from './ink'
 import { TableTwin, type TableTwinData } from './TableTwin'
@@ -56,6 +57,9 @@ export function Figure({
   children?: ReactNode
 }) {
   const { t } = useTranslation()
+  // A figure is not told why its values did not come; the app knows when the reason is
+  // that the service is still preparing its store, and asks again by itself.
+  const preparing = usePreparing()
   const ready: Content | null = status === 'ready' && children ? { plot: children, table } : null
   // The last drawing, kept while the next one loads.
   const [held, setHeld] = useState<Content | null>(ready)
@@ -78,7 +82,9 @@ export function Figure({
       </figcaption>
       {showLegend ? <Legend entries={legend} /> : null}
       <div aria-busy={status === 'loading'} className="min-w-0" style={{ minHeight: height }}>
-        {status === 'error' ? (
+        {status === 'error' && preparing ? (
+          <FigureNotice body={t('preparing.figure')} height={height} title={t('preparing.title')} />
+        ) : status === 'error' ? (
           <FigureNotice body={t('charts.error.body')} height={height} title={t('charts.error.title')} tone="problem">
             {onRetry ? (
               <button className="button-secondary" type="button" onClick={onRetry}>

@@ -167,12 +167,23 @@ def service_usage(request: Request, db: Db, range: Range = "hour") -> dict[str, 
     A step in which nothing was measured, because the service was not running, has
     nulls, never zeros.
     """
-    sampler: Sampler | None = getattr(request.app.state, "service_usage", None)
-    step, count = STEPS[range] if sampler is not None or range != "hour" else HOUR_FROM_ROWS
-    now = datetime.now(UTC)
+    return usage_report(db, getattr(request.app.state, "service_usage", None), range)
+
+
+def usage_report(
+    db,
+    sampler: Sampler | None,
+    chosen: Range = "hour",
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """What ``/service/usage`` answers. With no sampler it is made of the kept rows
+    alone, which is also how the ``agdash usage`` command reads it, from the store."""
+    step, count = STEPS[chosen] if sampler is not None or chosen != "hour" else HOUR_FROM_ROWS
+    now = now or datetime.now(UTC)
     end = datetime.fromtimestamp(math.ceil(now.timestamp() / step) * step, UTC)
     start = end - timedelta(seconds=step * count)
-    pieces = [piece for piece in _pieces(db, sampler, range, start) if piece.started_at >= start]
+    pieces = [piece for piece in _pieces(db, sampler, chosen, start) if piece.started_at >= start]
     recent = sampler.recent() if sampler is not None else []
     latest = recent[-1] if recent else None
     if sampler is None:
@@ -187,7 +198,7 @@ def service_usage(request: Request, db: Db, range: Range = "hour") -> dict[str, 
         "known": sampler is not None,
         "since": sampler.since if sampler is not None else None,
         "cpus": os.cpu_count(),
-        "range": range,
+        "range": chosen,
         "step_seconds": step,
         "measured_seconds": measured,
         "now": _now(latest),
