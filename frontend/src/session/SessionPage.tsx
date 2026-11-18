@@ -89,7 +89,7 @@ function EventRow({ event, expanded, onToggle }: { event: EventOut; expanded: bo
       mono = true
       if (p.is_error === true)
         badge = (
-          <span className="inline-flex h-[20px] items-center rounded-full border border-feedback-warning px-sm text-label text-feedback-warning">
+          <span className="inline-flex h-[20px] items-center rounded-full border border-feedback-warning px-sm text-label text-primary-ink">
             {t('session.error')}
           </span>
         )

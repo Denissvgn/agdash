@@ -14,11 +14,9 @@
 // captured; with --forced-colors (Chromium only) the captures are in forced colours, each
 // figure is checked to keep its marks visible, and a chosen pill to look unlike the rest.
 // With --theme dark the browser reports a dark system appearance, as a desktop set to
-// dark does: every screen must then be drawn on the dark theme's canvas, and every piece
-// of text on it must stand at least 4.5:1 from what is behind it (3:1 when large). The
-// light run checks its canvas only: there the warning amber, upstream's value, is 3.19:1
-// as the text of a pill. The keyboard walk does not depend on colour, so it runs in the
-// light theme only.
+// dark does: every screen must then be drawn on the dark theme's canvas. In either theme
+// every piece of text must stand at least 4.5:1 from what is behind it (3:1 when large).
+// The keyboard walk does not depend on colour, so it runs in the light theme only.
 // Exits non-zero on any failure, after listing them all.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -252,9 +250,9 @@ async function keyboard(page, where) {
   return trees
 }
 
-/** The page is on its theme's canvas and, in the dark theme, no text is too close to what is behind it. */
+/** The page is on its theme's canvas, and no text is too close to what is behind it. */
 async function appearance(page, where) {
-  const found = await page.evaluate(([canvas, text]) => {
+  const found = await page.evaluate((canvas) => {
     const problems = []
     const parse = (value) => {
       const parts = (value.match(/[\d.]+/g) ?? []).map(Number)
@@ -274,7 +272,6 @@ async function appearance(page, where) {
     }
     const page = getComputedStyle(document.documentElement).backgroundColor
     if (parse(page).rgb.join(' ') !== parse(canvas).rgb.join(' ')) problems.push(`the page is on ${page}, not the theme's canvas ${canvas}`)
-    if (!text) return problems
 
     /** What is painted behind an element: its ancestors' fills, composited from the page up. */
     const behind = (element) => {
@@ -309,7 +306,7 @@ async function appearance(page, where) {
       }
     }
     return problems
-  }, [CANVAS, dark])
+  }, CANVAS)
   for (const message of found) fail(where, message)
 }
 
