@@ -272,6 +272,8 @@ function RemoveNow({ retention }: { retention: Retention }) {
   const opener = useRef<HTMLButtonElement>(null)
   const keepThem = useRef<HTMLButtonElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+  // The focus going back to the opener after "keep them", while it has not happened yet.
+  const returning = useRef(0)
   // The question shows what the store holds now, not what it held when the page opened.
   const checking = useIsFetching({ queryKey: STORAGE, exact: true }) > 0
   const ask = useMutation({
@@ -280,11 +282,14 @@ function RemoveNow({ retention }: { retention: Retention }) {
     onSuccess: (answer) => {
       if (answer) client.setQueryData(STORAGE, answer)
       setConfirming(false)
+      window.cancelAnimationFrame(returning.current)
       // The question is gone; the focus stays in its place rather than falling to the page.
       heading.current?.focus()
     },
   })
   const open = () => {
+    // Asked again before the focus was back: it belongs to the question now.
+    window.cancelAnimationFrame(returning.current)
     setConfirming(true)
     void client.refetchQueries({ queryKey: STORAGE, exact: true })
   }
@@ -299,7 +304,7 @@ function RemoveNow({ retention }: { retention: Retention }) {
     setConfirming(false)
     ask.reset()
     // Back to where the question was asked from, once it is there again.
-    window.requestAnimationFrame(() => opener.current?.focus())
+    returning.current = window.requestAnimationFrame(() => opener.current?.focus())
   }
   return (
     <div className="flex flex-col gap-sm border-t border-hairline pt-md">
