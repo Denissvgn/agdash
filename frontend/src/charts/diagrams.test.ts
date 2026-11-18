@@ -116,7 +116,7 @@ describe('the heatmap scale', () => {
     expect([niceTop(113), niceTop(7), niceTop(0)]).toEqual([120, 12, 0])
   })
 
-  test('gives small whole counts a step each, the largest the darkest', () => {
+  test('gives small whole counts a step each, the largest the strongest', () => {
     const one = heatScale([0, 1, 1])
     expect(one.bounds).toEqual([0, 1])
     expect(heatStep(1, one)).toBe('ink-7')

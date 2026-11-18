@@ -431,7 +431,7 @@
       "then": ", then ",
       "noStates": "no state recorded",
       "key": "Each session's lane covers the last 30 minutes, oldest on the left: events per minute above, its state below. Lanes change as sessions write.",
-      "eventsKey": "Events per minute, darker for more"
+      "eventsKey": "Events per minute, stronger for more"
     },
     "filter": {
       "label": "Show sessions by state",

@@ -24,7 +24,7 @@ export function ConductorBar({ drawerOpen, onOpenMenu, menuButtonRef }: Props) {
     <header
       className={
         'sticky top-0 z-30 flex h-[calc(theme(spacing.conductor)+env(safe-area-inset-top))] items-center gap-md ' +
-        'bg-conductor-navy pt-[env(safe-area-inset-top)] text-working-paper ' +
+        'bg-conductor-navy pt-[env(safe-area-inset-top)] text-inverse-ink ' +
         'pl-[max(theme(spacing.md),env(safe-area-inset-left))] pr-[max(theme(spacing.md),env(safe-area-inset-right))] ' +
         'wide:pl-[max(theme(spacing.lg),env(safe-area-inset-left))] wide:pr-[max(theme(spacing.lg),env(safe-area-inset-right))]'
       }
@@ -36,7 +36,7 @@ export function ConductorBar({ drawerOpen, onOpenMenu, menuButtonRef }: Props) {
         aria-haspopup="dialog"
         aria-expanded={drawerOpen}
         aria-controls={DRAWER_ID}
-        className="inline-flex h-control items-center gap-sm rounded-control px-[10px] text-body text-inverse-soft transition-colors duration-state hover:bg-conductor-panel hover:text-working-paper pointer-coarse:h-touch wide:hidden"
+        className="inline-flex h-control items-center gap-sm rounded-control px-[10px] text-body text-inverse-soft transition-colors duration-state hover:bg-conductor-panel hover:text-inverse-ink pointer-coarse:h-touch wide:hidden"
       >
         <Menu aria-hidden="true" size={18} strokeWidth={1.75} />
         <span>{t('shell.openMenu')}</span>
@@ -45,7 +45,7 @@ export function ConductorBar({ drawerOpen, onOpenMenu, menuButtonRef }: Props) {
       <Link
         to={HOME_PATH}
         aria-label={t('app.home')}
-        className="inline-flex items-center gap-sm rounded-compact text-title text-working-paper"
+        className="inline-flex items-center gap-sm rounded-compact text-title text-inverse-ink"
       >
         <Mark />
         {t('app.name')}
@@ -62,8 +62,8 @@ export function ConductorBar({ drawerOpen, onOpenMenu, menuButtonRef }: Props) {
                   className={({ isActive }) =>
                     `${workspaceItem} ${
                       isActive
-                        ? 'bg-conductor-panel text-working-paper shadow-[inset_0_-2px_0_theme(colors.planning-thread)]'
-                        : 'text-inverse-muted hover:bg-conductor-hover hover:text-working-paper'
+                        ? 'bg-conductor-panel text-inverse-ink shadow-[inset_0_-2px_0_theme(colors.planning-thread)]'
+                        : 'text-inverse-muted hover:bg-conductor-hover hover:text-inverse-ink'
                     }`
                   }
                 >

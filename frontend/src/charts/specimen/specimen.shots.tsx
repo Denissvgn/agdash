@@ -1,11 +1,17 @@
 import { act, render } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 import { page, server } from 'vitest/browser'
+import dark from '../../theme/workchord-dark.json'
+import tokens from '../../theme/workchord-tokens.json'
 import { specimenI18n } from './i18n'
 import { SpecimenPage } from './SpecimenPage'
 
 const WIDTHS = [1440, 390]
+// Each theme is pinned on the root, as data-theme allows, and must draw its own canvas.
+const THEMES = { light: tokens.colors['canvas-mist'], dark: dark.colors['canvas-mist'].value }
+const CASES = (Object.keys(THEMES) as (keyof typeof THEMES)[]).flatMap((theme) => WIDTHS.map((width) => ({ theme, width })))
+const channels = (colour: string) => (colour.match(/\d+/g) ?? []).slice(0, 3).join(' ')
 const HEIGHT = 1000
 // Below the browser window's 2000px, so no frame is ever scaled down to fit.
 const TALLEST = 1900
@@ -18,8 +24,13 @@ const slug = (text: string) =>
     .slice(0, 40)
 
 describe('the chart-kit specimen', () => {
-  test.each(WIDTHS)('at %ipx: no sideways scroll, every figure captured', async (width) => {
+  afterEach(() => {
+    delete document.documentElement.dataset.theme
+  })
+
+  test.each(CASES)('$theme at $width px: no sideways scroll, every figure captured', async ({ theme, width }) => {
     await page.viewport(width, HEIGHT)
+    document.documentElement.dataset.theme = theme
     document.body.className = 'bg-canvas-mist'
     render(
       <I18nextProvider i18n={specimenI18n()}>
@@ -31,6 +42,10 @@ describe('the chart-kit specimen', () => {
       await settle()
     })
     expect(window.innerWidth, 'the test frame has the width asked for').toBe(width)
+    expect(channels(getComputedStyle(document.body).backgroundColor), `the ${theme} canvas`).toBe(channels(THEMES[theme]))
+    const figure = document.querySelector('figure')!
+    const surface = theme === 'dark' ? dark.colors['working-paper'].value : tokens.colors['working-paper']
+    expect(channels(getComputedStyle(figure).backgroundColor), `the ${theme} figure surface`).toBe(channels(surface))
 
     const root = document.documentElement
     expect(root.scrollWidth, 'the page scrolls sideways').toBeLessThanOrEqual(root.clientWidth)
@@ -59,7 +74,7 @@ describe('the chart-kit specimen', () => {
       await act(settle)
       await page.screenshot({
         element: shot.element,
-        path: `../../../specimen-shots/${server.browser}-${width}/${String(i).padStart(2, '0')}-${shot.name}.png`,
+        path: `../../../specimen-shots/${server.browser}-${width}${theme === 'dark' ? '-dark' : ''}/${String(i).padStart(2, '0')}-${shot.name}.png`,
       })
     }
   })

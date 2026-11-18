@@ -215,7 +215,7 @@ function LiveBoard({ view }: { view: LiveView }) {
     if (!data?.minutes.length) return undefined
     return {
       rows: new Map(data.sessions.map((row) => [row.id, row])),
-      // One scale for the whole board, so a darker cell means more events in any row.
+      // One scale for the whole board, so a stronger cell means more events in any row.
       scale: heatScale(data.sessions.flatMap((row) => row.events)),
       from: Date.parse(data.minutes[0]),
       until: Date.parse(data.until),

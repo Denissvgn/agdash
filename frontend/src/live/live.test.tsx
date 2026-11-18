@@ -598,7 +598,7 @@ describe('the last 30 minutes', () => {
     expect(row.querySelectorAll('[data-strip="lane"] > rect')).toHaveLength(30)
     expect(states(row, 'lane')).toEqual(['waiting', 'active'])
     expect(row).toHaveTextContent('Last 30 minutes: 5 events; Waiting for 20 min, then Active for 10 min.')
-    expect(screen.getByRole('list', { name: 'Legend' })).toHaveTextContent('Events per minute, darker for more')
+    expect(screen.getByRole('list', { name: 'Legend' })).toHaveTextContent('Events per minute, stronger for more')
     // Every lane is on the same clock: the same width, under one pair of labels.
     const lanes = [...document.querySelectorAll('[data-strip="lane"]')]
     expect(new Set(lanes.map((lane) => lane.getAttribute('width'))).size).toBe(1)

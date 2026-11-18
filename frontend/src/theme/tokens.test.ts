@@ -43,10 +43,8 @@ describe('the styles are built from the tokens', () => {
     ]
     const keywords = ['transparent', 'current', 'inherit']
     expect(Object.keys(theme.colors).sort()).toEqual([...keywords, ...Object.keys(tokens.colors), ...derived].sort())
-    const palette = Object.fromEntries(
-      Object.entries(theme.colors).filter(([name]) => !keywords.includes(name) && !derived.includes(name)),
-    )
-    expect(Object.fromEntries(Object.entries(palette).map(([k, v]) => [k, withoutAlpha(v)]))).toEqual(tokens.colors)
+    // Each token is a variable, so a theme sets its value in one place (see dark.test.ts for the values).
+    for (const name of Object.keys(tokens.colors)) expect(withoutAlpha(theme.colors[name])).toBe(`rgb(var(--color-${name}))`)
   })
 
   test('type scale', () => {
@@ -68,8 +66,7 @@ describe('the styles are built from the tokens', () => {
     expect(theme.spacing.conductor).toBe('52px')
     expect(theme.spacing.sidebar).toBe('220px')
     expect(theme.maxWidth.page).toBe('1240px')
-    expect(theme.boxShadow.resting).toBe(prose.shadows.resting)
-    expect(theme.boxShadow.popover).toBe(prose.shadows.popover)
+    for (const name of Object.keys(prose.shadows).slice(1)) expect(theme.boxShadow[name]).toBe(`var(--shadow-${name})`)
     expect(theme.screens).toEqual({ roomy: '521px', wide: '1181px' })
   })
 })
@@ -111,7 +108,7 @@ describe('derived values are cited token colours', () => {
       const base = colours[role.base]
       expect(base, `${name} names a token`).toBeDefined()
       const [, channels] = base.match(/^rgb\((\d+ \d+ \d+)\)$/) ?? []
-      expect(role.value, name).toMatch(new RegExp(`^rgb\\(${channels} / 0?\\.\\d+\\)$`))
+      expect(role.value, name).toMatch(new RegExp(`^rgb\\(${channels} / (?:0?\\.\\d+|1)\\)$`))
       expect(role.fills.length, `${name} cites what it fills`).toBeGreaterThan(20)
       expect(theme.colors[name]).toBe(role.value)
     }
