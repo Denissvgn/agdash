@@ -77,6 +77,17 @@ def _health(timeout: float = 2.0) -> dict | None:
         return None
 
 
+def _preparing(health: dict | None) -> bool:
+    """Whether what answers is the service still bringing its store up to date."""
+    return bool(health) and health.get("status") == "preparing"
+
+
+PREPARING = (
+    "The service is preparing its store: after an update, or to give freed room back, a"
+    " large store takes some minutes. It answers once that is done."
+)
+
+
 def _serves_ui(timeout: float = 2.0) -> bool:
     settings = get_settings()
     try:
@@ -94,11 +105,15 @@ def open_ui(host: Host, out=print, err=None) -> int:
     """Print the link that opens the UI with the local token."""
     err = err or (lambda text: print(text, file=sys.stderr))
     settings = get_settings()
-    if _health() is None:
+    health = _health()
+    if health is None:
         err(
             f"The service is not answering on http://{settings.host}:{settings.port}."
             " Start it with `agdash serve`, or `agdash install` to start it at login."
         )
+        return 1
+    if _preparing(health):
+        err(PREPARING)
         return 1
     if not _serves_ui():
         err(
@@ -246,10 +261,13 @@ def status(host: Host, manager: ServiceManager, out=print) -> int:
         out(f"  definition: {manager.unit_path}")
     health = _health()
     settings = get_settings()
+    answering = "not yet" if _preparing(health) else "yes" if health else "no"
     out(
-        f"Answering: {'yes' if health else 'no'} on http://{settings.host}:{settings.port}"
+        f"Answering: {answering} on http://{settings.host}:{settings.port}"
         + (f" (version {health.get('version')})" if health else "")
     )
+    if _preparing(health):
+        out(f"  {PREPARING}")
     counts = _counts(url)
     out(f"Data: {host.data_dir()}")
     if counts is None:
@@ -392,15 +410,19 @@ def doctor_checks(host: Host, manager: ServiceManager) -> list[Check]:
         checks.append(Check("Service", level, detail))
     except ServiceError as error:
         checks.append(Check("Service", "warn", f"could not ask the service manager: {error}"))
-    checks.append(
-        Check(
-            "Answering",
-            "ok" if _health() else "warn",
-            "the service answers on loopback"
-            if _health()
-            else "nothing answers on the service port",
+    health = _health()
+    if _preparing(health):
+        checks.append(Check("Answering", "warn", PREPARING))
+    else:
+        checks.append(
+            Check(
+                "Answering",
+                "ok" if health else "warn",
+                "the service answers on loopback"
+                if health
+                else "nothing answers on the service port",
+            )
         )
-    )
     try:
         kind = host.secret_store().kind
         checks.append(Check("Secret store", "ok", f"{kind} (agdash's own entries only)"))

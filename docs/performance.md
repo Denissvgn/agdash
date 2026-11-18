@@ -110,7 +110,11 @@ The temporary copy is written in the store's own folder, not in the system's
 temporary folder. Only the service compacts by itself: a command run beside it,
 such as `agdash backfill`, never does. While the service brings a large store
 up to date it holds a lock beside the store, so a second service started
-meanwhile ends at once instead of working on the same store.
+meanwhile ends at once instead of working on the same store. When that work
+takes longer than a second, the service's port answers meanwhile: `/health`
+says `preparing` and every other request gets 503 with the same word, so the
+app and the UI say that the store is being prepared and load by themselves once
+it is ready. `agdash status` says the same.
 From then on the store gives free room back a little at a time after sessions
 are removed or the archive is trimmed. `agdash compact` says how much is free,
 and `agdash compact --apply` compacts with the service stopped.

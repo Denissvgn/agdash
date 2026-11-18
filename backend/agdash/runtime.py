@@ -23,6 +23,7 @@ from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from agdash import saved
+from agdash.api.preparing import WhilePreparing
 from agdash.api.security import NotLoopback, ensure_loopback
 from agdash.archive import Trimmer
 from agdash.collector.run import Collector
@@ -211,7 +212,10 @@ def serve() -> int:
 
 def _serve(settings: Settings) -> int:
     """The service itself, once this process has the store's lock."""
-    store = prepare(compact=True)
+    # Minutes, on a large store that an update changed or that is worth compacting.
+    # Meanwhile the port says so, where it used to say nothing.
+    with WhilePreparing(settings):
+        store = prepare(compact=True)
     collector, engine = collector_for(store)
     stop = threading.Event()
     threads = collector.run(stop)
