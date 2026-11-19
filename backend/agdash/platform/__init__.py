@@ -29,6 +29,11 @@ class OperatingSystem(StrEnum):
     MACOS = "macos"
     LINUX = "linux"
 
+    @property
+    def label(self) -> str:
+        """The system's name as people write it."""
+        return {"macos": "macOS", "linux": "Linux"}[self.value]
+
 
 class UnsupportedOperatingSystem(RuntimeError):
     pass

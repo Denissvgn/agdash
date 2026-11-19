@@ -617,14 +617,18 @@ def _strings(value):
         yield value
 
 
-@pytest.mark.skipif(not COMMITTED.exists(), reason="no fixtures have been generated")
-def test_committed_fixtures_hold_no_private_text():
-    text = all_text(COMMITTED)
+@pytest.mark.parametrize(
+    "committed", [COMMITTED, COMMITTED.with_name("harness_linux")], ids=["macos", "linux"]
+)
+def test_committed_fixtures_hold_no_private_text(committed):
+    if not committed.exists():
+        pytest.skip("no fixtures have been generated")
+    text = all_text(committed)
     assert "/Users/" not in text and "/home/" not in text
     assert "@" not in text.replace("@example.test", "")
     assert redact_text(text) == text, "nothing shaped like a secret"
     prose = 0
-    for path in [*COMMITTED.rglob("*.jsonl"), *COMMITTED.rglob("*.jsonl.zst")]:
+    for path in [*committed.rglob("*.jsonl"), *committed.rglob("*.jsonl.zst")]:
         for row in records(path):
             for value in _strings(row):
                 words = value.split()

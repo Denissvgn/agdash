@@ -1,0 +1,8 @@
+# agdash itself, to read the survey volume: built from this checkout's backend, run by
+# `survey.sh read` with the volume mounted read-only and no network.
+FROM python:3.13.9-slim
+COPY . /src/backend
+RUN python -m venv /opt/agdash \
+ && /opt/agdash/bin/pip install --no-cache-dir /src/backend \
+ && rm -rf /src
+ENV PATH=/opt/agdash/bin:$PATH
