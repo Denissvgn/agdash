@@ -38,7 +38,12 @@ case "${1:-}" in
     ;;
   shell)
     if docker ps --format '{{.Names}}' | grep -qx "$NAME"; then
-      # A second shell in the running container, for watching a session from outside.
+      # A second shell in the running container, for watching a session from outside;
+      # never one left running on an image that has since been rebuilt.
+      if [ "$(docker inspect -f '{{.Image}}' "$NAME")" != "$(docker image inspect -f '{{.Id}}' "$IMAGE")" ]; then
+        echo "The running $NAME container is from an older image. Exit every shell in it, then run this again." >&2
+        exit 1
+      fi
       exec docker exec -it "$NAME" bash -l
     fi
     run -it --name "$NAME" "$IMAGE" bash -l
