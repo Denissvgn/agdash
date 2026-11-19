@@ -57,6 +57,9 @@ draw them again on a Mac:
 Signing and notarising use your Apple Developer account. You set them up once, and
 the script never sees a password.
 
+[macos-signed-build.md](macos-signed-build.md) is the step-by-step runbook: setup,
+build, the checks with what each should print, and the install on a clean Mac.
+
 1. Install a **Developer ID Application** certificate, with its private key, in
    your login keychain (Xcode: Settings → Accounts → Manage Certificates, or the
    Apple Developer website). `security find-identity -v -p codesigning` lists it.
@@ -105,6 +108,14 @@ spctl --assess --type open --context context:primary-signature --verbose=2 deskt
 
 The acceptance check is a person's: on a Mac that has never run agdash, open the
 disk image, drag the app to Applications and open it, with no Gatekeeper override.
+
+### The update archive
+
+Last, the script packs the signed app into `agdash-<version>-<arch>.app.tar.gz`
+beside it, which the app's updater installs from. With the updater key set
+(`TAURI_SIGNING_PRIVATE_KEY` or `TAURI_SIGNING_PRIVATE_KEY_PATH`, and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) it also writes the archive's signature,
+`.app.tar.gz.sig`. Releases build both in CI; see [releasing.md](releasing.md).
 
 ## Full Disk Access
 

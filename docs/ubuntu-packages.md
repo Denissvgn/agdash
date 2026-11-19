@@ -10,8 +10,10 @@ ways to install it:
 | `agdash_<version>_<arch>.AppImage` | The window, the tray item and the service in one file | A desktop, without installing packages |
 
 They are built on Ubuntu 22.04, so they run on that release and every later one.
-CI builds all three for both architectures and installs the service package in
-fresh Ubuntu 22.04, 24.04 and 26.04 containers with no display.
+CI builds all three for both architectures with `desktop/scripts/package-ubuntu.sh`
+and installs the service package in fresh Ubuntu 22.04, 24.04 and 26.04 containers
+with no display. The AppImage updates itself from its tray menu; the `.deb`
+packages are updated by installing the new ones ([releasing.md](releasing.md)).
 
 ## A server, with no display
 

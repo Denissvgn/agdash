@@ -1,0 +1,229 @@
+name: Release
+
+# A tag v<x.y.z> builds every package on both systems and both architectures, signs
+# the update archives, writes SHA256SUMS and the updater's latest.json, and opens a
+# draft GitHub release holding them all. Nothing is published until the owner
+# publishes the draft; the app's updater sees a release only after that.
+#
+# A pull request that changes the release, or a manual run, does the same as a dry
+# run: no secrets, a throwaway updater key, and no release. See docs/releasing.md.
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - desktop/scripts/**
+      - backend/packaging/**
+      - desktop/tauri.conf.json
+      - desktop/bundle.*.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+env:
+  # Only a tag uses the release secrets; a pull request or a manual run never sees them.
+  PUBLISH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+
+jobs:
+  version:
+    name: One version everywhere
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.13'
+      - name: Check the version
+        id: version
+        run: |
+          python -m venv .venv
+          if [ "$PUBLISH" = true ]; then
+            TAG="$GITHUB_REF_NAME"
+            .venv/bin/python backend/packaging/release.py check "$TAG" --publish
+          else
+            TAG="v$(sed -n 's/^__version__ = "\(.*\)"/\1/p' backend/agdash/__init__.py)"
+            .venv/bin/python backend/packaging/release.py check "$TAG"
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  macos:
+    name: macOS (${{ matrix.arch }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, os: macos-15 }
+          - { arch: x86_64, os: macos-15-intel }
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Create the environments
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e "backend[freeze]"
+          (cd frontend && npm ci)
+      - name: The updater key
+        env:
+          KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          PASSWORD: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        run: desktop/scripts/release-key.sh "$KEY" "$PASSWORD"
+      - name: The Developer ID, when the repository holds one
+        env:
+          CERTIFICATE: ${{ github.event_name == 'push' && secrets.APPLE_CERTIFICATE_P12 || '' }}
+          CERTIFICATE_PASSWORD: ${{ github.event_name == 'push' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          API_KEY: ${{ github.event_name == 'push' && secrets.APPLE_API_KEY_P8 || '' }}
+          API_KEY_ID: ${{ github.event_name == 'push' && secrets.APPLE_API_KEY_ID || '' }}
+          API_ISSUER: ${{ github.event_name == 'push' && secrets.APPLE_API_ISSUER || '' }}
+        run: desktop/scripts/release-keychain.sh
+      - name: Build, sign and notarise
+        run: desktop/scripts/package-macos.sh
+      - name: Check what was built
+        run: |
+          B=desktop/target/package/release/bundle
+          V=${{ needs.version.outputs.version }}
+          codesign --verify --deep --strict "$B/macos/agdash.app"
+          mkdir -p out
+          cp "$B/dmg/agdash-$V-${{ matrix.arch }}.dmg" \
+             "$B/macos/agdash-$V-${{ matrix.arch }}.app.tar.gz" \
+             "$B/macos/agdash-$V-${{ matrix.arch }}.app.tar.gz.sig" out/
+          ls -la out
+      - name: Remove the signing keychain
+        if: always()
+        run: |
+          if [ -n "${AGDASH_NOTARY_KEYCHAIN:-}" ]; then security delete-keychain "$AGDASH_NOTARY_KEYCHAIN"; fi
+          rm -f "$RUNNER_TEMP/updater.key"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos-${{ matrix.arch }}
+          path: out/
+          if-no-files-found: error
+
+  ubuntu:
+    name: Ubuntu (${{ matrix.arch }})
+    needs: version
+    # The oldest supported release, so the packages run on 22.04 and later.
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, os: ubuntu-22.04 }
+          - { arch: arm64, os: ubuntu-22.04-arm }
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install the build libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev libfuse2 file
+      - name: Create the environments
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e "backend[freeze]"
+          (cd frontend && npm ci)
+      - name: The updater key
+        env:
+          KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          PASSWORD: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        run: desktop/scripts/release-key.sh "$KEY" "$PASSWORD"
+      - name: Build the packages
+        run: desktop/scripts/package-ubuntu.sh ${{ matrix.arch }} out
+      - name: The service package runs with no display
+        run: |
+          docker run --rm -v "$PWD/out:/out:ro" -v "$PWD/backend/packaging/linux:/t:ro" \
+            ubuntu:22.04 sh /t/test-service-deb.sh "$(ls out/agdash_*.deb | sed 's#^out#/out#')"
+      - name: Forget the updater key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/updater.key"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-ubuntu-${{ matrix.arch }}
+          path: out/
+          if-no-files-found: error
+
+  release:
+    name: Checksums, manifest and draft release
+    needs: [version, macos, ubuntu]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: The update manifest and the checksums
+        run: |
+          python -m venv .venv
+          .venv/bin/python backend/packaging/release.py manifest dist "${{ needs.version.outputs.version }}" "$GITHUB_REPOSITORY"
+          .venv/bin/python backend/packaging/release.py checksums dist
+          (cd dist && sha256sum --check --strict SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: dist/
+          if-no-files-found: error
+      - name: The draft release
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAC_SIGNED: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+        run: |
+          V="${{ needs.version.outputs.version }}"
+          {
+            echo "## agdash $V"
+            echo
+            echo "| System | Download |"
+            echo "|---|---|"
+            echo "| macOS 14 or later, Apple silicon | agdash-$V-arm64.dmg |"
+            echo "| macOS 14 or later, Intel | agdash-$V-x86_64.dmg |"
+            echo "| Ubuntu 22.04 or later, the service alone | agdash_${V}_amd64.deb, agdash_${V}_arm64.deb |"
+            echo "| Ubuntu, the window and tray (with the service package) | agdash-desktop_${V}_amd64.deb, agdash-desktop_${V}_arm64.deb |"
+            echo "| Ubuntu, everything in one file | agdash_${V}_amd64.AppImage, agdash_${V}_aarch64.AppImage |"
+            echo
+            echo "Check a download with \`sha256sum --check --ignore-missing SHA256SUMS\`."
+            echo "The macOS app and the AppImage update themselves from Check for updates in the tray."
+            if [ "$MAC_SIGNED" != true ]; then
+              echo
+              echo "> The macOS app in this release is not signed with a Developer ID or notarised,"
+              echo "> so Gatekeeper blocks it on first open."
+            fi
+          } > notes.md
+          gh release create "v$V" dist/* --draft --verify-tag --title "agdash $V" \
+            --notes-file notes.md --generate-notes
