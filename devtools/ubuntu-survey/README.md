@@ -46,33 +46,35 @@ compare.
 
 ### Pi's model
 
-Pi reads its model endpoint from `~/.pi/agent/models.json`. The container gets a copy
-of the Mac's file, pointed at the Mac:
+Pi reads its model endpoint from `~/.pi/agent/models.json`. Give it the server your
+Pi uses on the Mac. A server on another machine keeps its address; one on the Mac's
+own `127.0.0.1:<port>` is `host.docker.internal:<port>` from inside the container.
 
-1. On the Mac, start the model server Pi uses and check that it answers:
-   `curl -s http://127.0.0.1:<port>/v1/models`.
-2. In a terminal on the Mac, with the container running, copy the model settings in.
-   Copy only `models.json`, never `auth.json`:
+When the server needs a key, keep the key out of the volume: Pi reads it from an
+environment variable named in `models.json`.
 
-   ```bash
-   docker exec -i agdash-survey sh -c 'mkdir -p ~/.pi/agent && cat > ~/.pi/agent/models.json' < ~/.pi/agent/models.json
-   ```
-
-3. In the container, send requests for the Mac's own address to the Mac, and check:
+1. In the container, enter the key without echoing it, and check the server lists
+   its models:
 
    ```bash
-   sed -i 's#//127\.0\.0\.1:#//host.docker.internal:#g; s#//localhost:#//host.docker.internal:#g' ~/.pi/agent/models.json
-   grep '"baseUrl"' ~/.pi/agent/models.json
-   curl -s http://host.docker.internal:<port>/v1/models
+   read -rs MODEL_API_KEY && export MODEL_API_KEY
+   curl -s -H "Authorization: Bearer $MODEL_API_KEY" http://<host>:<port>/v1/models | jq -r '.data[].id'
    ```
 
-   A server on another machine keeps its address. Docker Desktop passes
-   `host.docker.internal` to the Mac's `127.0.0.1`, so the server need not listen on
-   any other address.
+2. Write the settings with the model's id from that list:
 
-4. Run `pi`. In `/model`, choose the model and press Ctrl+S to keep it. In
+   ```bash
+   MODEL=<model id>
+   mkdir -p ~/.pi/agent && jq -n --arg m "$MODEL" '{providers:{local:{baseUrl:"http://<host>:<port>/v1",api:"openai-completions",apiKey:"$MODEL_API_KEY",models:[{id:$m,reasoning:true}]}}}' > ~/.pi/agent/models.json
+   pi --list-models local
+   ```
+
+3. Run `pi`. In `/model`, choose the model and press Ctrl+S to keep it. In
    `/thinking`, choose a level other than off, so the records show thinking, and
    press Ctrl+S.
+
+The key lasts only as long as that shell. Enter it again (step 1, first line) in
+any new shell before starting `pi`.
 
 ## One session each
 
