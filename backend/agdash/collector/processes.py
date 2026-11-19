@@ -135,8 +135,9 @@ def classify(row: ProcessRow, ancestors: Sequence[ProcessRow] = ()) -> Classific
 
     # Claude Code. The same binary also runs bundled tools under other names
     # (a search tool, for example), so the name it was started under must match.
-    # The npm package's binary is called claude.exe, on every system.
-    if exe in ("claude", "claude.exe") and argv0 == "claude":
+    # The npm package's binary is called claude.exe, on every system. When the system
+    # will not say which binary runs, the name it was started under decides.
+    if exe in ("claude", "claude.exe", "") and argv0 == "claude":
         if _first_command(row.argv, _CLAUDE_HELPER_COMMANDS):
             return Classification(Harness.CLAUDE_CODE, Role.HELPER)
         if _under_bundle(ancestors, [_CLAUDE_DESKTOP_BUNDLE]):
@@ -181,10 +182,11 @@ def classify(row: ProcessRow, ancestors: Sequence[ProcessRow] = ()) -> Classific
         return Classification(Harness.ANTIGRAVITY, Role.HELPER)
 
     # Pi: a Node script, or a compiled binary called pi. Pi names its own process
-    # "pi", which replaces the command line where the system lets it (Linux).
+    # "pi", which replaces the command line where the system lets it (Linux). When the
+    # system will not say which binary runs, the name it was started under decides.
     script = _base(row.argv[1]) if len(row.argv) > 1 else ""
     if exe == "pi" or (
-        exe in ("node", "bun")
+        exe in ("node", "bun", "")
         and (argv0 == "pi" or script == "pi" or any(_PI_PACKAGE in a for a in row.argv[1:2]))
     ):
         return Classification(Harness.PI, Role.SESSION, Surface.CLI)

@@ -200,6 +200,18 @@ def row(pid, ppid=1, *, name=None, exe=None, argv=(), started=0) -> ProcessRow:
             [],
             Classification(Harness.PI, Role.SESSION, Surface.CLI),
         ),
+        (
+            # The same, where the system will not say which binary runs.
+            row(10, name="pi", exe=None, argv=["pi", "", ""]),
+            [],
+            Classification(Harness.PI, Role.SESSION, Surface.CLI),
+        ),
+        (
+            row(10, name="claude", exe=None, argv=["claude"]),
+            [],
+            Classification(Harness.CLAUDE_CODE, Role.SESSION, Surface.CLI),
+        ),
+        (row(10, name="node", exe=None, argv=["node", "server.js"]), [], None),
         (row(10, exe="/usr/local/bin/node", argv=["node", "server.js"]), [], None),
         (row(10, exe="/bin/zsh", argv=["zsh", "-c", "claude-cwd-file"]), [], None),
         (row(10, exe=None, argv=()), [], None),
