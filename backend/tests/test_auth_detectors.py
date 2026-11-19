@@ -231,6 +231,68 @@ def test_antigravity_without_an_active_account_is_unknown(home):
     assert home.detector().antigravity() == Finding(None)
 
 
+def test_antigravity_on_linux_is_signed_in_by_its_token_file_which_is_never_opened(
+    home, monkeypatch
+):
+    token = home.path / ".gemini/antigravity-cli/antigravity-oauth-token"
+    assert home.detector().antigravity() == Finding(None)
+    token.write_text(SECRETS["google_refresh"])
+    opened = []
+    real_open = ReadOnlyAccess.open
+    monkeypatch.setattr(
+        ReadOnlyAccess,
+        "open",
+        lambda access, path, *args, **kwargs: (
+            opened.append(Path(path)) or real_open(access, path, *args, **kwargs)
+        ),
+    )
+    assert home.detector().antigravity() == Finding(AuthMethod.SUBSCRIPTION)
+    assert token not in opened
+    # An active account, where there is one, still names the account.
+    home.write(".gemini/google_accounts.json", {"active": "dev@example.test"})
+    assert home.detector().antigravity() == Finding(AuthMethod.SUBSCRIPTION, "dev@example.test")
+
+
+def test_a_linux_home_as_the_ubuntu_survey_found_it(home, monkeypatch):
+    """Sign-ins kept as files, as on Ubuntu: each method is still told, and no credential
+    file is opened."""
+    credentials = {
+        home.path / ".claude/.credentials.json": {
+            "claudeAiOauth": {"accessToken": SECRETS["claude_access"]}
+        },
+        home.path / ".codex/auth.json": {
+            "auth_mode": "chatgpt",
+            "tokens": {"access_token": SECRETS["codex_access"]},
+        },
+        home.path / ".gemini/antigravity-cli/antigravity-oauth-token": SECRETS["google_refresh"],
+    }
+    for path, document in credentials.items():
+        home.write(str(path.relative_to(home.path)), document)
+    home.write(".claude.json", claude_account())
+    home.write(
+        ".pi/agent/models.json",
+        {"providers": {"local": {"baseUrl": "http://models.example.test/v1", "apiKey": "$KEY"}}},
+    )
+    opened = []
+    real_open = ReadOnlyAccess.open
+    monkeypatch.setattr(
+        ReadOnlyAccess,
+        "open",
+        lambda access, path, *args, **kwargs: (
+            opened.append(Path(path)) or real_open(access, path, *args, **kwargs)
+        ),
+    )
+    detector = home.detector()
+    assert detector.claude_code().method is AuthMethod.SUBSCRIPTION
+    assert detector.codex() == Finding(AuthMethod.SUBSCRIPTION)
+    assert detector.antigravity() == Finding(AuthMethod.SUBSCRIPTION)
+    assert detector.pi("local") == Finding(AuthMethod.CUSTOM_ENDPOINT)
+    # Codex keeps its sign-in mode beside its tokens, and that one field is read from
+    # the file; the other credential files are never opened at all.
+    never = set(credentials) - {home.path / ".codex/auth.json"}
+    assert never.isdisjoint(opened)
+
+
 # -- Pi ------------------------------------------------------------------------------------
 
 

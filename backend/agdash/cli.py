@@ -365,12 +365,20 @@ def doctor_checks(host: Host, manager: ServiceManager) -> list[Check]:
     except NotLoopback as error:
         checks.append(Check("Listening address", "fail", str(error)))
 
+    # A harness that is not installed here is a fact, not a fault. Only a host with no
+    # harness at all leaves agdash nothing to show.
+    installed = 0
     for harness, roots in host.harness_roots().items():
         found = [str(root) for root in roots if root.exists()]
+        installed += bool(found)
         if found:
             checks.append(Check(f"{harness.value} files", "ok", ", ".join(found)))
         else:
-            checks.append(Check(f"{harness.value} files", "warn", "not found on this host"))
+            checks.append(Check(f"{harness.value} files", "ok", "not installed on this host"))
+    if not installed:
+        checks.append(
+            Check("Harnesses", "warn", "none installed on this host: there is nothing to show yet")
+        )
 
     url = database_url()
     path = sqlite_file(url)

@@ -140,6 +140,8 @@ Building, signing and notarising the macOS app and disk image are in
 [docs/macos-package.md](docs/macos-package.md).
 The Ubuntu packages, and running agdash on a server with no display, are in
 [docs/ubuntu-packages.md](docs/ubuntu-packages.md).
+Where each harness keeps its records on Ubuntu, and what agdash reads there, is
+in [docs/ubuntu-harness-survey.md](docs/ubuntu-harness-survey.md).
 Cutting a release, its checksums, and how the app updates itself are in
 [docs/releasing.md](docs/releasing.md).
 
