@@ -92,6 +92,27 @@ sessions under your accounts, and their files stay in the volume. Fixtures are m
 from them only through the fixture kit, which replaces every prompt, reply, path and
 identifier.
 
+## Reading the records
+
+Two commands read what the sessions left, and change nothing:
+
+```bash
+devtools/ubuntu-survey/survey.sh live    # while sessions run: processes, open files, registries
+devtools/ubuntu-survey/survey.sh read    # afterwards: inventory, agdash backfill, fixtures
+```
+
+`live` runs in the survey container and only reads. `read` builds agdash from this
+checkout into a second container. That container mounts the home volume read-only,
+has no network, and keeps its store in `/tmp`. Its output goes to
+`.runtime/ubuntu-survey/`:
+
+| File | What it holds |
+|---|---|
+| `inventory.json` | Every harness file's place, record types, keys, content blocks and thinking coverage, as names and counts only. Credential files are listed but never opened |
+| `backfill.txt`, `sessions.txt` | What agdash's adapters read from the Linux layout: sessions, events, thinking coverage, sign-in method, and records they did not know |
+| `fixtures/` | The fixture kit's synthetic copy of the sessions, for review before it is committed |
+| `before.txt`, `after.txt` | Every harness file's size, time and hash around the run. They must match |
+
 ## Reset
 
 ```bash
