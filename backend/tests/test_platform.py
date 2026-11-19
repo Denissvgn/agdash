@@ -69,6 +69,11 @@ def test_supported_systems_are_recognised(name, expected):
     assert detect_os(name) is expected
 
 
+def test_each_system_has_the_name_people_write():
+    assert OperatingSystem.MACOS.label == "macOS"
+    assert OperatingSystem.LINUX.label == "Linux"
+
+
 @pytest.mark.parametrize("name", ["win32", "cygwin", "freebsd14", ""])
 def test_other_systems_are_refused(name):
     with pytest.raises(UnsupportedOperatingSystem):

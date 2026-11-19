@@ -38,8 +38,24 @@ ROOTS = {
     "pi": (".pi/agent",),
 }
 # Caches and downloads that hold no records.
-SKIP = ("plugins", "skills", "packages", "cache", "marketplaces", "builtin", "tmp", "bin")
-BLOCK_KINDS = ("thinking", "redacted_thinking", "text", "tool_use", "tool_result", "toolCall")
+SKIP = (
+    "plugins",
+    "skills",
+    "packages",
+    "cache",
+    "marketplaces",
+    "builtin",
+    "tmp",
+    "bin",
+)
+BLOCK_KINDS = (
+    "thinking",
+    "redacted_thinking",
+    "text",
+    "tool_use",
+    "tool_result",
+    "toolCall",
+)
 
 
 def credential(home: Path, path: Path) -> bool:
@@ -94,7 +110,9 @@ def jsonl(path: Path) -> dict:
         kinds[kind] += 1
         keys[kind].update(record)
         if "thinking" in record:  # a step that carries its thinking at the top level
-            thinking["with_text" if str(record["thinking"] or "").strip() else "empty"] += 1
+            thinking[
+                "with_text" if str(record["thinking"] or "").strip() else "empty"
+            ] += 1
             content["step thinking"] += 1
         message = record.get("message")
         for block in blocks(message):
@@ -103,13 +121,19 @@ def jsonl(path: Path) -> dict:
             if name == "thinking":
                 text = block.get("thinking") or block.get("text") or ""
                 thinking["with_text" if str(text).strip() else "empty"] += 1
-                thinking["signed"] += bool(block.get("signature") or block.get("thinkingSignature"))
+                thinking["signed"] += bool(
+                    block.get("signature") or block.get("thinkingSignature")
+                )
     return {
         "records": dict(sorted(kinds.items())),
         "keys": {kind: sorted(names) for kind, names in sorted(keys.items())},
-        "payload_keys": {kind: sorted(names) for kind, names in sorted(payloads.items())},
+        "payload_keys": {
+            kind: sorted(names) for kind, names in sorted(payloads.items())
+        },
         "content_blocks": dict(sorted(content.items())),
-        "thinking_blocks": thinking if content.get("thinking") or content.get("step thinking") else None,
+        "thinking_blocks": thinking
+        if content.get("thinking") or content.get("step thinking")
+        else None,
         "reasoning_items": reasoning if any(reasoning.values()) else None,
         "unparseable_lines": bad,
     }
@@ -126,7 +150,9 @@ def sqlite(path: Path) -> dict:
         try:
             db = sqlite3.connect(copy)
             tables = {}
-            for (name,) in db.execute("select name from sqlite_master where type='table' order by name"):
+            for (name,) in db.execute(
+                "select name from sqlite_master where type='table' order by name"
+            ):
                 columns = [row[1] for row in db.execute(f'pragma table_info("{name}")')]
                 (rows,) = db.execute(f'select count(*) from "{name}"').fetchone()
                 tables[name] = {"columns": columns, "rows": rows}
@@ -179,10 +205,10 @@ def pattern(home: Path, path: Path) -> str:
     for part in path.relative_to(home).parts:
         stem = part.split(".")[0]
         if len(stem) >= 16 and any(ch.isdigit() for ch in stem):
-            part = "<id>" + part[len(stem):]
+            part = "<id>" + part[len(stem) :]
         elif stem.isdigit():
-            part = "<n>" + part[len(stem):]
-        elif part.startswith("-home-") or part.startswith("--home-"):
+            part = "<n>" + part[len(stem) :]
+        elif part.startswith(("-home-", "--home-")):
             part = "<cwd-slug>"
         parts.append(part)
     return "/".join(parts)
@@ -195,13 +221,20 @@ def merge(into: dict, entry: dict) -> None:
     for field in ("records", "content_blocks", "thinking_blocks", "reasoning_items"):
         mine, theirs = into.get(field) or {}, entry.get(field) or {}
         if mine or theirs:
-            into[field] = {k: mine.get(k, 0) + theirs.get(k, 0) for k in sorted({*mine, *theirs})}
+            into[field] = {
+                k: mine.get(k, 0) + theirs.get(k, 0) for k in sorted({*mine, *theirs})
+            }
     for field in ("keys", "payload_keys"):
         mine, theirs = into.get(field) or {}, entry.get(field) or {}
         if mine or theirs:
-            into[field] = {k: sorted({*mine.get(k, []), *theirs.get(k, [])}) for k in sorted({*mine, *theirs})}
+            into[field] = {
+                k: sorted({*mine.get(k, []), *theirs.get(k, [])})
+                for k in sorted({*mine, *theirs})
+            }
     if "unparseable_lines" in entry:
-        into["unparseable_lines"] = into.get("unparseable_lines", 0) + entry["unparseable_lines"]
+        into["unparseable_lines"] = (
+            into.get("unparseable_lines", 0) + entry["unparseable_lines"]
+        )
 
 
 def survey(home: Path) -> dict:
