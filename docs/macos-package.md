@@ -57,6 +57,9 @@ draw them again on a Mac:
 Signing and notarising use your Apple Developer account. You set them up once, and
 the script never sees a password.
 
+[macos-signed-build.md](macos-signed-build.md) is the step-by-step runbook: setup,
+build, the checks with what each should print, and the install on a clean Mac.
+
 1. Install a **Developer ID Application** certificate, with its private key, in
    your login keychain (Xcode: Settings → Accounts → Manage Certificates, or the
    Apple Developer website). `security find-identity -v -p codesigning` lists it.
