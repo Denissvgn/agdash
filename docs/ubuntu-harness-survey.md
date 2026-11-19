@@ -24,17 +24,20 @@ survey's read-only run gave sessions, prompts, replies, tool calls, usage and
 thinking for all four, and no parse error. `backend/tests/test_linux_fixtures.py`
 holds that to the Linux fixtures.
 
-What does not work yet:
+What the survey found missing, and how agdash handles it now:
 
-| Where | What happens | Seen |
+| Where | What the survey saw | Now |
 |---|---|---|
-| Process probe, Claude Code | The npm install runs `@anthropic-ai/claude-code/bin/claude.exe`, and the probe expects a binary named `claude`. The session is not recognised | Probe rules on the observed process |
-| Process probe, Pi | Pi 1.5.2 sets its process title, so the command line is just `pi` under `node`, with no `pi-coding-agent`. The session is not recognised | Probe rules on the observed process |
-| Process probe, Codex | The app-server daemon and its updater (`codex app-server …`, parent pid 1) are classed as a desktop host; Linux has no Codex desktop app | Probe rules on the observed process |
-| Codex live signal | The daemon keeps a finished session's rollout open, so "a Codex process holds the rollout open" calls it live | `survey.sh live` with no TUI running |
-| Antigravity auth | No `google_accounts.json`, so the sign-in method is unknown | Backfill: auth method empty |
-| Pi surface | Sessions read from history get no surface | Backfill: surface empty |
-| Claude Code records | `mode` and `permission-mode` are new record types, counted as unknown. The macOS fixtures, from older versions, have neither, so this is likely version drift | Source health: unknown records |
+| Process probe, Claude Code | The npm install runs `@anthropic-ai/claude-code/bin/claude.exe`; the probe expected a binary named `claude` | A binary named `claude.exe`, started as `claude`, is Claude Code |
+| Process probe, Pi | Pi 1.5.2 sets its process title, so the command line is just `pi` under `node` | A `node` or `bun` process started as `pi` is Pi |
+| Process probe, Codex | The app-server daemon (`codex app-server … --managed-daemon`) and its updater (`codex app-server daemon …`) were classed as a desktop host | The daemon is a terminal back end; its updater is a helper |
+| Codex live signal | The daemon keeps a finished session's rollout open | What the daemon holds runs only while a Codex terminal UI does, and belongs to that UI: the session ends when the last UI exits. With several UIs open, each takes every rollout the daemon holds, since the daemon does not say which UI a rollout serves |
+| Antigravity auth | No `google_accounts.json` | The CLI's token file existing means a Google sign-in. agdash asks only whether it exists and never opens it. There is no account label |
+| Claude Code records | `mode` and `permission-mode` were unknown | Read as metadata |
+| `agdash doctor` | A harness with no files here was a warning | It is "not installed on this host", not a fault; only a host with no harness at all is warned about |
+
+Still as it was: Pi sessions have no surface. That is the same on macOS, because
+Pi's records do not say how it was started.
 
 Also seen:
 

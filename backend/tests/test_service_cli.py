@@ -341,6 +341,48 @@ def test_a_running_codex_process_makes_its_session_live_and_its_exit_ends_it(set
         assert ended.ended_at == NOW + timedelta(seconds=2)
 
 
+def test_a_codex_daemon_session_runs_while_its_terminal_ui_does(setup):
+    collector, sessions, probe, home, clock = setup
+    collector.backfill()
+    rollout = next(home.glob(f".codex/sessions/*/*/*/rollout-*-{CODEX_SESSION}.jsonl"))
+    daemon = ("codex", "app-server", "--listen", "unix://", "--managed-daemon")
+    # The daemon holds the rollout; the terminal UI holds none.
+    probe.rows = [process(7000, "codex", daemon), process(7100, "codex", ("codex",))]
+    probe.files = {7000: [str(rollout)]}
+    assert collector.probe() >= 1
+    with sessions() as db:
+        live = session(db, "codex", CODEX_SESSION)
+        assert live.state in (SessionState.ACTIVE, SessionState.IDLE, SessionState.WAITING)
+        pids = set(
+            db.scalars(select(SessionProcess.pid).where(SessionProcess.session_id == live.id))
+        )
+        assert pids == {7100}, "the session is the terminal UI's"
+
+    # The UI quits; the daemon stays and still holds the rollout.
+    probe.rows = [process(7000, "codex", daemon)]
+    clock["now"] = NOW + timedelta(seconds=2)
+    collector.probe()
+    with sessions() as db:
+        ended = session(db, "codex", CODEX_SESSION)
+        assert ended.state is SessionState.ENDED
+        assert ended.state_evidence["basis"] == "process_exited"
+
+
+def test_a_codex_daemon_alone_runs_no_session(setup):
+    collector, sessions, probe, home, _ = setup
+    collector.backfill()
+    rollout = next(home.glob(f".codex/sessions/*/*/*/rollout-*-{CODEX_SESSION}.jsonl"))
+    probe.rows = [process(7000, "codex", ("codex", "app-server", "--managed-daemon"))]
+    probe.files = {7000: [str(rollout)]}
+    collector.probe()
+    with sessions() as db:
+        quiet = session(db, "codex", CODEX_SESSION)
+        assert quiet.state not in (SessionState.ACTIVE, SessionState.WAITING)
+        assert not db.scalars(
+            select(SessionProcess).where(SessionProcess.session_id == quiet.id)
+        ).all()
+
+
 def test_a_claude_session_takes_the_registry_status(setup):
     collector, sessions, probe, home, _ = setup
     collector.backfill()
@@ -556,6 +598,33 @@ def test_status_and_doctor_report_without_secrets(tmp_path, monkeypatch, capsys)
         get_settings.cache_clear()
         assert cli.main(["doctor"], host=host, manager=FakeManager()) == 1
         assert "[FAIL] Listening address" in capsys.readouterr().out
+    finally:
+        get_settings.cache_clear()
+
+
+def test_a_harness_that_is_not_installed_is_reported_so_and_not_as_a_fault(
+    tmp_path, monkeypatch, capsys
+):
+    home = tmp_path / "home"
+    shutil.copytree(FIXTURES / "codex", home / ".codex")  # only Codex is installed
+    host = Host(OperatingSystem.LINUX, home, {})
+    monkeypatch.setenv("AGDASH_DATABASE_URL", f"sqlite:///{tmp_path / 'agdash.db'}")
+    from agdash.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        assert cli.main(["backfill"], host=host) == 0
+        assert "codex:" in capsys.readouterr().out
+        assert cli.main(["doctor"], host=host, manager=FakeManager(ServiceState.RUNNING)) == 0
+        report = capsys.readouterr().out
+        for harness in ("claude_code", "antigravity", "pi"):
+            assert f"[ok  ] {harness} files: not installed on this host" in report
+        assert "[ok  ] codex files" in report and "Harnesses" not in report
+
+        empty = Host(OperatingSystem.LINUX, tmp_path / "empty", {})
+        (tmp_path / "empty").mkdir()
+        assert cli.main(["doctor"], host=empty, manager=FakeManager(ServiceState.RUNNING)) == 0
+        assert "[warn] Harnesses: none installed" in capsys.readouterr().out
     finally:
         get_settings.cache_clear()
 

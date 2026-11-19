@@ -36,8 +36,10 @@ from agdash.collector.processes import (
     ProcessTracker,
     Role,
     codex_rollouts,
+    is_terminal_back_end,
     session_process_fields,
     take_snapshot,
+    terminal_clients,
 )
 from agdash.collector.state import (
     Basis,
@@ -394,11 +396,10 @@ class Collector:
         with self._sessions() as db:
             running: dict[int, HarnessStatus | None] = {}
             status_at: dict[int, datetime | None] = {}
-            for process in snapshot.processes:
-                if process.role is Role.HELPER:
-                    continue
-                pairs, status, at = self._sessions_of(process, registry)
-                ids = set()
+            held: dict[ProcessIdentity, set[int]] = {}
+
+            def attach(process, pairs, status, at) -> None:
+                ids = held.setdefault(process.identity, set())
                 for harness, native in pairs:
                     session = db.scalars(
                         select(Session).where(
@@ -411,8 +412,24 @@ class Collector:
                     running[session.id] = status
                     status_at[session.id] = at
                     self._record_process(db, session.id, process, now)
+
+            for process in snapshot.processes:
+                if process.role is Role.HELPER or is_terminal_back_end(process):
+                    continue
+                attach(process, *self._sessions_of(process, registry))
+            # Codex's terminal UI hands its session to a daemon, which holds the rollout
+            # open and outlives the UI. What the daemon holds runs only while a terminal
+            # UI does, and is the UI's: the session ends when the last UI exits. The
+            # daemon cannot say which UI a rollout serves, so with several UIs running
+            # each takes every rollout the daemon holds.
+            clients = terminal_clients(snapshot)
+            for back_end in filter(is_terminal_back_end, snapshot.processes):
+                pairs, status, at = self._sessions_of(back_end, registry)
+                for client in clients:
+                    attach(client, pairs, status, at)
+            for identity, ids in held.items():
                 if ids:
-                    self._ran_by[process.identity] = ids
+                    self._ran_by[identity] = ids
             exited = set()
             for process in changes.ended:
                 exited |= self._ran_by.pop(process.identity, set())
