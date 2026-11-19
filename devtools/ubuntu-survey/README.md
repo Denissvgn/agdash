@@ -39,10 +39,40 @@ back any code it shows. Nothing inside the container needs a browser.
 | Claude Code | `claude`, then pick the Claude account sign-in | It prints a link and asks for the code the page shows |
 | Codex | `codex login --device-auth` | Device-code sign-in must be turned on first in ChatGPT's Security settings |
 | Antigravity | `agy`, then the Google sign-in | It should print a link. If it waits for a browser instead, stop it with Ctrl-C and say so |
-| Pi | `pi`, then set up the same model as on your Mac | Pi uses a local model, not a sign-in. From inside the container your Mac is `host.docker.internal`, so a server on the Mac's `127.0.0.1:<port>` is reached as `http://host.docker.internal:<port>` |
+| Pi | See [Pi's model](#pis-model) below | Pi uses a local model, not a sign-in |
 
 Sign in with the same kind of account you use on the Mac, so that the auth fields
 compare.
+
+### Pi's model
+
+Pi reads its model endpoint from `~/.pi/agent/models.json`. The container gets a copy
+of the Mac's file, pointed at the Mac:
+
+1. On the Mac, start the model server Pi uses and check that it answers:
+   `curl -s http://127.0.0.1:<port>/v1/models`.
+2. In a terminal on the Mac, with the container running, copy the model settings in.
+   Copy only `models.json`, never `auth.json`:
+
+   ```bash
+   docker exec -i agdash-survey sh -c 'mkdir -p ~/.pi/agent && cat > ~/.pi/agent/models.json' < ~/.pi/agent/models.json
+   ```
+
+3. In the container, send requests for the Mac's own address to the Mac, and check:
+
+   ```bash
+   sed -i 's#//127\.0\.0\.1:#//host.docker.internal:#g; s#//localhost:#//host.docker.internal:#g' ~/.pi/agent/models.json
+   grep '"baseUrl"' ~/.pi/agent/models.json
+   curl -s http://host.docker.internal:<port>/v1/models
+   ```
+
+   A server on another machine keeps its address. Docker Desktop passes
+   `host.docker.internal` to the Mac's `127.0.0.1`, so the server need not listen on
+   any other address.
+
+4. Run `pi`. In `/model`, choose the model and press Ctrl+S to keep it. In
+   `/thinking`, choose a level other than off, so the records show thinking, and
+   press Ctrl+S.
 
 ## One session each
 
