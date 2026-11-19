@@ -4,8 +4,12 @@ Four kinds of evidence, strongest first:
 
 1. ``tool_call`` — the session's transcript holds the result of a WorkChord work
    call (begin, renew, submit or fail its work, or start a run), through the MCP
-   server or the HTTP API. The result names the run, the task and the
-   assignment. Exact.
+   server, the HTTP API, or a script the harness runs that calls the MCP tool
+   (Codex's code mode). The result names the run, the task and the
+   assignment. Exact. When the result does not name the run, as when a script
+   prints only part of it, the run or assignment id the call itself sends
+   picks the run from the WorkChord copy, provided that run was live when the
+   call was made.
 2. ``trace_id`` — a run's actor declared this harness session when it began
    (``metadata.harness`` on the run). Exact, though WorkChord does not check the
    declaration.
@@ -23,9 +27,9 @@ mirror.
 
 import json
 import re
-from collections.abc import Iterable
-from dataclasses import dataclass, field
-from datetime import datetime
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -61,8 +65,19 @@ WORK_TOOLS = (
     "agent_start_run",
 )
 WORK_ROUTES = tuple(f"/api/agent/me/work/{step}" for step in ("begin", "renew", "submit", "fail"))
+# A script that calls a work tool, such as Codex's code mode running
+# tools.mcp__workchord__agent_begin_my_work({...}) inside its one exec tool.
+SCRIPTED = re.compile(r"(?<![A-Za-z0-9])(" + "|".join(WORK_TOOLS) + r")\s*\(")
+# The run or assignment a call sends, whether as JSON, a script's object or a keyword.
+SENT_IDS = re.compile(r"""\b(run_id|assignment_id)["']?\s*[:=]\s*(\d+)\b""")
 TOOL_BATCH = 500
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+# A recent call whose result is not recorded yet, or whose run is not in the copy yet,
+# is tried again on each pass until it is this old.
+RETRY_WINDOW = timedelta(hours=1)
+# How far a call may fall outside its run: a begin is recorded just before its run starts.
+CALL_SLACK = timedelta(minutes=10)
+JSON_STARTS = 20  # places in one text where a JSON object is looked for
 
 
 @dataclass(frozen=True)
@@ -102,6 +117,10 @@ def _documents(output: Any) -> Iterable[dict[str, Any]]:
                 yield output[key]
         if isinstance(output.get("content"), list):
             yield from _documents(output["content"])
+        # A script may print a result as JSON text inside an object of its own.
+        for value in output.values():
+            if isinstance(value, str) and value.lstrip().startswith("{"):
+                yield from _documents(value)
     elif isinstance(output, list):
         for item in output:
             if isinstance(item, dict) and isinstance(item.get("text"), str):
@@ -109,14 +128,32 @@ def _documents(output: Any) -> Iterable[dict[str, Any]]:
             else:
                 yield from _documents(item)
     elif isinstance(output, str):
-        text = output.strip()
-        start = text.find("{")
-        if start < 0:
-            return
+        for found in _json_objects(output):
+            yield from _documents(found)
+
+
+def _json_objects(text: str) -> Iterable[Any]:
+    """The JSON objects in a text: one after a preamble such as an HTTP status or a
+    script's banner, and any more that start lines of their own."""
+    starts = sorted({text.find("{")} | {m.end() for m in re.finditer(r"\n[ \t]*(?=\{)", text)})
+    decoder = json.JSONDecoder()
+    done = 0
+    for start in [s for s in starts if s >= 0][:JSON_STARTS]:
+        if start < done:
+            continue
         try:
-            yield from _documents(json.loads(text[start:]))
+            found, done = decoder.raw_decode(text, start)
         except ValueError:
-            return
+            continue
+        yield found
+
+
+def _reports_error(output: Any) -> bool:
+    """Whether a call's output says it failed, as a script printing the result may."""
+    return any(
+        document.get("isError") is True or document.get("is_error") is True
+        for document in _documents(output)
+    )
 
 
 def _int(value: Any) -> int | None:
@@ -152,9 +189,62 @@ def _work_tool(name: str | None) -> str | None:
     return short if short in WORK_TOOLS else None
 
 
+def _text(value: Any) -> str:
+    return value if isinstance(value, str) else json.dumps(value)
+
+
 def _routes_in(value: Any) -> list[str]:
-    text = json.dumps(value) if not isinstance(value, str) else value
+    text = _text(value)
     return [route for route in WORK_ROUTES if route in text]
+
+
+def _scripted_tool(value: Any) -> str | None:
+    """The first work tool a script in a call's input calls, if any."""
+    found = SCRIPTED.search(_text(value))
+    return found.group(1) if found else None
+
+
+def _sent_ids(value: Any) -> dict[str, set[int]]:
+    sent: dict[str, set[int]] = {}
+    for key, number in SENT_IDS.findall(_text(value)):
+        sent.setdefault(key, set()).add(int(number))
+    return sent
+
+
+def _live_at(run: WcRun, at: datetime | None) -> bool:
+    """Whether a call made at ``at`` falls within the run, give or take the slack."""
+    if at is None or run.started_at is None:
+        return False
+    if run.started_at - CALL_SLACK > at:
+        return False
+    return run.ended_at is None or run.ended_at + CALL_SLACK >= at
+
+
+def _with_task(db: DbSession, connection: Connection, claimed: Claimed) -> Claimed:
+    """A result that names only the run, as a submit's may, takes its task from the copy."""
+    if claimed.task_id is not None:
+        return claimed
+    run = db.scalars(
+        select(WcRun).where(WcRun.connection_id == connection.id, WcRun.remote_id == claimed.run_id)
+    ).first()
+    if run is None or run.task_remote_id is None:
+        return claimed
+    return replace(
+        claimed,
+        task_id=run.task_remote_id,
+        assignment_id=claimed.assignment_id or run.assignment_remote_id,
+    )
+
+
+def _echoes(output: Any, run: WcRun) -> bool:
+    """Whether a call's output names the run's assignment or task by key, as WorkChord's
+    answer does even when a script prints only part of it. Code that merely mentions a
+    work tool, such as a test being edited, prints no such thing."""
+    ids = "|".join(str(i) for i in (run.assignment_remote_id, run.task_remote_id) if i)
+    if not ids:
+        return False
+    keyed = rf"""\b(?:id|assignment_id|task_id)\\?["']?\s*:\s*(?:{ids})\b"""
+    return re.search(keyed, _text(output)) is not None
 
 
 # -- storing ------------------------------------------------------------------------
@@ -224,16 +314,23 @@ class Linker:
     """Finds and stores links for every WorkChord connection.
 
     Work calls are read once: each pass reads only the tool calls recorded since
-    the last one.
+    the last one, and tries again the few still waiting for their result or for
+    their run to reach the WorkChord copy.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, clock: Callable[[], datetime] = lambda: datetime.now(UTC)) -> None:
         self._read_up_to: dict[int, int] = {}
+        self._waiting: set[int] = set()  # call event ids
+        self._clock = clock
+
+    def _recent(self, at: datetime | None) -> bool:
+        return at is not None and at >= self._clock() - RETRY_WINDOW
 
     def run(self, db: DbSession, connections: list[Connection]) -> Linked:
         linked = Linked()
         if not connections:
             return linked
+        self._retry(db, connections, linked)
         start = min(self._read_up_to.get(c.id, 0) for c in connections)
         linked.last_event_id = self._tool_calls(db, connections, start, linked)
         for connection in connections:
@@ -273,34 +370,57 @@ class Linker:
         ]
         return holding[0] if len(holding) == 1 else None
 
+    _CALL = (Event.id, Event.session_id, Event.sequence, Event.occurred_at, Event.payload)
+
     def _tool_calls(
         self, db: DbSession, connections: list[Connection], after: int, linked: Linked
     ) -> int:
         name = Event.payload["name"].as_string()
+        text = cast(Event.payload, String)
         matches = or_(
             *(name.like(f"%{tool}") for tool in WORK_TOOLS),
-            *(cast(Event.payload, String).like(f"%{route}%") for route in WORK_ROUTES),
+            *(text.like(f"%{tool}%") for tool in WORK_TOOLS),
+            *(text.like(f"%{route}%") for route in WORK_ROUTES),
         )
         last = after
         while True:
             calls = db.execute(
-                select(Event.id, Event.session_id, Event.sequence, Event.payload)
+                select(*self._CALL)
                 .where(Event.kind == EventKind.TOOL_CALL, Event.id > last, matches)
                 .order_by(Event.id)
                 .limit(TOOL_BATCH)
             ).all()
             if not calls:
                 return last
-            for event_id, session_id, sequence, payload in calls:
+            for event_id, session_id, sequence, at, payload in calls:
                 last = event_id
-                self._tool_call(db, connections, session_id, sequence, payload or {}, linked)
+                settled = self._tool_call(
+                    db, connections, session_id, sequence, at, payload or {}, linked
+                )
+                if not settled and self._recent(at):
+                    self._waiting.add(event_id)
 
-    def _tool_call(self, db, connections, session_id, sequence, payload, linked) -> None:
-        tool = _work_tool(payload.get("name"))
-        routes = _routes_in(payload.get("input"))
-        call_id = payload.get("call_id")
-        if not (tool or routes) or not isinstance(call_id, str):
+    def _retry(self, db: DbSession, connections: list[Connection], linked: Linked) -> None:
+        if not self._waiting:
             return
+        calls = db.execute(select(*self._CALL).where(Event.id.in_(self._waiting))).all()
+        self._waiting = {
+            event_id
+            for event_id, session_id, sequence, at, payload in calls
+            if self._recent(at)
+            and not self._tool_call(
+                db, connections, session_id, sequence, at, payload or {}, linked
+            )
+        }
+
+    def _tool_call(self, db, connections, session_id, sequence, at, payload, linked) -> bool:
+        """Link one work call. False while it may still link: its result is not recorded
+        yet, or the run it names is not in the copy yet."""
+        call = payload.get("input")
+        tool = _work_tool(payload.get("name")) or _scripted_tool(call)
+        call_id = payload.get("call_id")
+        if not (tool or _routes_in(call)) or not isinstance(call_id, str):
+            return True
         results = db.scalars(
             select(Event.payload).where(
                 Event.session_id == session_id,
@@ -309,23 +429,40 @@ class Linker:
                 Event.payload["call_id"].as_string() == call_id,
             )
         ).all()
+        if not results:
+            return False
+        settled = True
         for result in results:
-            if (result or {}).get("is_error"):
+            output = (result or {}).get("output")
+            if (result or {}).get("is_error") or _reports_error(output):
                 continue
-            claimed = read_work_result((result or {}).get("output"))
-            if claimed is None:
-                continue
-            connection = self._connection_for(db, connections, claimed, payload.get("input"))
-            if connection is None:
-                linked.unplaced += 1
-                return
-            evidence = {
-                "call": tool or "http",
-                "sequence": sequence,
-                "actor_id": claimed.actor_id,
-                "claim_generation": claimed.claim_generation,
-                "claim_expires_at": claimed.claim_expires_at,
-            }
+            claimed = read_work_result(output)
+            evidence: dict[str, Any] = {"call": tool or "http", "sequence": sequence}
+            if claimed is not None:
+                connection = self._connection_for(db, connections, claimed, call)
+                if connection is None:
+                    linked.unplaced += 1
+                    return True
+                evidence |= {
+                    "actor_id": claimed.actor_id,
+                    "claim_generation": claimed.claim_generation,
+                    "claim_expires_at": claimed.claim_expires_at,
+                }
+                claimed = _with_task(db, connection, claimed)
+            else:
+                placed = self._sent_run(db, connections, call, at, output)
+                if placed is None:
+                    # The run the call sends may reach the copy on a later pass.
+                    settled = settled and not _sent_ids(call)
+                    continue
+                connection, run = placed
+                claimed = Claimed(
+                    run_id=run.remote_id,
+                    task_id=run.task_remote_id,
+                    assignment_id=run.assignment_remote_id,
+                    actor_id=run.actor_remote_id,
+                )
+                evidence |= {"actor_id": run.actor_remote_id, "read_from": "call input"}
             if _store(
                 db,
                 session_id,
@@ -337,7 +474,40 @@ class Linker:
                 assignment_id=claimed.assignment_id,
             ):
                 linked.count(RunLinkBasis.TOOL_CALL)
-            return
+            return True
+        return settled
+
+    @staticmethod
+    def _sent_run(
+        db: DbSession,
+        connections: list[Connection],
+        call: Any,
+        at: datetime | None,
+        output: Any,
+    ) -> tuple[Connection, WcRun] | None:
+        """The one run a call sends the id of, or the run of the one assignment it sends,
+        live when the call was made and named in its output. None when there is no such
+        run, or more than one."""
+        sent = _sent_ids(call)
+        for key, column in (
+            ("run_id", WcRun.remote_id),
+            ("assignment_id", WcRun.assignment_remote_id),
+        ):
+            ids = sent.get(key, set())
+            if len(ids) != 1:
+                continue
+            found = [
+                (connection, run)
+                for connection in connections
+                for run in db.scalars(
+                    select(WcRun).where(
+                        WcRun.connection_id == connection.id, column == next(iter(ids))
+                    )
+                )
+                if _live_at(run, at) and _echoes(output, run)
+            ]
+            return found[0] if len(found) == 1 else None
+        return None
 
     # 2. trace_id: the harness session the run declared
 

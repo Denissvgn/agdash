@@ -224,6 +224,198 @@ def test_each_call_is_read_once_and_links_are_not_repeated(store):
         assert again.added == {} and len(links(db)) == 1
 
 
+def scripted(db, session, call_id="x1", *, printed=None, script=None) -> None:
+    """A Codex code-mode call: one exec tool runs a script that calls the MCP tool and
+    prints what it chooses, here the result cut short as a cautious script may."""
+    if script is None:
+        script = (
+            "const r = await tools.mcp__workchord__agent_begin_my_work("
+            "{idempotency_key: 'k', payload: {assignment_id: 401, lease_seconds: 600}});\n"
+            "text(JSON.stringify({isError: false, safe: JSON.stringify(r).slice(0, 80)}));"
+        )
+    if printed is None:
+        printed = {"isError": False, "safe": json.dumps(begun())[:80]}
+    record(
+        db,
+        session,
+        (EventKind.TOOL_CALL, {"name": "exec", "call_id": call_id, "input": script}),
+        (
+            EventKind.TOOL_RESULT,
+            {"call_id": call_id, "output": "Script completed\nOutput:\n\n" + json.dumps(printed)},
+        ),
+    )
+
+
+def mirrored_run(db, row, *, started=T0 + timedelta(minutes=1), ended=None) -> None:
+    db.add(
+        WcRun(
+            connection_id=row.id,
+            remote_id=501,
+            task_remote_id=101,
+            assignment_remote_id=401,
+            actor_remote_id=31,
+            started_at=started,
+            ended_at=ended,
+            fetched_at=T0,
+        )
+    )
+    db.flush()
+
+
+def test_a_scripted_begin_cut_short_links_through_the_assignment_it_sends(store):
+    with store() as db:
+        row = server(db)
+        mirrored_run(db, row)
+        session = agent_session(db, harness="codex")
+        scripted(db, session)
+        linked = Linker().run(db, [row])
+        (link,) = links(db)
+        assert linked.added == {"tool_call": 1}
+        assert (link.basis, link.run_remote_id, link.task_remote_id) == (
+            RunLinkBasis.TOOL_CALL,
+            501,
+            101,
+        )
+        assert link.evidence == {
+            "call": "agent_begin_my_work",
+            "sequence": 0,
+            "actor_id": 31,
+            "read_from": "call input",
+        }
+
+
+def test_a_scripted_begin_that_prints_the_whole_result_links_from_the_result(store):
+    with store() as db:
+        row = server(db)
+        session = agent_session(db, harness="codex")
+        scripted(db, session, printed={"isError": False, "safe": json.dumps(begun(run_id=9))})
+        Linker().run(db, [row])
+        (link,) = links(db)
+        assert (link.run_remote_id, link.evidence["call"]) == (9, "agent_begin_my_work")
+        assert "read_from" not in link.evidence
+
+
+def soon() -> datetime:
+    return T0 + timedelta(minutes=5)
+
+
+def test_a_call_waits_for_its_run_to_reach_the_copy(store):
+    with store() as db:
+        row = server(db)
+        session = agent_session(db, harness="codex")
+        scripted(db, session)
+        linker = Linker(clock=soon)
+        linker.run(db, [row])
+        assert links(db) == []
+        mirrored_run(db, row)
+        linker.run(db, [row])
+        (link,) = links(db)
+        assert link.run_remote_id == 501
+
+
+def test_a_call_waits_for_its_result(store):
+    with store() as db:
+        row = server(db)
+        session = agent_session(db)
+        record(
+            db,
+            session,
+            (
+                EventKind.TOOL_CALL,
+                {"name": "mcp__workchord__agent_begin_my_work", "call_id": "c1", "input": {}},
+            ),
+        )
+        linker = Linker(clock=soon)
+        linker.run(db, [row])
+        assert links(db) == []
+        record(
+            db,
+            session,
+            (EventKind.TOOL_RESULT, {"call_id": "c1", "output": json.dumps(begun())}),
+        )
+        linker.run(db, [row])
+        (link,) = links(db)
+        assert link.run_remote_id == 501
+
+
+def test_a_call_stops_waiting_once_it_is_old(store):
+    now = [soon()]
+    with store() as db:
+        row = server(db)
+        session = agent_session(db, harness="codex")
+        scripted(db, session)
+        linker = Linker(clock=lambda: now[0])
+        linker.run(db, [row])
+        now[0] = T0 + timedelta(hours=2)
+        linker.run(db, [row])
+        mirrored_run(db, row)
+        linker.run(db, [row])
+        assert links(db) == []
+
+
+def test_an_old_call_is_not_kept_waiting(store):
+    with store() as db:
+        row = server(db)
+        session = agent_session(db, harness="codex")
+        scripted(db, session)
+        linker = Linker(clock=lambda: T0 + timedelta(days=2))
+        linker.run(db, [row])
+        mirrored_run(db, row)
+        linker.run(db, [row])
+        assert links(db) == []
+
+
+def test_a_result_that_names_only_the_run_takes_its_task_from_the_copy(store):
+    with store() as db:
+        row = server(db)
+        mirrored_run(db, row)
+        session = agent_session(db)
+        submitted = {"run": {"id": 501, "status": "succeeded"}, "assignment_state": "fulfilled"}
+        mcp_begin(db, session, "c1")
+        mcp_begin(db, session, "c2", result=submitted)
+        Linker().run(db, [row])
+        (link,) = links(db)
+        assert (link.run_remote_id, link.task_remote_id, link.assignment_remote_id) == (
+            501,
+            101,
+            401,
+        )
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["mentions the tool only", "printed a failure", "run at another time"],
+)
+def test_a_scripted_call_needs_its_run_named_live_and_not_failed(store, case):
+    with store() as db:
+        row = server(db)
+        session = agent_session(db, harness="codex")
+        if case == "run at another time":
+            mirrored_run(db, row, started=T0 + timedelta(hours=3))
+            scripted(db, session)
+        else:
+            mirrored_run(db, row)
+        if case == "mentions the tool only":
+            # Code being edited that calls the tool, with an answer that names nothing.
+            record(
+                db,
+                session,
+                (
+                    EventKind.TOOL_CALL,
+                    {
+                        "name": "Write",
+                        "call_id": "w1",
+                        "input": {"content": "agent_begin_my_work({'assignment_id': 401})"},
+                    },
+                ),
+                (EventKind.TOOL_RESULT, {"call_id": "w1", "output": "File written"}),
+            )
+        if case == "printed a failure":
+            scripted(db, session, printed={"isError": True, "safe": json.dumps(begun())[:80]})
+        Linker().run(db, [row])
+        assert links(db) == []
+
+
 @pytest.mark.parametrize(
     "output",
     [
@@ -231,8 +423,10 @@ def test_each_call_is_read_once_and_links_are_not_repeated(store):
         {"content": [{"type": "text", "text": json.dumps(begun())}]},
         {"structuredContent": begun()},
         json.dumps(begun()),
+        {"isError": False, "safe": json.dumps(begun())},
+        "Script completed\n" + json.dumps({"keys": []}) + "\n" + json.dumps(begun()) + "\n",
     ],
-    ids=["object", "content", "structured", "text"],
+    ids=["object", "content", "structured", "text", "nested text", "several printed"],
 )
 def test_a_work_result_is_read_however_it_is_wrapped(output):
     claimed = read_work_result(output)
