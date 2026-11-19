@@ -71,6 +71,8 @@ METADATA_TYPES = frozenset(
         "agent-name",
         "attachment",
         "summary",
+        "mode",
+        "permission-mode",
     }
 )
 

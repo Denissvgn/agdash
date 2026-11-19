@@ -85,6 +85,25 @@ def row(pid, ppid=1, *, name=None, exe=None, argv=(), started=0) -> ProcessRow:
         ),
         (row(10, exe=CLAUDE_CODE, argv=["ugrep", "-r", "needle"]), [], None),
         (
+            # The npm package's binary, as on Ubuntu.
+            row(
+                10,
+                exe="/usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+                argv=["claude"],
+            ),
+            [row(5, exe="/usr/bin/bash")],
+            Classification(Harness.CLAUDE_CODE, Role.SESSION, Surface.CLI),
+        ),
+        (
+            row(
+                10,
+                exe="/usr/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+                argv=["rg"],
+            ),
+            [],
+            None,
+        ),
+        (
             row(10, exe=CODEX, argv=["codex", "exec", "--json", "fix it"]),
             [],
             Classification(Harness.CODEX, Role.SESSION, Surface.EXEC),
@@ -112,6 +131,21 @@ def row(pid, ppid=1, *, name=None, exe=None, argv=(), started=0) -> ProcessRow:
             row(10, exe=CODEX, argv=["codex", "app-server"]),
             [row(5, name="Code Helper (Plugin)")],
             Classification(Harness.CODEX, Role.HOST, Surface.IDE),
+        ),
+        (
+            # The daemon Codex's terminal UI hands its session to.
+            row(
+                10,
+                exe=CODEX,
+                argv=[CODEX, "app-server", "--listen", "unix://", "--managed-daemon"],
+            ),
+            [],
+            Classification(Harness.CODEX, Role.HOST, Surface.CLI),
+        ),
+        (
+            row(10, exe=CODEX, argv=[CODEX, "app-server", "daemon", "pid-update-loop"]),
+            [],
+            Classification(Harness.CODEX, Role.HELPER),
         ),
         (
             row(10, exe=CODEX, argv=["codex", "exec-server"]),
@@ -157,6 +191,12 @@ def row(pid, ppid=1, *, name=None, exe=None, argv=(), started=0) -> ProcessRow:
                 exe="/usr/local/bin/node",
                 argv=["node", "/x/node_modules/@scope/pi-coding-agent/dist/cli.js"],
             ),
+            [],
+            Classification(Harness.PI, Role.SESSION, Surface.CLI),
+        ),
+        (
+            # Pi names its process "pi", which replaces its command line on Linux.
+            row(10, exe="/usr/local/bin/node", argv=["pi", "", ""]),
             [],
             Classification(Harness.PI, Role.SESSION, Surface.CLI),
         ),

@@ -135,7 +135,8 @@ def classify(row: ProcessRow, ancestors: Sequence[ProcessRow] = ()) -> Classific
 
     # Claude Code. The same binary also runs bundled tools under other names
     # (a search tool, for example), so the name it was started under must match.
-    if exe == "claude" and argv0 == "claude":
+    # The npm package's binary is called claude.exe, on every system.
+    if exe in ("claude", "claude.exe") and argv0 == "claude":
         if _first_command(row.argv, _CLAUDE_HELPER_COMMANDS):
             return Classification(Harness.CLAUDE_CODE, Role.HELPER)
         if _under_bundle(ancestors, [_CLAUDE_DESKTOP_BUNDLE]):
@@ -153,6 +154,14 @@ def classify(row: ProcessRow, ancestors: Sequence[ProcessRow] = ()) -> Classific
         command = _first_command(row.argv, set(_CODEX_COMMANDS) | _CODEX_HELPER_COMMANDS)
         if command in _CODEX_HELPER_COMMANDS:
             return Classification(Harness.CODEX, Role.HELPER)
+        if command == "app-server":
+            rest = row.argv[row.argv.index("app-server") + 1 :]
+            # `codex app-server daemon ...` looks after the daemon and runs no session.
+            if rest[:1] == ("daemon",):
+                return Classification(Harness.CODEX, Role.HELPER)
+            # The daemon the terminal UI hands its sessions to: a terminal back end.
+            if "--managed-daemon" in rest:
+                return Classification(Harness.CODEX, Role.HOST, Surface.CLI)
         role, surface = _CODEX_COMMANDS.get(command or "", (Role.SESSION, Surface.CLI))
         if role is Role.HOST:
             if _under_bundle(ancestors, _CODEX_DESKTOP_BUNDLES):
@@ -171,10 +180,12 @@ def classify(row: ProcessRow, ancestors: Sequence[ProcessRow] = ()) -> Classific
     if "/Antigravity.app/" in (row.exe or ""):
         return Classification(Harness.ANTIGRAVITY, Role.HELPER)
 
-    # Pi: a Node script, or a compiled binary called pi.
+    # Pi: a Node script, or a compiled binary called pi. Pi names its own process
+    # "pi", which replaces the command line where the system lets it (Linux).
     script = _base(row.argv[1]) if len(row.argv) > 1 else ""
     if exe == "pi" or (
-        exe in ("node", "bun") and (script == "pi" or any(_PI_PACKAGE in a for a in row.argv[1:2]))
+        exe in ("node", "bun")
+        and (argv0 == "pi" or script == "pi" or any(_PI_PACKAGE in a for a in row.argv[1:2]))
     ):
         return Classification(Harness.PI, Role.SESSION, Surface.CLI)
     return None
@@ -276,6 +287,26 @@ def codex_rollouts(process: ObservedProcess, codex_roots: tuple[Path, ...]) -> d
         if match and is_inside(Path(path), codex_roots):
             found[match["session"]] = path
     return found
+
+
+def is_terminal_back_end(process: ObservedProcess) -> bool:
+    """A Codex daemon serving the terminal UI's sessions (see :func:`classify`)."""
+    return (
+        process.harness is Harness.CODEX
+        and process.role is Role.HOST
+        and process.surface is Surface.CLI
+    )
+
+
+def terminal_clients(snapshot: Snapshot) -> list[ObservedProcess]:
+    """The Codex terminal UIs running: the clients a terminal back end serves."""
+    return [
+        process
+        for process in snapshot.processes
+        if process.harness is Harness.CODEX
+        and process.role is Role.SESSION
+        and process.surface is Surface.CLI
+    ]
 
 
 def parent_session(

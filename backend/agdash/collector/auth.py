@@ -18,7 +18,10 @@ What each harness's settings can show:
   than OpenAI is a custom endpoint; the adapter records that from the
   transcript.
 * **Antigravity** — ``google_accounts.json``: the active Google account, which
-  is the account label. Antigravity signs in with Google only.
+  is the account label. Antigravity signs in with Google only. Where that file
+  is missing, as for the CLI on Linux, the CLI's sign-in token file,
+  ``antigravity-cli/antigravity-oauth-token``, shows a Google sign-in. Only
+  whether it exists is asked; it is never opened.
 * **Pi** — the session's provider, from its transcript, looked up in
   ``models.json`` (a ``baseUrl`` means a custom endpoint) and ``auth.json``
   (the stored entry's ``type``: ``oauth`` or ``api_key``).
@@ -50,6 +53,8 @@ RECENT = timedelta(minutes=30)
 LIVE = (SessionState.ACTIVE, SessionState.WAITING, SessionState.IDLE)
 TRUE = {"1", "true", "yes", "on"}
 MAX_PROVIDER = 100
+# The Antigravity CLI's Google sign-in, kept as a file where there is no keychain to hold it.
+ANTIGRAVITY_TOKEN = "antigravity-oauth-token"
 
 
 @dataclass(frozen=True)
@@ -92,6 +97,13 @@ class AuthDetector:
         except (AccessError, OSError, ValueError):
             log.warning("could not read a harness settings file; its auth method is unknown")
         return {}
+
+    def _present(self, path: Path) -> bool:
+        """Whether a file exists, asked by name: the file is not opened."""
+        try:
+            return self._access.exists(path)
+        except (AccessError, OSError):
+            return False
 
     def _file(self, harness: Harness, name: str) -> Path | None:
         for root in self._roots.get(harness, ()):
@@ -172,6 +184,9 @@ class AuthDetector:
         active = found.get(("active",))
         if isinstance(active, str) and active:
             return Finding(AuthMethod.SUBSCRIPTION, active)
+        for root in self._roots.get(Harness.ANTIGRAVITY, ()):
+            if root.name == "antigravity-cli" and self._present(root / ANTIGRAVITY_TOKEN):
+                return Finding(AuthMethod.SUBSCRIPTION)
         return UNKNOWN
 
     def pi(self, provider: str | None) -> Finding:
