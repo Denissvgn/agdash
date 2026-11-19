@@ -1,15 +1,15 @@
 # An Ubuntu machine with the four CLI harnesses, for surveying where each keeps its
 # records on Linux. Built and run by ./survey.sh; see README.md.
 #
-# The harness versions match the ones surveyed on macOS, so the two surveys compare.
+# The harness versions match the ones in use on the Mac, so the two surveys compare.
 # The home folder is a Docker volume of its own: nothing from the host's home is
 # mounted, so the harnesses here never see or change the host's records.
 FROM ubuntu:24.04
 
 ARG NODE_VERSION=22.23.4
-ARG CLAUDE_CODE_VERSION=2.1.325
-ARG CODEX_VERSION=0.167.2
-ARG PI_VERSION=1.0.2
+ARG CLAUDE_CODE_VERSION=2.1.326
+ARG CODEX_VERSION=0.169.0
+ARG PI_VERSION=1.5.2
 
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update \
@@ -29,7 +29,7 @@ RUN set -eu; \
     rm "${name}"; \
     node --version
 
-# Claude Code, Codex and Pi, at the macOS survey's versions. Pi needs no install scripts.
+# Claude Code, Codex and Pi, at the versions in use on the Mac. Pi needs no install scripts.
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" \
  && npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" \
  && npm cache clean --force

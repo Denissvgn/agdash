@@ -6,8 +6,8 @@ harness keeps its records on Linux, what shows that a session is live, how much 
 its thinking it writes down, and what says how it is signed in. The findings set
 what the Linux adapters read.
 
-The harness versions match the macOS survey (Claude Code 2.1.325, Codex 0.167.2,
-Pi 1.0.2). `agy` is whichever version Google's release server named when the image
+The harness versions match the ones in use on the Mac (Claude Code 2.1.326,
+Codex 0.169.0, Pi 1.5.2); change them in the Dockerfile when the Mac's change. `agy` is whichever version Google's release server named when the image
 was built; `survey.sh versions` prints it.
 
 **The host's home is never mounted.** The container's home is a Docker volume of
