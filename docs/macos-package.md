@@ -106,6 +106,14 @@ spctl --assess --type open --context context:primary-signature --verbose=2 deskt
 The acceptance check is a person's: on a Mac that has never run agdash, open the
 disk image, drag the app to Applications and open it, with no Gatekeeper override.
 
+### The update archive
+
+Last, the script packs the signed app into `agdash-<version>-<arch>.app.tar.gz`
+beside it, which the app's updater installs from. With the updater key set
+(`TAURI_SIGNING_PRIVATE_KEY` or `TAURI_SIGNING_PRIVATE_KEY_PATH`, and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) it also writes the archive's signature,
+`.app.tar.gz.sig`. Releases build both in CI; see [releasing.md](releasing.md).
+
 ## Full Disk Access
 
 agdash should need no Full Disk Access, and macOS should show no privacy prompt.

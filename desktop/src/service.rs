@@ -110,16 +110,27 @@ pub fn data_home(xdg: Option<String>, home: &Path) -> PathBuf {
 /// How to start the installed service, when it is installed: through the system's
 /// service manager, so it runs as it does at login.
 pub fn manager_command(macos: bool, home: &Path, uid: u32) -> Option<Vec<String>> {
+    managed(macos, home, uid, false)
+}
+
+/// How to restart the installed service through the system's service manager, so it
+/// runs the binary now on disk.
+pub fn manager_restart_command(macos: bool, home: &Path, uid: u32) -> Option<Vec<String>> {
+    managed(macos, home, uid, true)
+}
+
+fn managed(macos: bool, home: &Path, uid: u32, restart: bool) -> Option<Vec<String>> {
     if macos {
         let plist = home
             .join("Library/LaunchAgents")
             .join(format!("{LAUNCHD_LABEL}.plist"));
         plist.is_file().then(|| {
-            vec![
-                "launchctl".into(),
-                "kickstart".into(),
-                format!("gui/{uid}/{LAUNCHD_LABEL}"),
-            ]
+            let mut command = vec!["launchctl".to_string(), "kickstart".into()];
+            if restart {
+                command.push("-k".into()); // stop the running one first
+            }
+            command.push(format!("gui/{uid}/{LAUNCHD_LABEL}"));
+            command
         })
     } else {
         let unit = home.join(".config/systemd/user").join(SYSTEMD_UNIT);
@@ -127,11 +138,79 @@ pub fn manager_command(macos: bool, home: &Path, uid: u32) -> Option<Vec<String>
             vec![
                 "systemctl".into(),
                 "--user".into(),
-                "start".into(),
+                if restart { "restart" } else { "start" }.into(),
                 SYSTEMD_UNIT.into(),
             ]
         })
     }
+}
+
+/// The version a ready service names in its health answer.
+pub fn version_in(health: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(health).ok()?;
+    if value.get("status")?.as_str()? != "ok" {
+        return None;
+    }
+    value.get("version")?.as_str().map(str::to_string)
+}
+
+/// The version of the service answering on the port, once it is ready.
+pub fn running_version(port: u16) -> Option<String> {
+    match http::get(port, "/health", None, Duration::from_secs(2)) {
+        Ok((200, body)) => version_in(&body),
+        _ => None,
+    }
+}
+
+/// Whether version `a` comes before version `b`. Only plain `x.y.z` numbers compare;
+/// anything else is not called older.
+pub fn older(a: &str, b: &str) -> bool {
+    fn parts(version: &str) -> Option<Vec<u64>> {
+        version.split('.').map(|part| part.parse().ok()).collect()
+    }
+    match (parts(a), parts(b)) {
+        (Some(a), Some(b)) => a < b,
+        _ => false,
+    }
+}
+
+/// Bring a service the app has outgrown up to the app's version. After an update the
+/// app is new, and a service it did not stop still runs the earlier binary. A service
+/// under the system's service manager is restarted, which runs the binary now on disk:
+/// the one the updated app carries. A service started some other way is left alone.
+/// Returns whether it restarted the service.
+pub fn catch_up(
+    port: u16,
+    app_version: &str,
+    restart: Option<Vec<String>>,
+) -> Result<bool, String> {
+    let Some(running) = running_version(port) else {
+        return Ok(false);
+    };
+    let Some(command) = restart.filter(|_| older(&running, app_version)) else {
+        return Ok(false);
+    };
+    let status = Command::new(&command[0])
+        .args(&command[1..])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| format!("could not ask the service manager: {error}"))?;
+    if !status.success() {
+        return Err("the service manager could not restart the service".into());
+    }
+    let deadline = Instant::now() + START_WAIT;
+    while Instant::now() < deadline {
+        if answer(port) == Answer::Preparing {
+            return Ok(true);
+        }
+        if running_version(port).is_some_and(|now| now != running) {
+            return Ok(true);
+        }
+        sleep(Duration::from_millis(250));
+    }
+    Err(format!("the service still runs {running} after a restart"))
 }
 
 /// How the service came to be running.
@@ -279,6 +358,15 @@ mod tests {
                 "gui/501/dev.agdash.agdashd".into()
             ])
         );
+        assert_eq!(
+            manager_restart_command(true, &home, 501),
+            Some(vec![
+                "launchctl".into(),
+                "kickstart".into(),
+                "-k".into(),
+                "gui/501/dev.agdash.agdashd".into()
+            ])
+        );
         fs::create_dir_all(home.join(".config/systemd/user")).unwrap();
         fs::write(home.join(".config/systemd/user/agdashd.service"), "").unwrap();
         assert_eq!(
@@ -287,6 +375,15 @@ mod tests {
                 "systemctl".into(),
                 "--user".into(),
                 "start".into(),
+                "agdashd.service".into()
+            ])
+        );
+        assert_eq!(
+            manager_restart_command(false, &home, 501),
+            Some(vec![
+                "systemctl".into(),
+                "--user".into(),
+                "restart".into(),
                 "agdashd.service".into()
             ])
         );
@@ -440,5 +537,87 @@ mod tests {
         server.join().unwrap();
         // With nothing on the port there is no answer at all.
         assert_eq!(answer(port), Answer::Nothing);
+    }
+
+    #[test]
+    fn a_ready_service_names_its_version() {
+        assert_eq!(
+            version_in(r#"{"status":"ok","version":"0.2.0"}"#),
+            Some("0.2.0".into())
+        );
+        assert_eq!(
+            version_in(r#"{"status":"preparing","version":"0.2.0"}"#),
+            None
+        );
+        assert_eq!(version_in(r#"{"status":"ok"}"#), None);
+        assert_eq!(version_in("not json"), None);
+    }
+
+    #[test]
+    fn only_plain_versions_are_compared() {
+        assert!(older("0.1.0", "0.2.0"));
+        assert!(older("0.9.9", "0.10.0"));
+        assert!(older("1.2", "1.2.1"));
+        assert!(!older("0.2.0", "0.2.0"));
+        assert!(!older("0.3.0", "0.2.0"));
+        assert!(!older("0.2.0-rc.1", "0.2.0"));
+        assert!(!older("", "0.2.0"));
+    }
+
+    fn serve_health(bodies: Vec<&'static str>) -> (u16, std::thread::JoinHandle<()>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            for body in bodies {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0u8; 1024];
+                let _ = stream.read(&mut buffer);
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(reply.as_bytes()).unwrap();
+            }
+        });
+        (port, server)
+    }
+
+    #[test]
+    fn a_service_on_this_version_or_with_no_manager_is_left_alone() {
+        let (port, server) = serve_health(vec![
+            r#"{"status":"ok","version":"0.2.0"}"#,
+            r#"{"status":"ok","version":"0.1.0"}"#,
+            r#"{"status":"ok","version":"0.3.0"}"#,
+        ]);
+        let fail = Some(vec!["false".to_string()]);
+        assert_eq!(catch_up(port, "0.2.0", fail.clone()), Ok(false));
+        assert_eq!(catch_up(port, "0.2.0", None), Ok(false));
+        // A service newer than the app is not restarted either.
+        assert_eq!(catch_up(port, "0.2.0", fail), Ok(false));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn an_older_managed_service_is_restarted_onto_the_new_binary() {
+        let (port, server) = serve_health(vec![
+            r#"{"status":"ok","version":"0.1.0"}"#,
+            r#"{"status":"ok","version":"0.1.0"}"#, // asked whether it is preparing
+            r#"{"status":"ok","version":"0.1.0"}"#, // not yet the new one
+            r#"{"status":"ok","version":"0.2.0"}"#, // asked whether it is preparing
+            r#"{"status":"ok","version":"0.2.0"}"#,
+        ]);
+        assert_eq!(
+            catch_up(port, "0.2.0", Some(vec!["true".to_string()])),
+            Ok(true)
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_manager_that_refuses_the_restart_is_reported() {
+        let (port, server) = serve_health(vec![r#"{"status":"ok","version":"0.1.0"}"#]);
+        assert!(catch_up(port, "0.2.0", Some(vec!["false".to_string()])).is_err());
+        server.join().unwrap();
     }
 }

@@ -29,6 +29,8 @@ rather than guessing.
   and what it keeps, for how long.
 
 A session can be exported to a file you name. Nothing else leaves the machine.
+The desktop app asks GitHub for a newer release only when you choose Check for
+updates in its tray menu.
 
 ## Run it
 
@@ -138,6 +140,8 @@ Building, signing and notarising the macOS app and disk image are in
 [docs/macos-package.md](docs/macos-package.md).
 The Ubuntu packages, and running agdash on a server with no display, are in
 [docs/ubuntu-packages.md](docs/ubuntu-packages.md).
+Cutting a release, its checksums, and how the app updates itself are in
+[docs/releasing.md](docs/releasing.md).
 
 Backfill speed and memory, and how to measure them, are in
 [docs/performance.md](docs/performance.md).

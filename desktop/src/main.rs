@@ -1,20 +1,89 @@
 //! The agdash desktop app: one window on the bundled UI and a tray item with the
 //! number of live sessions. It attaches to the agdash service, or starts it, and
-//! hands the UI the local token. Quitting the app leaves the service running.
+//! hands the UI the local token. Quitting the app leaves the service running. The tray
+//! also offers updates, checked only when the person asks.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
+use agdash_desktop::update::{self, Choice, Step};
 use agdash_desktop::{http, live, service};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::webview::DownloadEvent;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent, Wry};
+use tauri_plugin_updater::{Update, UpdaterExt};
 
 const MAIN: &str = "main";
 const TRAY: &str = "live";
 const REFRESH: Duration = Duration::from_secs(5);
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The tray's update item and where its check is.
+struct Updates {
+    item: MenuItem<Wry>,
+    step: Mutex<Step>,
+    found: Mutex<Option<Update>>,
+}
+
+fn set_step(app: &AppHandle, step: Step) {
+    let updates = app.state::<Updates>();
+    let _ = updates.item.set_text(update::label(&step, VERSION));
+    let _ = updates.item.set_enabled(update::enabled(&step));
+    *updates.step.lock().unwrap() = step;
+}
+
+fn on_update(app: &AppHandle) {
+    let step = app.state::<Updates>().step.lock().unwrap().clone();
+    match update::choice(&step) {
+        Choice::Check => check_for_update(app.clone()),
+        Choice::Install => install_update(app.clone()),
+        Choice::Nothing => {}
+    }
+}
+
+fn check_for_update(app: AppHandle) {
+    set_step(&app, Step::Checking);
+    tauri::async_runtime::spawn(async move {
+        let checked = match app.updater() {
+            Ok(updater) => updater.check().await,
+            Err(error) => Err(error),
+        };
+        let step = match checked {
+            Ok(Some(found)) => {
+                let version = found.version.clone();
+                *app.state::<Updates>().found.lock().unwrap() = Some(found);
+                Step::Found(version)
+            }
+            Ok(None) => Step::Current,
+            Err(error) => {
+                eprintln!("agdash: the update check failed: {error}");
+                Step::Failed
+            }
+        };
+        set_step(&app, step);
+    });
+}
+
+fn install_update(app: AppHandle) {
+    let Some(found) = app.state::<Updates>().found.lock().unwrap().take() else {
+        return check_for_update(app);
+    };
+    set_step(&app, Step::Installing(found.version.clone()));
+    tauri::async_runtime::spawn(async move {
+        // The signature is checked against the app's public key before anything is
+        // replaced. The new app, once started, brings the service up to its version.
+        match found.download_and_install(|_, _| {}, || {}).await {
+            Ok(()) => app.restart(),
+            Err(error) => {
+                eprintln!("agdash: the update did not install: {error}");
+                set_step(&app, Step::Failed);
+            }
+        }
+    });
+}
 
 fn show(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN) {
@@ -59,6 +128,7 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             show(app)
         }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let home = app.path().home_dir().unwrap_or_default();
             let bin = service::settle_bin(
@@ -69,9 +139,20 @@ fn main() {
                 std::env::var_os("APPIMAGE").is_some(),
                 &service::data_home(std::env::var("XDG_DATA_HOME").ok(), &home),
             );
-            let manager = service::manager_command(cfg!(target_os = "macos"), &home, current_uid());
+            let macos = cfg!(target_os = "macos");
+            let uid = current_uid();
+            let manager = service::manager_command(macos, &home, uid);
             // A service that cannot be reached is shown by the UI's own notices.
             let _ = service::ensure_running(port, &bin, manager);
+            // After an update, a service left on the earlier version is restarted onto
+            // the binary this app carries, when the system's service manager runs it.
+            if let Err(error) = service::catch_up(
+                port,
+                VERSION,
+                service::manager_restart_command(macos, &home, uid),
+            ) {
+                eprintln!("agdash: {error}");
+            }
             let token = service::token(&bin).ok();
             WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
                 .title("agdash")
@@ -94,14 +175,40 @@ fn main() {
                 true,
                 None::<&str>,
             )?;
-            let menu =
-                Menu::with_items(app, &[&open, &PredefinedMenuItem::separator(app)?, &quit])?;
+            let check = MenuItem::with_id(
+                app,
+                "update",
+                update::label(&Step::Idle, VERSION),
+                true,
+                None::<&str>,
+            )?;
+            let offered = update::offered(
+                update::public_key(&serde_json::to_value(&app.config().plugins)?).as_deref(),
+                update::replaceable(
+                    macos,
+                    &std::env::current_exe().unwrap_or_default(),
+                    std::env::var_os("APPIMAGE").is_some(),
+                ),
+            );
+            let separator = PredefinedMenuItem::separator(app)?;
+            let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&open];
+            if offered {
+                items.push(&check);
+            }
+            items.extend([&separator as &dyn IsMenuItem<Wry>, &quit]);
+            let menu = Menu::with_items(app, &items)?;
+            app.manage(Updates {
+                item: check,
+                step: Mutex::new(Step::Idle),
+                found: Mutex::new(None),
+            });
             let mut tray = TrayIconBuilder::with_id(TRAY)
                 .menu(&menu)
                 .tooltip(live::tooltip(None))
                 .title(live::title(None))
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => show(app),
+                    "update" => on_update(app),
                     "quit" => app.exit(0),
                     _ => {}
                 });

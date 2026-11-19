@@ -240,6 +240,7 @@ jobs:
           test "$(plutil -extract LSMinimumSystemVersion raw "$APP/Contents/Info.plist")" = 14.0
           codesign --verify --deep --strict "$APP"
           ls desktop/target/package/release/bundle/dmg/agdash-*.dmg
+          ls desktop/target/package/release/bundle/macos/agdash-*.app.tar.gz
 
   ubuntu-packages:
     name: Ubuntu packages (${{ matrix.arch }})
@@ -268,26 +269,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev libfuse2 file
-      - name: Create the environments and build the UI
+      - name: Create the environments
         run: |
           python -m venv .venv
           .venv/bin/pip install -e "backend[freeze]"
-          (cd frontend && npm ci && npm run build)
-      - name: Freeze the service, with the UI inside
-        working-directory: backend
-        run: |
-          AGDASH_UI_DIST="$GITHUB_WORKSPACE/frontend/dist" ../.venv/bin/pyinstaller --noconfirm packaging/agdash.spec
-          ../.venv/bin/python packaging/smoke.py dist/agdash
+          (cd frontend && npm ci)
       - name: Build the packages
-        run: |
-          VERSION=$(.venv/bin/python -c "import agdash; print(agdash.__version__)")
-          backend/packaging/linux/build-service-deb.sh backend/dist/agdash ${{ matrix.arch }} "$VERSION" out
-          mkdir -p desktop/binaries
-          cp backend/dist/agdash "desktop/binaries/agdash-$(rustc -vV | sed -n 's/^host: //p')"
-          (cd desktop && ../frontend/node_modules/.bin/tauri build --config bundle.linux-deb.json --bundles deb)
-          (cd desktop && ../frontend/node_modules/.bin/tauri build --config bundle.linux-appimage.json --bundles appimage)
-          cp desktop/target/release/bundle/deb/*.deb desktop/target/release/bundle/appimage/*.AppImage out/
-          ls -la out
+        run: desktop/scripts/package-ubuntu.sh ${{ matrix.arch }} out
       - name: The service package, with no display, on 22.04, 24.04 and 26.04
         run: |
           for release in 22.04 24.04 26.04; do
