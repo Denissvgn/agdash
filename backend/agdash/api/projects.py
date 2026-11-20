@@ -37,6 +37,7 @@ from agdash.connectors.links import EXACT, RANK
 from agdash.connectors.resolver import ACTOR_ORDER, PROJECT_ORDER, Candidate, decide
 from agdash.connectors.workchord import KIND
 from agdash.db.models import (
+    IS_AGENT,
     Connection,
     EventUsage,
     IdentityLink,
@@ -222,7 +223,7 @@ def board(
     live = list(
         db.scalars(
             select(Session)
-            .where(Session.state.in_(LIVE))
+            .where(Session.state.in_(LIVE), IS_AGENT)
             .order_by(Session.last_activity_at.desc(), Session.id.desc())
             .limit(500)
         )

@@ -52,6 +52,21 @@ describe('arranging the board', () => {
     expect(ended.map((s) => s.id)).toEqual([4])
   })
 
+  test("a harness's own review of an agent's actions is left off the board", () => {
+    const { live, ended } = split(
+      [
+        session(1),
+        session(2, { parent_session_id: 1, kind: 'subagent' }),
+        session(3, { parent_session_id: 1, kind: 'review', state: 'waiting' }),
+        session(4, { parent_session_id: 1, kind: 'review', state: 'ended', ended_at: ago(1) }),
+        session(5, { kind: null }),
+      ],
+      NOW,
+    )
+    expect(live.map((s) => s.id).sort()).toEqual([1, 2, 5])
+    expect(ended).toEqual([])
+  })
+
   test('children sit under their parent; a child whose parent is not live stands alone', () => {
     const roots = forest([
       session(1),

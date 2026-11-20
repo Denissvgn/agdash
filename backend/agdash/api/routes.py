@@ -35,7 +35,7 @@ from agdash.api.schemas import (
 )
 from agdash.api.store import Store
 from agdash.db.base import UTCDateTime
-from agdash.db.models import Event, EventUsage, Session, SessionProcess, SourceHealth
+from agdash.db.models import IS_AGENT, Event, EventUsage, Session, SessionProcess, SourceHealth
 from agdash.db.search import SEARCH_TABLE
 from agdash.vocab import EventKind, SessionState, Surface
 
@@ -62,11 +62,16 @@ _SORT = func.coalesce(
 )
 
 
-def _counts(db: DbSession, column, ids: list[int]) -> dict[int, int]:
+def _counts(db: DbSession, column, ids: list[int], *where) -> dict[int, int]:
     if not ids:
         return {}
-    rows = db.execute(select(column, func.count()).where(column.in_(ids)).group_by(column))
+    rows = db.execute(select(column, func.count()).where(column.in_(ids), *where).group_by(column))
     return {key: count for key, count in rows}
+
+
+def _subagent_counts(db: DbSession, ids: list[int]) -> dict[int, int]:
+    """How many subagents each session started; a harness's own reviews are not agents."""
+    return _counts(db, Session.parent_session_id, ids, IS_AGENT)
 
 
 def _summary(session: Session, events: int, children: int) -> dict[str, Any]:
@@ -76,6 +81,7 @@ def _summary(session: Session, events: int, children: int) -> dict[str, Any]:
         "harness": session.harness,
         "native_id": session.native_id,
         "surface": session.surface,
+        "kind": session.kind,
         "title": session.title,
         "cwd": session.cwd,
         "branch": session.branch,
@@ -226,7 +232,7 @@ def list_sessions(
     page, more = rows[:limit], len(rows) > limit
     ids = [s.id for s in page]
     events = _counts(db, Event.session_id, ids)
-    children = _counts(db, Session.parent_session_id, ids)
+    children = _subagent_counts(db, ids)
     next_cursor = None
     if more:
         last = page[-1]
@@ -324,7 +330,9 @@ def get_session(db: Db, session_id: int) -> dict[str, Any]:
     if session is None:
         raise HTTPException(status_code=404, detail="no such session")
     children = db.scalars(
-        select(Session.id).where(Session.parent_session_id == session_id).order_by(Session.id)
+        select(Session.id)
+        .where(Session.parent_session_id == session_id, IS_AGENT)
+        .order_by(Session.id)
     ).all()
     by_kind = {
         str(kind): count
@@ -656,7 +664,7 @@ def search_sessions(
     event_ids = [eid for sid in order for eid, _ in found[sid]["excerpts"]]
     events = {e.id: e for e in db.scalars(select(Event).where(Event.id.in_(event_ids)))}
     counts = _counts(db, Event.session_id, order)
-    children = _counts(db, Session.parent_session_id, order)
+    children = _subagent_counts(db, order)
     items = []
     for sid in order:
         session = sessions.get(sid)

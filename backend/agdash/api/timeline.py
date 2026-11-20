@@ -23,12 +23,12 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, select
 
 from agdash.api.analytics import METRICS
 from agdash.api.routes import Db, _one_per_message
 from agdash.api.series import Span, _minute, _next, _spans, _zone
-from agdash.db.models import Event, EventUsage, Session, SessionStateChange
+from agdash.db.models import IS_AGENT, Event, EventUsage, Session, SessionStateChange
 from agdash.vocab import EventKind, ParentBasis, SessionState, StateBasis, ThoughtsCoverage
 
 router = APIRouter()
@@ -258,7 +258,7 @@ def _markers(db, session_id: int) -> tuple[list[Marker], int]:
 
 
 def _subagents(db, session_id: int) -> tuple[list[Subagent], int]:
-    where = Session.parent_session_id == session_id
+    where = and_(Session.parent_session_id == session_id, IS_AGENT)
     total = db.scalar(select(func.count()).select_from(Session).where(where)) or 0
     children = db.scalars(
         select(Session)
@@ -460,7 +460,7 @@ def live_activity(
     """Events per minute over the last 30 minutes for every active, waiting or idle session."""
     end = live_minute(until or datetime.now(UTC)) + timedelta(minutes=1)
     minutes = [end - timedelta(minutes=LIVE_MINUTES - n) for n in range(LIVE_MINUTES)]
-    where = Session.state.in_(LIVE)
+    where = and_(Session.state.in_(LIVE), IS_AGENT)
     total = db.scalar(select(func.count()).select_from(Session).where(where)) or 0
     live = db.execute(
         select(Session.id, Session.harness, Session.state)

@@ -25,9 +25,9 @@ from agdash.db.migrate import upgrade
 from agdash.db.models import Event, Session, SourceHealth
 from agdash.events import validate_event
 from agdash.ingest import Ingestor, discover_files
-from agdash.ingest.compressed import decompress
+from agdash.ingest.compressed import compress, decompress
 from agdash.ingest.ledger import SqlLedger
-from agdash.vocab import EventKind, ParentBasis, Surface, ThoughtsCoverage
+from agdash.vocab import EventKind, ParentBasis, SessionKind, Surface, ThoughtsCoverage
 
 FIXTURES = Path(__file__).parent / "fixtures" / "harness" / "codex"
 EXEC = "76f11fad-ff5f-4d44-bb76-832c79d3037f"
@@ -504,6 +504,65 @@ def test_usage_is_the_last_turn_in_openai_terms():
     }
     empty = parse_record({"type": "event_msg", "payload": {"type": "token_count", "info": None}})
     assert empty.events == []
+
+
+SPAWNED = {"subagent": {"thread_spawn": {"parent_thread_id": "parent", "depth": 1}}}
+GUARDIAN = {"subagent": {"other": "guardian"}}
+
+
+@pytest.mark.parametrize(
+    ("header", "kind"),
+    [
+        ({"source": SPAWNED, "thread_source": "subagent"}, SessionKind.SUBAGENT),
+        ({"source": GUARDIAN, "thread_source": "guardian_review"}, SessionKind.REVIEW),
+        # Either statement is enough: older headers carry only the first.
+        ({"source": GUARDIAN}, SessionKind.REVIEW),
+        ({"thread_source": "guardian_review"}, SessionKind.REVIEW),
+        ({"source": SPAWNED}, SessionKind.SUBAGENT),
+        ({"source": "vscode", "thread_source": "user"}, None),
+        ({"source": {"subagent": {"other": "something-new"}}}, None),
+        ({"source": {"subagent": "compact"}, "thread_source": ["odd"]}, None),
+        ({}, None),
+    ],
+)
+def test_a_header_says_whether_a_thread_is_a_subagent_or_codex_own_review(header, kind):
+    record = {"type": "session_meta", "payload": {"id": "thread", **header}}
+    assert parse_record(record, "thread").facts.kind is kind
+    # A copy of another thread's header inside this rollout says nothing about this one.
+    assert parse_record(record, "another").facts.kind is None
+
+
+def test_a_review_thread_is_stored_as_a_review_under_the_thread_it_checks(store, tmp_path):
+    root = tmp_path / "codex"
+    target = root / "sessions" / "2024" / "12" / "18" / rollout(SUBAGENT).name
+    target.parent.mkdir(parents=True)
+    lines = rollout(SUBAGENT).read_text().splitlines()
+    header = json.loads(lines[0])
+    header["payload"].update(source=GUARDIAN, thread_source="guardian_review")
+    target.write_text("\n".join([json.dumps(header), *lines[1:]]) + "\n")
+    ingest(store, root)
+    with store() as db:
+        review = session(db, SUBAGENT)
+        assert review.kind is SessionKind.REVIEW
+        assert review.parent_session_id is not None, "still linked to what it checks"
+    # The same from the file alone, for a thread stored before kinds were kept: plain,
+    # archived, and gone.
+    access = ReadOnlyAccess([root], snapshot_dir=tmp_path / "snapshots-elsewhere")
+    assert codex.read_kind(access, str(target)) is SessionKind.REVIEW
+    archived = root / "archived_sessions" / f"{target.name}.zst"
+    archived.parent.mkdir()
+    archived.write_bytes(compress(target.read_bytes()))
+    assert codex.read_kind(access, str(archived)) is SessionKind.REVIEW
+    assert codex.read_kind(access, str(target.with_name("rollout-gone.jsonl"))) is None
+    archived.write_bytes(b"not an archive")
+    assert codex.read_kind(access, str(archived)) is None
+
+
+def test_a_spawned_subagent_is_stored_as_one_and_a_persons_thread_has_no_kind(store):
+    ingest(store, FIXTURES)
+    with store() as db:
+        assert session(db, SUBAGENT).kind is SessionKind.SUBAGENT
+        assert session(db, EXEC).kind is None
 
 
 def test_a_copied_parent_header_says_nothing_about_the_subagent():

@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import create_engine, event, select, text
+from sqlalchemy import create_engine, event, insert, select, text
 from sqlalchemy.orm import sessionmaker
 
 from agdash.db.migrate import downgrade, upgrade
@@ -27,9 +27,11 @@ def store(tmp_path, revision: str = "head"):
 
 def fill(db) -> Session:
     """One session: a prompt, a tool call with structured input, its result, and a reply."""
-    session = Session(harness="codex", native_id="synthetic", models=[])
-    db.add(session)
-    db.flush()
+    # Stored through the table, with these columns only: a store at an earlier revision
+    # does not have the columns added to sessions since.
+    row = {"harness": "codex", "native_id": "synthetic", "models": []}
+    made = db.execute(insert(Session.__table__).values(**row))
+    session = Session(id=made.inserted_primary_key[0], **row)
     payloads = [
         (EventKind.USER_PROMPT, {"text": "please plant the quince orchard"}),
         (

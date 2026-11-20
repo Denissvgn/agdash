@@ -51,7 +51,7 @@ from agdash.collector.state import (
     session_state_fields,
     turn_phase,
 )
-from agdash.db.models import Event, Session, SessionProcess, SessionStateChange
+from agdash.db.models import Event, Session, SessionFile, SessionProcess, SessionStateChange
 from agdash.ingest import (
     Ingestor,
     discover_files,
@@ -188,6 +188,7 @@ class Collector:
         self._harness_status: dict[str, tuple[HarnessStatus, datetime, bool]] = {}
         self._summaries_at = 0.0
         self._summaries_seen: dict[Path, tuple | None] = {}
+        self._kinds_read = False
         self._lock = threading.Lock()
         # Its own access: unlike ingest, it may open the harnesses' single settings files,
         # and reads only the allowlisted fields of them.
@@ -298,6 +299,9 @@ class Collector:
             totals.by_harness[source.harness.value] = report.lines
         if time.monotonic() - self._summaries_at >= SUMMARY_SECONDS or not self._summaries_at:
             totals.summaries = self.refresh_summaries()
+        if not self._kinds_read:
+            self._kinds_read = True
+            self.refresh_kinds()
         return totals
 
     def backfill(self) -> Totals:
@@ -307,6 +311,33 @@ class Collector:
         totals = self.scan(self.discover())
         self.refresh_auth()
         return totals
+
+    def refresh_kinds(self) -> int:
+        """The kind of Codex threads whose header was read before kinds were kept.
+
+        Only a thread with a parent can be an agent's subagent or Codex's own review, and
+        once its kind is stored it is not looked at again. What is left on later runs
+        are threads whose file is gone or states no kind.
+        """
+        found = 0
+        with self._sessions() as db:
+            rows = db.execute(
+                select(Session, SessionFile.path)
+                .join(SessionFile, SessionFile.session_id == Session.id)
+                .where(
+                    Session.harness == Harness.CODEX.value,
+                    Session.parent_session_id.is_not(None),
+                    Session.kind.is_(None),
+                )
+            ).all()
+            for session, path in rows:
+                if session.kind is None:  # set already from another of its files
+                    session.kind = codex.read_kind(self._access, path)
+                    found += session.kind is not None
+            db.commit()
+        if found:
+            log.info("noted the kind of %d Codex threads read earlier", found)
+        return found
 
     def refresh_auth(self) -> int:
         """Auth method and account label for active sessions that have none yet."""

@@ -197,15 +197,19 @@ def advance(
 
     An exit is seen once, in the pass that notices it; later passes find no
     process at all. So a session that ended on proof stays ended until there
-    is new evidence of life, instead of falling back to unknown.
+    is new evidence of life, instead of falling back to unknown. Its last
+    records are often read just after the exit is seen: written before the end,
+    they are no such evidence, however recent they are.
     """
     state, basis = derive(observation, thresholds)
-    if (
-        previous is not None
-        and previous.state is SessionState.ENDED
-        and state is SessionState.UNKNOWN
-    ):
-        return replace(previous, observed_at=observation.now)
+    if previous is not None and previous.state is SessionState.ENDED:
+        written_before = (
+            basis is Basis.RECENT_WRITES
+            and observation.last_activity_at is not None
+            and observation.last_activity_at <= previous.since
+        )
+        if state is SessionState.UNKNOWN or written_before:
+            return replace(previous, observed_at=observation.now)
     if previous is not None and previous.state is state:
         return StateRecord(
             state=state,

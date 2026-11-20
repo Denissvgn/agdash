@@ -24,6 +24,11 @@ export interface SessionSummary {
   harness: string
   native_id: string
   surface: Surface | null
+  /**
+   * What the harness says the session is: a subagent another session started, or the
+   * harness's own review of what an agent is about to do. Null where it says nothing.
+   */
+  kind?: 'subagent' | 'review' | null
   title: string | null
   cwd: string | null
   branch: string | null

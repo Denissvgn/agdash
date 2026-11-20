@@ -18,6 +18,7 @@ from agdash.retention import apply_retention
 from agdash.vocab import (
     EventKind,
     ParentBasis,
+    SessionKind,
     SessionState,
     StateBasis,
     ThoughtsCoverage,
@@ -415,6 +416,60 @@ def live(url) -> dict[str, int]:
         ids = {"working": working.id, "waiting": waiting.id, "over": over.id}
     engine.dispose()
     return ids
+
+
+def test_a_harness_own_review_is_kept_but_not_counted_among_the_agents(url):
+    engine, store = writer(url)
+    with store() as db:
+        main = Session(
+            harness="codex",
+            native_id="main",
+            state=SessionState.ACTIVE,
+            last_activity_at=at("12:00:20"),
+        )
+        db.add(main)
+        db.flush()
+        helper = Session(
+            harness="codex",
+            native_id="helper",
+            kind=SessionKind.SUBAGENT,
+            parent_session_id=main.id,
+            state=SessionState.ACTIVE,
+            last_activity_at=at("12:00:10"),
+        )
+        review = Session(
+            harness="codex",
+            native_id="review",
+            kind=SessionKind.REVIEW,
+            parent_session_id=main.id,
+            state=SessionState.WAITING,
+            last_activity_at=at("12:00:15"),
+        )
+        db.add_all([helper, review])
+        db.commit()
+        main, helper, review = main.id, helper.id, review.id
+    engine.dispose()
+
+    listed = {s["id"]: s for s in get(url, "/api/sessions")["items"]}
+    assert set(listed) == {main, helper, review}, "the review is still a session of its own"
+    assert [listed[i]["kind"] for i in (main, helper, review)] == [None, "subagent", "review"]
+    assert listed[main]["child_count"] == 1
+    assert get(url, f"/api/sessions/{main}")["children"] == [helper]
+    overview = get(url, f"/api/sessions/{main}/overview")
+    assert [span["session_id"] for span in overview["subagents"]] == [helper]
+    activity = get(url, "/api/live/activity", until="2026-03-01T12:00:30Z")
+    assert {s["id"] for s in activity["sessions"]} == {main, helper}
+
+    def cards(found) -> set[int]:
+        """Every session card anywhere in a board answer."""
+        if isinstance(found, list):
+            return set().union(*map(cards, found))
+        if not isinstance(found, dict):
+            return set()
+        own = {found["id"]} if "subagents" in found else set()
+        return own.union(*map(cards, found.values()))
+
+    assert cards(get(url, "/api/projects/board")["groups"]) == {main, helper}
 
 
 def test_live_activity_counts_every_live_session_per_minute_in_one_request(url, live):

@@ -5,7 +5,15 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
-from agdash.vocab import AuthBasis, EventKind, ParentBasis, SessionState, Surface, ThoughtsCoverage
+from agdash.vocab import (
+    AuthBasis,
+    EventKind,
+    ParentBasis,
+    SessionKind,
+    SessionState,
+    Surface,
+    ThoughtsCoverage,
+)
 
 T = TypeVar("T")
 
@@ -23,6 +31,11 @@ class SessionSummary(BaseModel):
     native_id: str
     surface: Surface | None
     title: str | None
+    kind: SessionKind | None = Field(
+        None,
+        description="What the harness says the session is: an agent's subagent, or the "
+        "harness's own review of what an agent is about to do. Null where it says nothing.",
+    )
     cwd: str | None
     branch: str | None
     state: SessionState
