@@ -37,6 +37,7 @@ from agdash.vocab import Harness, Surface
 T0 = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
 CLAUDE_DESKTOP = "/Applications/Claude.app/Contents/MacOS/Claude"
 CLAUDE_CODE = "/Users/someone/Library/Application Support/Claude/claude-code/2.1.0/claude"
+CLAUDE_RELEASE = "/home/someone/.local/share/claude/versions/2.1.0"
 CODEX = "/opt/homebrew/bin/codex"
 CODEX_DESKTOP = "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"
 SESSION_ID = "0b5f6c1e-7a2d-4c3b-9e1f-2d3c4b5a6f70"
@@ -103,6 +104,26 @@ def row(pid, ppid=1, *, name=None, exe=None, argv=(), started=0) -> ProcessRow:
             [],
             None,
         ),
+        (
+            # Claude Code's own installer: "claude" links to a binary named after its version.
+            row(10, exe=CLAUDE_RELEASE, argv=["/home/someone/.local/bin/claude"]),
+            [row(5, exe="/usr/bin/bash")],
+            Classification(Harness.CLAUDE_CODE, Role.SESSION, Surface.CLI),
+        ),
+        (
+            row(10, exe=CLAUDE_RELEASE, argv=["claude", "--print", "--model", "some-model"]),
+            [],
+            Classification(Harness.CLAUDE_CODE, Role.SESSION, Surface.EXEC),
+        ),
+        (
+            # Started by the binary's own path rather than through the link.
+            row(10, exe=CLAUDE_RELEASE, argv=[CLAUDE_RELEASE, "-p", "summarise"]),
+            [],
+            Classification(Harness.CLAUDE_CODE, Role.SESSION, Surface.EXEC),
+        ),
+        (row(10, exe=CLAUDE_RELEASE, argv=["ugrep", "-r", "needle"]), [], None),
+        # A version-named binary of something else, started under the same name.
+        (row(10, exe="/opt/tool/versions/2.1.0", argv=["claude"]), [], None),
         (
             row(10, exe=CODEX, argv=["codex", "exec", "--json", "fix it"]),
             [],
