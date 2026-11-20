@@ -256,6 +256,28 @@ def test_inter_agent_messages_are_prompts_marked_with_their_sender(store):
         assert relayed and all("author" in p["extra"] for p in relayed)
 
 
+def test_a_message_whose_text_codex_encrypted_says_so(store):
+    ingest(store, FIXTURES)
+    with store() as db:
+        prompts = db.scalars(
+            select(Event.payload)
+            .where(Event.session_id == session(db, DESKTOP).id)
+            .where(Event.kind == EventKind.USER_PROMPT)
+            .order_by(Event.sequence)
+        ).all()
+    stored = [
+        p["extra"].get("encrypted", False) for p in prompts if p.get("extra", {}).get("from_agent")
+    ]
+    # Most carry their text encrypted beside a readable header; a few are readable whole.
+    written = [
+        any(item["type"] == "encrypted_content" for item in record["payload"]["content"])
+        for record in own_records(rollout(DESKTOP))
+        if record["type"] == "response_item" and record["payload"].get("type") == "agent_message"
+    ]
+    assert stored == written
+    assert True in written and False in written
+
+
 def test_titles_come_from_the_index(store):
     ingest(store, FIXTURES)
     index = [

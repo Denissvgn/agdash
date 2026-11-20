@@ -290,13 +290,24 @@ def _message(record: dict, payload: dict, parsed: ParsedRecord) -> None:
 
 
 def _agent_message(payload: dict, parsed: ParsedRecord) -> None:
-    text = _text(payload.get("content"), INPUT)
+    """A message from one agent to another, kept as a prompt marked with who sent it.
+
+    Codex writes most of these in two parts: a readable header naming the task and
+    the sender, and the message itself, encrypted. Only the header can be kept, so the
+    prompt says that the rest was there and could not be read.
+    """
+    content = payload.get("content")
+    text = _text(content, INPUT)
     if not text.strip():
         return
-    extra = {
+    extra: dict[str, Any] = {
         key: payload[key] for key in ("author", "recipient") if isinstance(payload.get(key), str)
     }
     extra["from_agent"] = True
+    if isinstance(content, list) and any(
+        isinstance(item, dict) and item.get("type") == "encrypted_content" for item in content
+    ):
+        extra["encrypted"] = True
     parsed.events.append(_prompt(text, parsed.facts, parsed.facts.timestamp, extra))
 
 

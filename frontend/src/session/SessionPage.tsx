@@ -9,6 +9,7 @@ import { ErrorNotice, LoadingRows, Notice, StateChip } from '../history/SessionL
 import { useDocumentTitle } from '../shell/useDocumentTitle'
 import { ExportPanel, ExportToggle } from './ExportControl'
 import { MappingFigure } from './MappingFigure'
+import { messageEncrypted } from './messages'
 import { SessionOverview } from './Overview'
 import { VirtualList, type VirtualListHandle } from './VirtualList'
 import { useSessionName } from '../history/names'
@@ -71,6 +72,14 @@ function EventRow({ event, expanded, onToggle }: { event: EventOut; expanded: bo
   let badge = null
   switch (event.kind) {
     case 'user_prompt':
+      body = text(p.text)
+      if (messageEncrypted(p))
+        badge = (
+          <span className="inline-flex h-[20px] items-center rounded-full border border-hairline bg-canvas-mist px-sm text-label text-secondary-ink">
+            {t('session.messageEncrypted')}
+          </span>
+        )
+      break
     case 'assistant_text':
       body = text(p.text)
       break
