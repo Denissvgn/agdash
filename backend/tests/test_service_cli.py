@@ -405,6 +405,88 @@ def test_a_claude_session_takes_the_registry_status(setup):
         assert busy.state_evidence["basis"] == "harness_busy"
 
 
+UNWRITTEN_SESSION = "9d2f4b1c-6a3e-4f70-8c15-0b7e2a9d4c36"
+
+
+def test_a_claude_session_with_no_transcript_is_shown_from_the_registry(setup):
+    collector, sessions, probe, home, clock = setup
+    collector.backfill()
+    (home / ".claude" / "sessions" / "6161.json").write_text(
+        json.dumps(
+            {
+                "pid": 6161,
+                "sessionId": UNWRITTEN_SESSION,
+                "cwd": "/work/unwritten",
+                "entrypoint": "sdk-cli",
+                "status": "busy",
+                "statusUpdatedAt": int(NOW.timestamp() * 1000),
+            }
+        )
+    )
+    # Claude Code's own installer links "claude" to a binary named after its version.
+    started = NOW - timedelta(minutes=5)
+    probe.rows = [
+        ProcessRow(
+            identity=ProcessIdentity(6161, started),
+            ppid=1,
+            name="2.1.0",
+            exe="/home/someone/.local/share/claude/versions/2.1.0",
+            argv=("/home/someone/.local/bin/claude", "--print", "--no-session-persistence"),
+        )
+    ]
+
+    def stored(db) -> list[Session]:
+        return db.scalars(select(Session).where(Session.native_id == UNWRITTEN_SESSION)).all()
+
+    collector.probe()
+    with sessions() as db:
+        assert stored(db) == [], "one pass could be an id held only while starting up"
+
+    clock["now"] = NOW + timedelta(seconds=2)
+    collector.probe()
+    with sessions() as db:
+        (shown,) = stored(db)
+        assert (shown.harness, shown.surface) == ("claude_code", "exec")
+        assert shown.cwd == "/work/unwritten"
+        assert (shown.started_at, shown.last_activity_at) == (started, None)
+        assert shown.state is SessionState.ACTIVE
+        assert shown.state_evidence["basis"] == "harness_busy"
+        (row,) = db.scalars(select(SessionProcess).where(SessionProcess.session_id == shown.id))
+        assert row.pid == 6161
+
+    # A transcript that comes after all fills the same session in.
+    transcript = next(home.glob(f".claude/projects/*/{CLAUDE_SESSION}.jsonl"))
+    late = transcript.with_name(f"{UNWRITTEN_SESSION}.jsonl")
+    late.write_text(transcript.read_text().replace(CLAUDE_SESSION, UNWRITTEN_SESSION))
+    assert collector.scan([late.resolve()]).lines > 0
+    with sessions() as db:
+        (filled,) = stored(db)
+        assert filled.id == shown.id and filled.last_activity_at is not None
+
+    probe.rows = []
+    clock["now"] = NOW + timedelta(seconds=4)
+    collector.probe()
+    with sessions() as db:
+        (ended,) = stored(db)
+        assert ended.state is SessionState.ENDED
+        assert ended.state_evidence["basis"] == "process_exited"
+
+
+def test_a_registry_entry_with_no_process_behind_it_stores_nothing(setup):
+    collector, sessions, probe, home, clock = setup
+    collector.backfill()
+    (home / ".claude" / "sessions" / "6161.json").write_text(
+        json.dumps({"pid": 6161, "sessionId": UNWRITTEN_SESSION, "status": "busy"})
+    )
+    # The pid now belongs to something that is not Claude Code.
+    probe.rows = [process(6161, "zsh", ("zsh",))]
+    for seconds in (0, 2, 4):
+        clock["now"] = NOW + timedelta(seconds=seconds)
+        collector.probe()
+    with sessions() as db:
+        assert not db.scalars(select(Session).where(Session.native_id == UNWRITTEN_SESSION)).all()
+
+
 def test_a_state_is_written_only_when_it_changes(setup):
     collector, sessions, probe, home, clock = setup
     collector.backfill()

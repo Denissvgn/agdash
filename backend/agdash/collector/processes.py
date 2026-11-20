@@ -106,6 +106,12 @@ def _base(path: str | None) -> str:
     return os.path.basename(path or "")
 
 
+def _is_claude_release(path: str | None) -> bool:
+    """Whether ``path`` is a release kept by Claude Code's own installer."""
+    folders = Path(path or "").parts[-3:-1]
+    return folders == ("claude", "versions")
+
+
 def _first_command(argv: Sequence[str], known: set[str]) -> str | None:
     """The first argument that is a known subcommand; flags and their values are skipped."""
     for argument in argv[1:]:
@@ -137,7 +143,13 @@ def classify(row: ProcessRow, ancestors: Sequence[ProcessRow] = ()) -> Classific
     # (a search tool, for example), so the name it was started under must match.
     # The npm package's binary is called claude.exe, on every system. When the system
     # will not say which binary runs, the name it was started under decides.
-    if exe in ("claude", "claude.exe", "") and argv0 == "claude":
+    # Its own installer keeps each release as claude/versions/<version> and links
+    # "claude" to it, so that binary is named after its version; started by its own
+    # path rather than through the link, it carries that name as well.
+    installed = _is_claude_release(row.exe)
+    if (exe in ("claude", "claude.exe", "") or installed) and (
+        argv0 == "claude" or (installed and argv0 == exe)
+    ):
         if _first_command(row.argv, _CLAUDE_HELPER_COMMANDS):
             return Classification(Harness.CLAUDE_CODE, Role.HELPER)
         if _under_bundle(ancestors, [_CLAUDE_DESKTOP_BUNDLE]):

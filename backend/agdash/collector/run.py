@@ -180,6 +180,11 @@ class Collector:
         self._tracker = ProcessTracker()
         self._records: dict[int, StateRecord] = {}
         self._ran_by: dict[ProcessIdentity, set[int]] = {}
+        # Claude Code sessions the registry named on the last pass that the store did not
+        # hold. One named again on the next pass is stored from the registry alone; a
+        # single pass could catch an id held only while the process starts up, or a
+        # transcript the ingest pass is about to read.
+        self._unread: dict[ProcessIdentity, str] = {}
         self._harness_status: dict[str, tuple[HarnessStatus, datetime, bool]] = {}
         self._summaries_at = 0.0
         self._summaries_seen: dict[Path, tuple | None] = {}
@@ -397,6 +402,7 @@ class Collector:
             running: dict[int, HarnessStatus | None] = {}
             status_at: dict[int, datetime | None] = {}
             held: dict[ProcessIdentity, set[int]] = {}
+            unread: dict[ProcessIdentity, str] = {}
 
             def attach(process, pairs, status, at) -> None:
                 ids = held.setdefault(process.identity, set())
@@ -407,7 +413,13 @@ class Collector:
                         )
                     ).one_or_none()
                     if session is None:
-                        continue  # not read yet; the next ingest pass finds it
+                        entry = registry.get(process.identity.pid)
+                        if process.harness is not Harness.CLAUDE_CODE or entry is None:
+                            continue  # not read yet; the next ingest pass finds it
+                        unread[process.identity] = native
+                        if self._unread.get(process.identity) != native:
+                            continue
+                        session = self._registered_session(db, process, entry)
                     ids.add(session.id)
                     running[session.id] = status
                     status_at[session.id] = at
@@ -427,6 +439,7 @@ class Collector:
                 pairs, status, at = self._sessions_of(back_end, registry)
                 for client in clients:
                     attach(client, pairs, status, at)
+            self._unread = unread
             for identity, ids in held.items():
                 if ids:
                     self._ran_by[identity] = ids
@@ -461,6 +474,27 @@ class Collector:
                     changed += 1
             db.commit()
         return changed
+
+    def _registered_session(
+        self, db: DbSession, process: ObservedProcess, entry: claude_code.RegistryEntry
+    ) -> Session:
+        """A session known only from Claude Code's registry: it has no transcript.
+
+        One started without persistence never writes a transcript, and one opened in a
+        terminal writes none before its first prompt. What the registry and the process
+        say is all there is to store. If a transcript does come, its records fill the
+        same session in.
+        """
+        session = Session(
+            harness=Harness.CLAUDE_CODE.value,
+            native_id=entry.session_id,
+            cwd=entry.cwd or process.cwd,
+            surface=claude_code.SURFACES.get(entry.entrypoint or "") or process.surface,
+            started_at=process.identity.started_at,
+        )
+        db.add(session)
+        db.flush()
+        return session
 
     def _record_process(
         self, db: DbSession, session_id: int, process: ObservedProcess, now
