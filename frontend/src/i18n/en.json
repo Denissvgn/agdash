@@ -642,6 +642,7 @@
     "toolCall": "Tool call · {{name}}",
     "toolResult": "Tool result · {{name}}",
     "error": "Error",
+    "messageEncrypted": "Message encrypted, not readable",
     "subagentStarted": "Subagent started",
     "subagentFinished": "Subagent finished",
     "modelChanged": "Model: {{model}}",

@@ -4,6 +4,7 @@ import App from '../App'
 import { unnamedControls } from '../test/controls'
 import { newQueryClient } from '../api/queryClient'
 import type { EventOut, SessionDetail, ThoughtsCoverage } from '../api/types'
+import { messageEncrypted } from './messages'
 
 // Synthetic sessions and events only.
 const detail = (patch: Partial<SessionDetail> = {}): SessionDetail => ({
@@ -127,6 +128,26 @@ describe('what each event shows', () => {
     event(7, { kind: 'tool_result', payload: { name: 'shell', call_id: 'c1', is_error: true, output: 'x'.repeat(3000) } }),
     event(8, { kind: 'subagent', payload: { phase: 'started', agent_type: 'explorer' } }),
   ]
+
+  test('a message between agents that was encrypted says so beside its header', async () => {
+    const header = 'Message Type: MESSAGE\nTask name: /root/synthetic\nSender: /root/other\nPayload:'
+    const messages = [
+      event(0, { kind: 'user_prompt', payload: { text: 'Header noted', extra: { from_agent: true, encrypted: true } } }),
+      // Stored before the encrypted part was noted: told by the header's bare last line.
+      event(1, { kind: 'user_prompt', payload: { text: header, extra: { from_agent: true } } }),
+      event(2, { kind: 'user_prompt', payload: { text: `${header}\nSynthetic final answer`, extra: { from_agent: true } } }),
+      event(3, { kind: 'user_prompt', payload: { text: 'A person asking about a\nPayload:' } }),
+    ]
+    serve(detail({ event_count: messages.length }), (from, limit) => messages.slice(from, from + limit), messages.length)
+    open('/history/sessions/1')
+    const region = await screen.findByRole('region', { name: 'Session timeline' })
+    await within(region).findByText('Header noted')
+    expect(within(region).getAllByText('Message encrypted, not readable')).toHaveLength(2)
+    expect(messageEncrypted(messages[0].payload)).toBe(true)
+    expect(messageEncrypted(messages[1].payload)).toBe(true)
+    expect(messageEncrypted(messages[2].payload)).toBe(false)
+    expect(messageEncrypted(messages[3].payload)).toBe(false)
+  })
 
   test('thoughts show their coverage, and calls and results their tool', async () => {
     serve(detail({ event_count: events.length, children: [7] }), (from, limit) => events.slice(from, from + limit), events.length)
