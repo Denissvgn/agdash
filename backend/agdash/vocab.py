@@ -65,6 +65,15 @@ class ParentBasis(StrEnum):
     PROCESS_TREE = "process_tree"
 
 
+class SessionKind(StrEnum):
+    """What a session is, where its harness says so. One that says nothing has no kind."""
+
+    SUBAGENT = "subagent"  # an agent that another session started
+    # The harness's own check of what an agent is about to do. It runs a model and
+    # uses tokens, but nobody started it and it does no work of its own: not an agent.
+    REVIEW = "review"
+
+
 class EventKind(StrEnum):
     USER_PROMPT = "user_prompt"
     ASSISTANT_TEXT = "assistant_text"

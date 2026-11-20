@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import create_engine, event, select, text
+from sqlalchemy import create_engine, event, insert, select, text
 from sqlalchemy.orm import sessionmaker
 
 from agdash.db.migrate import upgrade
@@ -26,9 +26,11 @@ def store(tmp_path, revision: str = "head"):
 
 def fill(db) -> Session:
     """One session with two usage events, a tool call, its failed result, and a reply."""
-    session = Session(harness="codex", native_id="synthetic", models=[])
-    db.add(session)
-    db.flush()
+    # Stored through the table, with these columns only: a store at an earlier revision
+    # does not have the columns added to sessions since.
+    row = {"harness": "codex", "native_id": "synthetic", "models": []}
+    made = db.execute(insert(Session.__table__).values(**row))
+    session = Session(id=made.inserted_primary_key[0], **row)
     payloads = [
         (
             EventKind.USAGE,
@@ -109,7 +111,7 @@ def test_a_changed_or_removed_event_takes_its_copy_along(tmp_path):
             (None, "call-1"),
         ]
         # Removing the session removes its events, and their copies with them.
-        db.delete(session)
+        db.delete(db.get(Session, session.id))
         db.commit()
         assert facts(db) == ([], [])
     engine.dispose()

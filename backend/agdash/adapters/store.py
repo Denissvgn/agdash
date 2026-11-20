@@ -17,7 +17,15 @@ from agdash.db.base import utcnow
 from agdash.db.models import Event, Session, SessionFile, SourceHealth
 from agdash.events import EventContractError, validate_event
 from agdash.redaction import redact_text, redact_value
-from agdash.vocab import AuthBasis, AuthMethod, EventKind, ParentBasis, Surface, ThoughtsCoverage
+from agdash.vocab import (
+    AuthBasis,
+    AuthMethod,
+    EventKind,
+    ParentBasis,
+    SessionKind,
+    Surface,
+    ThoughtsCoverage,
+)
 
 EVENTS_PER_LINE = 32
 MAX_TEXT = 64 * 1024
@@ -43,6 +51,7 @@ class SessionFacts:
     branch: str | None = None
     repo: str | None = None  # the repository's remote address, without credentials
     surface: Surface | None = None
+    kind: SessionKind | None = None
     permission_mode: str | None = None
     effort: str | None = None
     model: str | None = None
@@ -93,6 +102,8 @@ def apply_facts(session: Session, facts: SessionFacts, title_ranks: dict[int, in
         session.repo = facts.repo
     if facts.surface:
         session.surface = facts.surface
+    if facts.kind:
+        session.kind = facts.kind
     if facts.permission_mode:
         session.permission_mode = facts.permission_mode
     if facts.effort:

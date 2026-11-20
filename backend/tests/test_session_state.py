@@ -327,6 +327,27 @@ def test_every_transition_records_its_basis(before, after):
         assert second.evidence, "the inputs are stored with the state"
 
 
+def test_records_read_after_an_exit_do_not_bring_the_session_back():
+    exited = Observation(
+        now=NOW, process=ProcessLiveness.EXITED, last_activity_at=NOW - 2 * SECONDS
+    )
+    ended = advance(None, exited)
+    assert (ended.state, ended.basis) == (SessionState.ENDED, Basis.PROCESS_EXITED)
+    # Its last lines are read once the exit has been seen; they were written before it.
+    later = NOW + 2 * SECONDS
+    still = advance(ended, Observation(now=later, last_activity_at=NOW - SECONDS))
+    assert (still.state, still.basis, still.since) == (
+        SessionState.ENDED,
+        Basis.PROCESS_EXITED,
+        NOW,
+    )
+    assert still.observed_at == later
+    # Something written after the end is new evidence of life.
+    again = advance(ended, Observation(now=later, last_activity_at=NOW + SECONDS))
+    assert (again.state, again.basis) == (SessionState.ACTIVE, Basis.RECENT_WRITES)
+    assert again.previous is SessionState.ENDED
+
+
 def test_a_state_that_holds_keeps_its_history():
     first = advance(None, LEADS_TO[SessionState.WAITING](NOW))
     active = advance(first, LEADS_TO[SessionState.ACTIVE](NOW + MINUTES))

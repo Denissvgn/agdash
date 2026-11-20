@@ -36,7 +36,7 @@ from urllib.parse import urlsplit, urlunsplit
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from agdash.access import ReadOnlyAccess
+from agdash.access import AccessError, ReadOnlyAccess
 from agdash.adapters.store import (
     INITIAL_TASK_LIMIT,
     ParsedEvent,
@@ -50,10 +50,11 @@ from agdash.adapters.store import (
     store_events,
 )
 from agdash.db.models import Event, Session
+from agdash.ingest.compressed import UnreadableArchive, is_compressed, iter_decompressed
 from agdash.ingest.engine import Cursor, Line
 from agdash.normalise import UsageFormat, normalise_usage, parse_timestamp
 from agdash.redaction import redact_text
-from agdash.vocab import AuthMethod, EventKind, Harness, Surface, ThoughtsCoverage
+from agdash.vocab import AuthMethod, EventKind, Harness, SessionKind, Surface, ThoughtsCoverage
 
 HARNESS = Harness.CODEX.value
 # The provider a rollout header names when Codex talks to OpenAI itself.
@@ -120,6 +121,57 @@ def _surface(meta: dict) -> Surface | None:
     if surface is None and isinstance(meta.get("source"), str):
         surface = SURFACES_BY_SOURCE.get(meta["source"])
     return surface
+
+
+KINDS_BY_THREAD_SOURCE = {
+    "subagent": SessionKind.SUBAGENT,
+    "guardian_review": SessionKind.REVIEW,
+}
+# A header can be long: it carries the session's base instructions.
+MAX_HEADER = 4 * 1024 * 1024
+
+
+def _kind(meta: dict) -> SessionKind | None:
+    """What a rollout header says the thread is: an agent's subagent, or Codex's own review.
+
+    Codex checks what an agent is about to do in a thread of its own, the guardian. It
+    records that thread as a subagent of the one it checks, though no agent started it.
+    Older headers state only ``source``; newer ones ``thread_source`` as well.
+    """
+    source = meta.get("source")
+    spawned = source.get("subagent") if isinstance(source, dict) else None
+    if isinstance(spawned, dict):
+        if spawned.get("other") == "guardian":
+            return SessionKind.REVIEW
+        if "thread_spawn" in spawned:
+            return SessionKind.SUBAGENT
+    stated = meta.get("thread_source")
+    return KINDS_BY_THREAD_SOURCE.get(stated) if isinstance(stated, str) else None
+
+
+def read_kind(access: ReadOnlyAccess, path: str) -> SessionKind | None:
+    """The kind the header of the rollout at ``path`` states, plain or archived.
+
+    For a session whose header was read before kinds were kept. None when the header
+    states none, or the file is gone or cannot be read.
+    """
+    try:
+        with access.open(path) as source:
+            if is_compressed(path):
+                header = b""
+                for piece in iter_decompressed(source, MAX_HEADER):
+                    header += piece
+                    if b"\n" in piece:
+                        break
+            else:
+                header = source.readline(MAX_HEADER)
+        record = json.loads(header.split(b"\n", 1)[0])
+    except (AccessError, OSError, ValueError, UnreadableArchive):
+        return None
+    meta = record.get("payload") if isinstance(record, dict) else None
+    if not isinstance(meta, dict) or record.get("type") != "session_meta":
+        return None
+    return _kind(meta)
 
 
 def _text(content: Any, kinds: frozenset[str]) -> str:
@@ -195,6 +247,7 @@ def _session_meta(payload: dict, session_id: str | None, parsed: ParsedRecord) -
     if isinstance(git.get("repository_url"), str) and git["repository_url"]:
         facts.repo = repository_address(git["repository_url"])
     facts.surface = _surface(payload)
+    facts.kind = _kind(payload)
     provider = payload.get("model_provider")
     if isinstance(provider, str) and provider and provider.lower() != OPENAI_PROVIDER:
         facts.auth_method = AuthMethod.CUSTOM_ENDPOINT

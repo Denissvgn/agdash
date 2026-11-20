@@ -46,6 +46,7 @@ from agdash.vocab import (
     RuleMatchKind,
     RuleTargetKind,
     RunLinkBasis,
+    SessionKind,
     SessionState,
     StateBasis,
     Surface,
@@ -109,6 +110,13 @@ class Session(Base):
     auth_basis: Mapped[AuthBasis | None] = mapped_column(vocabulary(AuthBasis), nullable=True)
     # The harness version its records state, such as a CLI version or a format number.
     harness_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # What the harness says the session is; NULL where it says nothing.
+    kind: Mapped[SessionKind | None] = mapped_column(vocabulary(SessionKind), nullable=True)
+
+
+# Sessions that are agents, or may be: every one but a harness's own review. Those are
+# kept, with what they used, and left out wherever agents are listed or counted.
+IS_AGENT = Session.kind.is_distinct_from(SessionKind.REVIEW)
 
 
 class SessionStateChange(Base):

@@ -67,10 +67,13 @@ export function isNew(session: SessionSummary, now: number): boolean {
   return session.started_at !== null && now - Date.parse(session.started_at) < NEW_FOR_MS
 }
 
-/** Live sessions and those just ended, from the rows the API returned. */
+/**
+ * Live sessions and those just ended, from the rows the API returned. A harness's own
+ * review of what an agent is about to do is no agent, and is left off the board.
+ */
 export function split(sessions: SessionSummary[], now: number): { live: SessionSummary[]; ended: SessionSummary[] } {
   const seen = new Map<number, SessionSummary>()
-  for (const session of sessions) seen.set(session.id, session)
+  for (const session of sessions) if (session.kind !== 'review') seen.set(session.id, session)
   const live: SessionSummary[] = []
   const ended: SessionSummary[] = []
   for (const session of seen.values()) {

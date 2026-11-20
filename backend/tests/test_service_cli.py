@@ -487,6 +487,29 @@ def test_a_registry_entry_with_no_process_behind_it_stores_nothing(setup):
         assert not db.scalars(select(Session).where(Session.native_id == UNWRITTEN_SESSION)).all()
 
 
+def test_codex_threads_stored_before_kinds_were_kept_get_theirs_from_the_header(setup):
+    from agdash.vocab import SessionKind
+
+    collector, sessions, *_ = setup
+    collector.backfill()
+
+    def kinds(db) -> dict[str, SessionKind | None]:
+        rows = db.execute(select(Session.native_id, Session.kind).where(Session.harness == "codex"))
+        return dict(rows.all())
+
+    with sessions() as db:
+        read = kinds(db)
+        assert SessionKind.SUBAGENT in read.values()
+        # As a store filled before the kind was kept.
+        for session_row in db.scalars(select(Session).where(Session.kind.is_not(None))):
+            session_row.kind = None
+        db.commit()
+    assert collector.refresh_kinds() == sum(kind is not None for kind in read.values())
+    with sessions() as db:
+        assert kinds(db) == read
+    assert collector.refresh_kinds() == 0, "what has its kind is not looked at again"
+
+
 def test_a_state_is_written_only_when_it_changes(setup):
     collector, sessions, probe, home, clock = setup
     collector.backfill()
