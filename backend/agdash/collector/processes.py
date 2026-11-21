@@ -429,6 +429,32 @@ def stated_model(process: ObservedProcess) -> str | None:
     return None
 
 
+_SESSION_FLAG = "--session-id"
+_SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def stated_session_id(process: ObservedProcess) -> str | None:
+    """The session a process was told to run, where its command line names one.
+
+    Claude Code takes the id of the session it is to start as ``--session-id``. A
+    program that starts it that way knows the session by that id, and may say so
+    elsewhere, so it is the session's name even when no file is kept under it.
+    """
+    argv = process.argv_redacted
+    for position, argument in enumerate(argv[1:], start=1):
+        flag, equals, value = argument.partition("=")
+        if flag != _SESSION_FLAG:
+            continue
+        if not equals:
+            value = argv[position + 1] if position + 1 < len(argv) else ""
+        return value if _SESSION_ID.fullmatch(value) else None
+    return None
+
+
+# How a session known only by its process is named; no harness names a session so.
+PROCESS_SESSION_PREFIX = "process-"
+
+
 def process_session_id(process: ObservedProcess) -> str:
     """The name of a session known only by the process that runs it.
 
@@ -436,7 +462,7 @@ def process_session_id(process: ObservedProcess) -> str:
     and after the service restarts, and a reused pid gets another.
     """
     started = int(process.identity.started_at.timestamp() * 1000)
-    return f"process-{process.identity.pid}-{started}"
+    return f"{PROCESS_SESSION_PREFIX}{process.identity.pid}-{started}"
 
 
 def session_process_fields(process: ObservedProcess) -> dict[str, Any]:

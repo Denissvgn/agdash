@@ -15,10 +15,13 @@ Four kinds of evidence, strongest first:
    declaration.
 3. ``mcp_config`` — an agent process of the session was started with the
    server's address among its arguments. Links to the server, not to a task.
-4. ``heuristic`` — the session's branch or worktree names a task's key, and the
-   session overlaps one of that task's runs. A suggestion only: it is stored
-   only while the session has no exact link to that server, and removed once
-   it has one.
+4. ``heuristic`` — a suggestion only, stored while the session has no exact link
+   to that server and removed once it has one. Two things suggest a link. The
+   session's branch or worktree names a task's key, and the session overlaps
+   one of that task's runs. Or a run declares a harness session that nothing on
+   this host is named after, and exactly one session known only by its process
+   was running, a short while, when that declared session began: a harness
+   told to keep no record leaves no id to match, only the moment.
 
 Nothing is guessed beyond that: a session with no evidence gets no link. Only
 agdash's own store is read and written; the WorkChord copy comes from the
@@ -27,6 +30,7 @@ mirror.
 
 import json
 import re
+import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -36,6 +40,7 @@ from urllib.parse import urlsplit
 from sqlalchemy import String, cast, delete, or_, select
 from sqlalchemy.orm import Session as DbSession
 
+from agdash.collector.processes import PROCESS_SESSION_PREFIX
 from agdash.db.models import (
     Connection,
     Event,
@@ -53,6 +58,10 @@ CONFIDENCE = {
     RunLinkBasis.MCP_CONFIG: 0.5,
     RunLinkBasis.HEURISTIC: 0.3,
 }
+# What a suggestion from the moment a run's session began says it matched.
+STARTED_WITH = "started with the run"
+# How long before that moment the process may have started: it starts, then its session.
+STARTED_WITHIN = timedelta(seconds=120)
 RANK = {basis: rank for rank, basis in enumerate(RunLinkBasis)}
 EXACT = (RunLinkBasis.TOOL_CALL, RunLinkBasis.TRACE_ID)
 # WorkChord's MCP tools whose results name a run. A harness prefixes the server name
@@ -338,6 +347,7 @@ class Linker:
             self._declared(db, connection, linked)
             self._process_arguments(db, connection, linked)
             self._suggestions(db, connection, linked)
+            self._started_with(db, connection, linked)
         db.flush()
         return linked
 
@@ -622,6 +632,81 @@ class Linker:
                     ):
                         linked.count(RunLinkBasis.HEURISTIC)
 
+    def _started_with(self, db: DbSession, connection: Connection, linked: Linked) -> None:
+        """Suggest the one process-named session that ran when a run's session began."""
+        exact = db.execute(
+            select(RunLink.session_id, RunLink.run_remote_id).where(
+                RunLink.connection_id == connection.id, RunLink.basis.in_(EXACT)
+            )
+        ).all()
+        linked_sessions = {session_id for session_id, _ in exact}
+        linked_runs = {run_id for _, run_id in exact if run_id is not None}
+        stale = [
+            link
+            for link in db.scalars(
+                select(RunLink).where(
+                    RunLink.connection_id == connection.id,
+                    RunLink.basis == RunLinkBasis.HEURISTIC,
+                    RunLink.run_remote_id.in_(linked_runs or {-1}),
+                )
+            )
+            if (link.evidence or {}).get("matched") == STARTED_WITH
+        ]
+        for link in stale:  # the run has found its session since
+            db.delete(link)
+        linked.removed += len(stale)
+
+        known = {harness.value for harness in Harness}
+        candidates: dict[int, list[tuple[Session, datetime]]] = {}
+        runs: dict[int, WcRun] = {}
+        for run in db.scalars(
+            select(WcRun).where(
+                WcRun.connection_id == connection.id,
+                WcRun.harness_session_id.is_not(None),
+                WcRun.remote_id.not_in(linked_runs or {-1}),
+            )
+        ):
+            kind = (run.harness_kind or "").lower().replace("-", "_").replace(".", "_")
+            began = _began(run)
+            if kind not in known or began is None:
+                continue
+            found = db.scalars(
+                select(Session).where(
+                    Session.harness == kind,
+                    Session.native_id.like(f"{PROCESS_SESSION_PREFIX}%"),
+                    Session.started_at >= began - STARTED_WITHIN,
+                    Session.started_at <= began,
+                    or_(Session.ended_at.is_(None), Session.ended_at >= began),
+                    Session.id.not_in(linked_sessions or {-1}),
+                )
+            ).all()
+            if found:
+                runs[run.remote_id] = run
+                candidates[run.remote_id] = [(session, began) for session in found]
+        wanted_by: dict[int, int] = {}
+        for found in candidates.values():
+            for session, _ in found:
+                wanted_by[session.id] = wanted_by.get(session.id, 0) + 1
+        for run_id, found in candidates.items():
+            # One session for the run, and the run alone for that session: anything
+            # else is two agents started together, which the moment cannot tell apart.
+            if len(found) != 1 or wanted_by[found[0][0].id] != 1:
+                continue
+            session, began = found[0]
+            run = runs[run_id]
+            before = int((began - _aware(session.started_at)).total_seconds())
+            if _store(
+                db,
+                session.id,
+                connection.id,
+                RunLinkBasis.HEURISTIC,
+                {"matched": STARTED_WITH, "seconds_before": before},
+                run_id=run.remote_id,
+                task_id=run.task_remote_id,
+                assignment_id=run.assignment_remote_id,
+            ):
+                linked.count(RunLinkBasis.HEURISTIC)
+
     @staticmethod
     def _overlapping(db: DbSession, connection_id: int, task_id: int, session: Session):
         start = session.started_at
@@ -636,6 +721,26 @@ class Linker:
             )
         )
         return [run for run in runs if run.started_at <= end and _run_end(run) >= start]
+
+
+def _aware(moment: datetime) -> datetime:
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def _began(run: WcRun) -> datetime | None:
+    """When the harness session a run declares began.
+
+    A time-ordered id (UUID version 7) carries the moment it was made, to the
+    millisecond. Any other id says nothing, and the run's own start stands in: a run
+    is begun just after its session.
+    """
+    try:
+        declared = uuid.UUID(run.harness_session_id or "")
+    except ValueError:
+        declared = None
+    if declared is not None and declared.version == 7:
+        return datetime.fromtimestamp((declared.int >> 80) / 1000, UTC)
+    return _aware(run.started_at) if run.started_at is not None else None
 
 
 def _run_end(run: WcRun) -> datetime:

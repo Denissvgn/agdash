@@ -187,6 +187,68 @@ describe('the board by project', () => {
     ])
   })
 
+  test('a task with a run going is listed with the sessions seen for it, also when none is live', async () => {
+    const task = (id: number, key: string) => ({ id, key, title: `Synthetic task ${key}`, status: 'active', iteration: null, claim_expires_at: null })
+    const run = (id: number) => ({ id, status: 'running', bound_model: null, declared_usage: null, heartbeat_at: '2026-11-16T09:55:00Z' })
+    const session = { harness: 'claude_code', title: null, models: ['model-a'], started_at: null, ended_at: null, last_activity_at: null }
+    serve({
+      ...BOARD,
+      flags: [],
+      groups: [
+        {
+          project: { id: 6, name: 'Pilot', status: 'active', health: null },
+          reason: 'mapped',
+          agents: [],
+          sessions: [],
+          tasks: [
+            {
+              task: task(701, 'PIL-1'),
+              stage: 'executing',
+              actor: { id: 43, name: 'Synthetic worker', role: 'worker' },
+              run: run(901),
+              started_at: '2026-11-16T09:30:00Z',
+              declared_harness: 'claude-code',
+              sessions: [
+                { ...session, id: 11, state: 'ended', basis: 'trace_id', suggested: false },
+                { ...session, id: 12, state: 'active', basis: 'heuristic', suggested: true },
+              ],
+              agent_running: false,
+            },
+            {
+              task: task(702, 'PIL-2'),
+              stage: 'executing',
+              actor: null,
+              run: run(902),
+              started_at: null,
+              declared_harness: 'codex',
+              sessions: [],
+              agent_running: false,
+            },
+          ],
+        },
+      ],
+    })
+    window.location.hash = '#/projects'
+    render(<App queryClient={newQueryClient()} />)
+    const tasks = await screen.findByRole('list', { name: 'Tasks with a run going in Pilot' })
+    expect(screen.getByRole('heading', { name: '2 tasks with a run going' })).toBeInTheDocument()
+    expect(within(tasks).getByText('PIL-1 Synthetic task PIL-1')).toBeInTheDocument()
+    expect(within(tasks).getByText('Synthetic worker')).toBeInTheDocument()
+    expect(within(tasks).getAllByText('Stage executing')).toHaveLength(2)
+    const seen = within(tasks).getByRole('list', { name: 'Sessions for PIL-1 Synthetic task PIL-1' })
+    expect(within(seen).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
+      '#/history/sessions/11',
+      '#/history/sessions/12',
+    ])
+    expect(within(seen).getByText('Matching record')).toBeInTheDocument()
+    expect(within(seen).getByText('Suggestion: it started with the run')).toBeInTheDocument()
+    // The only session on evidence is over, and the other task has none at all.
+    expect(within(tasks).getByText('No linked agent session is running now.')).toBeInTheDocument()
+    expect(within(tasks).getByText('The run declares a Codex session that agdash has not seen on this machine.')).toBeInTheDocument()
+    // A project with tasks and no live session has no empty list of sessions.
+    expect(screen.queryByRole('list', { name: 'Live sessions in Pilot' })).not.toBeInTheDocument()
+  })
+
   test('without a server or live sessions it says so', async () => {
     serve({ ...BOARD, connection: null, connections: [], flags: [], groups: [] })
     window.location.hash = '#/projects'

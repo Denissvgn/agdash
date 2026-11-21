@@ -6,7 +6,7 @@ import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useSearchParams } from 'react-router-dom'
 import { getJson } from '../api/client'
-import type { AttentionFlag, BoardCard, FlagCode, ProjectBoard, ProjectGroup } from '../api/types'
+import type { AttentionFlag, BoardCard, FlagCode, ProjectBoard, ProjectGroup, WorkingTask } from '../api/types'
 import { formatWhen } from '../history/format'
 import { PageHeader } from '../history/PageHeader'
 import { ErrorNotice, LoadingRows, Notice, StateChip } from '../history/SessionList'
@@ -194,6 +194,74 @@ function SessionCard({ card, nested = false }: { card: BoardCard; nested?: boole
   )
 }
 
+/** One task WorkChord has a run going for, and the sessions seen for that run here. */
+function TaskRow({ item }: { item: WorkingTask }) {
+  const { t } = useTranslation()
+  const title = item.task.key ? t('board.taskWithKey', { key: item.task.key, title: item.task.title }) : item.task.title
+  const started = formatWhen(item.started_at)
+  const heartbeat = formatWhen(item.run.heartbeat_at)
+  const declared = item.declared_harness
+    ? t(`history.harnesses.${item.declared_harness.replace(/[-.]/g, '_')}`, { defaultValue: item.declared_harness })
+    : null
+  return (
+    <li className="flex flex-col gap-xs px-md py-[12px]">
+      <h4 className="break-words text-body font-semibold text-primary-ink">{title}</h4>
+      <p className="flex flex-wrap gap-x-sm text-label text-secondary-ink">
+        {item.actor && <span>{item.actor.name}</span>}
+        <span>{t('board.run', { id: item.run.id, status: item.run.status ?? t('board.notReported') })}</span>
+        {item.stage && <span>{t('board.tasks.stage', { stage: item.stage.replace(/_/g, ' ') })}</span>}
+        {started && <span className="data">{t('board.tasks.since', { when: started })}</span>}
+        {heartbeat && <span className="data">{t('board.tasks.heartbeat', { when: heartbeat })}</span>}
+      </p>
+      {item.sessions.length === 0 ? (
+        <p className="text-label text-secondary-ink">
+          {declared ? t('board.tasks.unseenDeclared', { harness: declared }) : t('board.tasks.unseen')}
+        </p>
+      ) : (
+        <>
+          {!item.agent_running && <p className="text-label text-secondary-ink">{t('board.tasks.noneRunning')}</p>}
+          <ul aria-label={t('board.tasks.sessionsLabel', { task: title })} className="flex flex-col gap-xs">
+            {item.sessions.map((session) => (
+              <li key={session.id} className="flex flex-wrap items-center gap-x-sm gap-y-xs text-label text-secondary-ink">
+                <StateChip state={session.state} />
+                <Link className="text-primary-ink underline underline-offset-2" to={`/history/sessions/${session.id}`}>
+                  {session.title || t('history.list.untitled')}
+                </Link>
+                <span>{t(`history.harnesses.${session.harness}`, { defaultValue: session.harness })}</span>
+                {session.models.length > 0 && <span className="data">{session.models.join(', ')}</span>}
+                <span>{session.suggested ? t('board.tasks.suggested') : t(`session.mapping.tiers.${session.basis}`)}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </li>
+  )
+}
+
+function Tasks({ group, name }: { group: ProjectGroup; name: string }) {
+  const { t } = useTranslation()
+  const titleId = useId()
+  const tasks = group.tasks ?? []
+  if (tasks.length === 0) return null
+  return (
+    <section aria-labelledby={titleId} className="flex flex-col gap-xs">
+      <h3 className="text-body font-semibold text-primary-ink" id={titleId}>
+        {t('board.tasks.title', { count: tasks.length })}
+      </h3>
+      <p className="max-w-[80ch] text-label text-secondary-ink">{t('board.tasks.purpose')}</p>
+      <ul
+        aria-label={t('board.tasks.label', { project: name })}
+        className="divide-y divide-hairline overflow-hidden rounded-surface border border-hairline bg-working-paper shadow-resting"
+      >
+        {tasks.map((item) => (
+          <TaskRow key={item.task.id} item={item} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function Group({ group }: { group: ProjectGroup }) {
   const { t } = useTranslation()
   const titleId = useId()
@@ -216,14 +284,17 @@ function Group({ group }: { group: ProjectGroup }) {
       ) : (
         group.agents.length > 0 && <AgentsFigure group={group} />
       )}
-      <ul
-        aria-label={t('board.sessionsLabel', { project: name })}
-        className="divide-y divide-hairline overflow-hidden rounded-surface border border-hairline bg-working-paper shadow-resting"
-      >
-        {group.sessions.map((card) => (
-          <SessionCard key={card.id} card={card} />
-        ))}
-      </ul>
+      <Tasks group={group} name={name} />
+      {group.sessions.length > 0 && (
+        <ul
+          aria-label={t('board.sessionsLabel', { project: name })}
+          className="divide-y divide-hairline overflow-hidden rounded-surface border border-hairline bg-working-paper shadow-resting"
+        >
+          {group.sessions.map((card) => (
+            <SessionCard key={card.id} card={card} />
+          ))}
+        </ul>
+      )}
     </section>
   )
 }

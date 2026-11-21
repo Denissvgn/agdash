@@ -42,6 +42,7 @@ from agdash.collector.processes import (
     runs_for_a_program,
     session_process_fields,
     stated_model,
+    stated_session_id,
     take_snapshot,
     terminal_clients,
 )
@@ -416,7 +417,10 @@ class Collector:
         if process.harness is Harness.CLAUDE_CODE:
             entry = registry.get(process.identity.pid)
             if entry is None:
-                return [], None, None
+                # Left out of the registry, it may still have been told its session's id.
+                told = stated_session_id(process)
+                pairs = [(Harness.CLAUDE_CODE.value, told)] if told else []
+                return pairs, None, None
             status = CLAUDE_STATUS.get(entry.status or "")
             return [(Harness.CLAUDE_CODE.value, entry.session_id)], status, entry.status_at
         if process.harness is Harness.CODEX:
@@ -478,6 +482,9 @@ class Collector:
                 make = None
                 if process.harness is Harness.CLAUDE_CODE and entry is not None:
                     make = partial(self._registered_session, db, process, entry)
+                elif process.harness is Harness.CLAUDE_CODE and pairs:
+                    # Named on its command line only: stored from the process, under that id.
+                    make = partial(self._process_session, db, process)
                 if pairs:
                     named.add(process.identity)
                 attach(process, pairs, status, at, make)

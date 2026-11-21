@@ -143,6 +143,38 @@ class AgentOut(ActorOut):
     )
 
 
+class TaskSession(BaseModel):
+    """A session tied to a task's run, live or over."""
+
+    id: int
+    harness: str
+    title: str | None
+    state: SessionState
+    models: list[str]
+    basis: str = Field(description="How the link to the run is known.")
+    suggested: bool = Field(description="The link is a suggestion, not evidence.")
+    started_at: datetime | None
+    ended_at: datetime | None
+    last_activity_at: datetime | None
+
+
+class WorkingTask(BaseModel):
+    """A task WorkChord has a run going for, with the sessions seen for that run here."""
+
+    task: TaskOut
+    stage: str | None = Field(description="The task's stage in WorkChord's pipeline.")
+    actor: ActorOut | None
+    run: RunOut
+    started_at: datetime | None
+    declared_harness: str | None = Field(
+        description="The harness the run says it uses, when it declares a session."
+    )
+    sessions: list[TaskSession] = Field(description="Linked on evidence first, then suggested.")
+    agent_running: bool = Field(
+        description="A session linked on evidence is active, waiting or idle now."
+    )
+
+
 class ProjectGroup(BaseModel):
     project: dict[str, Any] | None = Field(
         description="id, name, status, health; null for unmapped."
@@ -150,6 +182,10 @@ class ProjectGroup(BaseModel):
     reason: Literal["mapped", "unmapped"]
     agents: list[AgentOut]
     sessions: list[Card]
+    tasks: list[WorkingTask] = Field(
+        default_factory=list,
+        description="Tasks with a run going, whether or not a session of theirs is live.",
+    )
 
 
 class ActivitySession(BaseModel):
@@ -246,7 +282,7 @@ def board(
         return {
             "connection": None,
             "connections": listed,
-            "groups": _groups(live, cards, {}, {}, {}, []),
+            "groups": _groups(live, cards, {}, {}, {}, [], {}),
             "flags": [],
             "generated_at": now,
         }
@@ -415,13 +451,96 @@ def board(
         ]
         for project_id, found in agents.items()
     }
+    working = _working(db, cid, runs, tasks, actors)
     return {
         "connection": {"id": row.id, "name": row.name, "server": row.base_url},
         "connections": listed,
-        "groups": _groups(live, cards, projects_of, projects, agent_rows, flags),
+        "groups": _groups(live, cards, projects_of, projects, agent_rows, flags, working),
         "flags": flags,
         "generated_at": now,
     }
+
+
+def _working(db, connection_id: int, runs, tasks, actors) -> dict[int, list[WorkingTask]]:
+    """Each project's tasks that WorkChord has a run going for, newest run first.
+
+    A run stays open while its task waits on checks or on a person, so a task is
+    listed whether or not an agent runs for it now: the sessions say which it is.
+    """
+    going: dict[int, WcRun] = {}
+    for run in runs.values():
+        if (run.status or "").lower() not in RUNNING or run.ended_at is not None:
+            continue
+        current = going.get(run.task_remote_id) if run.task_remote_id is not None else None
+        if run.task_remote_id in tasks and (current is None or run.remote_id > current.remote_id):
+            going[run.task_remote_id] = run
+    links: dict[int, dict[int, RunLink]] = defaultdict(dict)
+    wanted = [run.remote_id for run in going.values()]
+    for link in db.scalars(
+        select(RunLink).where(
+            RunLink.connection_id == connection_id, RunLink.run_remote_id.in_(wanted or [-1])
+        )
+    ):
+        best = links[link.run_remote_id].get(link.session_id)
+        if best is None or RANK[link.basis] < RANK[best.basis]:
+            links[link.run_remote_id][link.session_id] = link
+    session_ids = {sid for found in links.values() for sid in found}
+    sessions = {
+        s.id: s for s in db.scalars(select(Session).where(Session.id.in_(session_ids or [-1])))
+    }
+    found: dict[int, list[WorkingTask]] = defaultdict(list)
+    for task_id, run in sorted(going.items(), key=lambda item: -item[1].remote_id):
+        task = tasks[task_id]
+        if task.project_remote_id is None:
+            continue
+        actor = actors.get(run.actor_remote_id) if run.actor_remote_id else None
+        tied = [
+            TaskSession(
+                id=session.id,
+                harness=session.harness,
+                title=session.title,
+                state=session.state,
+                models=list(session.models or []),
+                basis=link.basis.value,
+                suggested=link.basis not in EXACT,
+                started_at=_utc(session.started_at),
+                ended_at=_utc(session.ended_at),
+                last_activity_at=_utc(session.last_activity_at),
+            )
+            for link in links[run.remote_id].values()
+            if (session := sessions.get(link.session_id)) is not None
+        ]
+        tied.sort(key=lambda s: (s.suggested, s.state not in LIVE, -(s.id)))
+        found[task.project_remote_id].append(
+            WorkingTask(
+                task=TaskOut(
+                    id=task.remote_id,
+                    key=task.external_key,
+                    title=task.title,
+                    status=task.status,
+                    iteration=task.iteration_name,
+                    claim_expires_at=_utc(task.claim_expires_at),
+                ),
+                stage=task.pipeline_stage,
+                actor=ActorOut(
+                    id=actor.remote_id, name=actor.display_name or actor.name, role=actor.role
+                )
+                if actor is not None
+                else None,
+                run=RunOut(
+                    id=run.remote_id,
+                    status=run.status,
+                    bound_model=run.resolved_model_id or run.configured_model_alias,
+                    declared_usage=run.declared_usage,
+                    heartbeat_at=_utc(run.heartbeat_at),
+                ),
+                started_at=_utc(run.started_at),
+                declared_harness=run.harness_kind if run.harness_session_id else None,
+                sessions=tied,
+                agent_running=any(not s.suggested and s.state in LIVE for s in tied),
+            )
+        )
+    return found
 
 
 def _agent_entry() -> dict[str, Any]:
@@ -479,7 +598,7 @@ def _card(session, usage, project, actor_map, actor, task, run, assignment, flag
     )
 
 
-def _groups(live, cards, projects_of, projects, agent_rows, flags) -> list[ProjectGroup]:
+def _groups(live, cards, projects_of, projects, agent_rows, flags, working) -> list[ProjectGroup]:
     live_ids = {s.id for s in live}
     by_project: dict[int | None, list[Card]] = defaultdict(list)
     for session in live:
@@ -492,8 +611,9 @@ def _groups(live, cards, projects_of, projects, agent_rows, flags) -> list[Proje
         key = mapping.target if mapping is not None and mapping.state == "mapped" else None
         by_project[key].append(card)
     groups = []
+    # A project is listed for its live sessions, and for its tasks with a run going.
     for project_id in sorted(
-        (k for k in by_project if k is not None),
+        {k for k in by_project if k is not None} | set(working),
         key=lambda k: (projects[k].name.lower() if k in projects else "", k),
     ):
         project = projects.get(project_id)
@@ -507,7 +627,8 @@ def _groups(live, cards, projects_of, projects, agent_rows, flags) -> list[Proje
                 },
                 reason="mapped",
                 agents=agent_rows.get(project_id, []),
-                sessions=by_project[project_id],
+                sessions=by_project.get(project_id, []),
+                tasks=working.get(project_id, []),
             )
         )
     if by_project.get(None):

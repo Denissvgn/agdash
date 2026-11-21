@@ -782,6 +782,20 @@
       "review": "Review"
     },
     "claimUntil": "Claim until {{when}}",
+    "tasks": {
+      "title_one": "{{count}} task with a run going",
+      "title_other": "{{count}} tasks with a run going",
+      "label": "Tasks with a run going in {{project}}",
+      "purpose": "WorkChord has a run open for each of these. A run stays open while its task waits on checks or on a person, so an agent may or may not be running for it now.",
+      "stage": "Stage {{stage}}",
+      "since": "Run started {{when}}",
+      "heartbeat": "Last heartbeat {{when}}",
+      "noneRunning": "No linked agent session is running now.",
+      "unseen": "No session on this machine is linked to this run.",
+      "unseenDeclared": "The run declares a {{harness}} session that agdash has not seen on this machine.",
+      "sessionsLabel": "Sessions for {{task}}",
+      "suggested": "Suggestion: it started with the run"
+    },
     "run": "Run {{id}}: {{status}}",
     "models": "Model bound {{bound}}, observed {{observed}}",
     "notBound": "none",

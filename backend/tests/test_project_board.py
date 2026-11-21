@@ -356,6 +356,95 @@ def test_project_activity_leaves_out_sessions_older_than_the_range(url):
     assert week["connection"] is None and week["lanes"][0]["project"] is None
 
 
+def test_a_task_with_a_run_going_is_listed_with_the_sessions_seen_for_it(url):
+    engine = create_engine(url)
+    with sessionmaker(engine)() as db:
+        row = Connection(kind="workchord", name="Team", base_url="http://127.0.0.1:8480")
+        db.add(row)
+        db.flush()
+        cid = row.id
+        db.add(WcProject(connection_id=cid, remote_id=6, name="Pilot", fetched_at=NOW))
+        db.add(WcActor(connection_id=cid, remote_id=43, name="worker", fetched_at=NOW))
+        for task_id, key, stage in (
+            (701, "PIL-1", "executing"),
+            (702, "PIL-2", "executing"),
+            (703, "PIL-3", "verification_required"),
+        ):
+            db.add(
+                WcTask(
+                    connection_id=cid,
+                    remote_id=task_id,
+                    project_remote_id=6,
+                    external_key=key,
+                    title=f"Task {key}",
+                    status="active",
+                    pipeline_stage=stage,
+                    fetched_at=NOW,
+                )
+            )
+
+        def run(run_id, task_id, status="running", ended=None, declared=None) -> None:
+            db.add(
+                WcRun(
+                    connection_id=cid,
+                    remote_id=run_id,
+                    task_remote_id=task_id,
+                    actor_remote_id=43,
+                    status=status,
+                    harness_kind="claude-code" if declared else None,
+                    harness_session_id=declared,
+                    started_at=NOW - timedelta(minutes=30),
+                    heartbeat_at=NOW - timedelta(minutes=5),
+                    ended_at=ended,
+                    fetched_at=NOW,
+                )
+            )
+
+        # PIL-1: an earlier run that failed, and the one going now, which declared its session.
+        run(900, 701, "failed", ended=NOW - timedelta(hours=1))
+        run(901, 701, declared="declared-1")
+        run(902, 702, declared="declared-2")
+        run(903, 703, "succeeded", ended=NOW)
+        first = session(db, "first-turn", SessionState.ENDED, models=["model-a"])
+        guess = session(db, "process-7001-1", SessionState.ACTIVE)
+        for found, basis in ((first, RunLinkBasis.TRACE_ID), (guess, RunLinkBasis.HEURISTIC)):
+            db.add(
+                RunLink(
+                    session_id=found.id,
+                    connection_id=cid,
+                    run_remote_id=901,
+                    task_remote_id=701,
+                    basis=basis,
+                    confidence=1.0,
+                    evidence={},
+                )
+            )
+        db.commit()
+        first, guess = first.id, guess.id
+    engine.dispose()
+
+    board = get_board(url)
+    pilot = next(g for g in board["groups"] if g["project"] and g["project"]["id"] == 6)
+    # No session of the project is live on evidence, and it is listed for its tasks.
+    assert pilot["sessions"] == []
+    newest, older = pilot["tasks"]
+    assert [t["task"]["key"] for t in pilot["tasks"]] == ["PIL-2", "PIL-1"], "newest run first"
+    assert (newest["run"]["id"], newest["sessions"], newest["agent_running"]) == (902, [], False)
+    assert newest["declared_harness"] == "claude-code"
+    assert (older["run"]["id"], older["stage"], older["actor"]["name"]) == (
+        901,
+        "executing",
+        "worker",
+    )
+    assert [(s["id"], s["basis"], s["suggested"], s["state"]) for s in older["sessions"]] == [
+        (first, "trace_id", False, "ended"),
+        (guess, "heuristic", True, "active"),
+    ]
+    # A suggested session that runs is not proof that an agent works on the task.
+    assert older["agent_running"] is False
+    assert older["sessions"][0]["models"] == ["model-a"]
+
+
 def test_without_a_connection_every_live_session_is_unmapped(url):
     engine = create_engine(url)
     with sessionmaker(engine)() as db:
