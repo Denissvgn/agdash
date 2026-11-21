@@ -78,6 +78,9 @@ class Observation:
     turn: TurnPhase | None = None
     end_record_at: datetime | None = None
     archived: bool = False
+    # The process runs one task and exits when it is done, as a harness's
+    # non-interactive mode does: while it runs, the agent is at work.
+    one_shot: bool = False
 
     def __post_init__(self) -> None:
         for name in ("now", "harness_status_at", "last_activity_at", "end_record_at"):
@@ -160,6 +163,8 @@ def derive(
             return SessionState.WAITING, basis
         if _within(o.last_activity_at, o.now, t.recent_writes):
             return SessionState.ACTIVE, Basis.RECENT_WRITES
+        if alive and o.one_shot:
+            return SessionState.ACTIVE, Basis.PROCESS_RUNNING
         return SessionState.IDLE, Basis.PROCESS_RUNNING
 
     if _within(o.last_activity_at, o.now, t.recent_writes):
@@ -184,6 +189,7 @@ def _evidence(observation: Observation) -> dict[str, Any]:
         "turn": o.turn.value if o.turn else None,
         "end_record_at": _iso(o.end_record_at),
         "archived": o.archived or None,
+        "one_shot": o.one_shot or None,
     }
     return {name: value for name, value in found.items() if value is not None}
 
