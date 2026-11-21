@@ -39,6 +39,7 @@ from agdash.collector.processes import (
     codex_rollouts,
     is_terminal_back_end,
     process_session_id,
+    runs_for_a_program,
     session_process_fields,
     stated_model,
     take_snapshot,
@@ -70,7 +71,7 @@ from agdash.ingest.watch import run as watch
 from agdash.platform import Host
 from agdash.platform.probes import ProcessIdentity
 from agdash.platform.roots import is_settings_file
-from agdash.vocab import EventKind, Harness, SessionState, Surface
+from agdash.vocab import EventKind, Harness, ParentBasis, SessionKind, SessionState, Surface
 
 log = logging.getLogger("agdash.collector")
 
@@ -191,6 +192,8 @@ class Collector:
         self._unread: dict[ProcessIdentity, str] = {}
         # The session standing in for each running process that names none of its own.
         self._stood_in: dict[ProcessIdentity, int] = {}
+        # The sessions of each running process whose starter has been looked for.
+        self._parent_sought: dict[ProcessIdentity, set[int]] = {}
         self._harness_status: dict[str, tuple[HarnessStatus, datetime, bool]] = {}
         self._summaries_at = 0.0
         self._summaries_seen: dict[Path, tuple | None] = {}
@@ -442,6 +445,7 @@ class Collector:
             unread: dict[ProcessIdentity, str] = {}
 
             named: set[ProcessIdentity] = set()
+            one_shot: set[int] = set()
 
             def attach(process, pairs, status, at, make=None) -> None:
                 """Tie ``process`` to the sessions it runs; ``make`` stores one with no file."""
@@ -462,6 +466,8 @@ class Collector:
                     ids.add(session.id)
                     running[session.id] = status
                     status_at[session.id] = at
+                    if process.role is Role.SESSION and process.surface is Surface.EXEC:
+                        one_shot.add(session.id)
                     self._record_process(db, session.id, process, now)
 
             for process in snapshot.processes:
@@ -490,9 +496,12 @@ class Collector:
             # A session process that names no session: started with no record to keep,
             # or not yet given anything to do. It is shown from the process alone. Once
             # the process names a session, that one stands for the run and this one goes.
+            # So is an app-server a script drives: the agent it runs is that script's.
             for process in snapshot.processes:
                 # Antigravity says itself which conversations run; its processes name none.
-                if process.role is not Role.SESSION or process.harness is Harness.ANTIGRAVITY:
+                if process.harness is Harness.ANTIGRAVITY:
+                    continue
+                if process.role is not Role.SESSION and not runs_for_a_program(process):
                     continue
                 if process.identity in named:
                     stood_in = self._stood_in.pop(process.identity, None)
@@ -509,6 +518,7 @@ class Collector:
                 if identity in held
             }
             self._unread = unread
+            self._link_to_starters(db, snapshot, held)
             for identity, ids in held.items():
                 if ids:
                     self._ran_by[identity] = ids
@@ -518,7 +528,9 @@ class Collector:
             exited -= set(running)
 
             for session in self._candidates(db, now, set(running) | exited):
-                observation = self._observe(db, session, now, running, status_at, exited)
+                observation = self._observe(
+                    db, session, now, running, status_at, exited, session.id in one_shot
+                )
                 previous = self._records.get(session.id) or _record_from(session)
                 record = advance(previous, observation)
                 self._records[session.id] = record
@@ -591,6 +603,53 @@ class Collector:
         db.flush()
         return session
 
+    def _link_to_starters(
+        self, db: DbSession, snapshot, held: dict[ProcessIdentity, set[int]]
+    ) -> None:
+        """Record which session started each session that runs as a process of its own.
+
+        The process table says which agent process is above another. That names the
+        starting session when the process above runs one, or several that are one
+        session and its subagents: then the one they all descend from. A harness's own
+        reviews start nothing. A process that runs unrelated sessions cannot say which
+        of them started a child, and no link is made. What the harness records itself
+        is never replaced, and each session is looked at once, when its process is
+        first seen with it: what the process above runs later says nothing of it.
+        """
+        sought: dict[ProcessIdentity, set[int]] = {}
+        for process in snapshot.processes:
+            ids = held.get(process.identity) or set()
+            sought[process.identity] = ids
+            fresh = ids - self._parent_sought.get(process.identity, set())
+            if process.parent is None or not fresh:
+                continue
+            above = [db.get(Session, found) for found in held.get(process.parent, set()) - ids]
+            agents = [s for s in above if s is not None and s.kind is not SessionKind.REVIEW]
+            starters = {s.id for s in agents}
+            if len(starters) > 1:
+                starters = {self._root(db, s) for s in agents}
+            if len(starters) != 1:
+                continue
+            (starter,) = starters
+            for session_id in fresh:
+                session = db.get(Session, session_id)
+                if session is not None and session.parent_session_id is None:
+                    session.parent_session_id = starter
+                    session.parent_basis = ParentBasis.PROCESS_TREE
+        self._parent_sought = sought
+
+    @staticmethod
+    def _root(db: DbSession, session: Session) -> int:
+        """The session ``session`` descends from, itself if it has no parent."""
+        seen = {session.id}
+        while session.parent_session_id is not None and session.parent_session_id not in seen:
+            above = db.get(Session, session.parent_session_id)
+            if above is None:
+                break
+            session = above
+            seen.add(session.id)
+        return session.id
+
     def _retire(self, db: DbSession, session_id: int) -> None:
         """Remove a session that stood in for a process which has since named its own."""
         session = db.get(Session, session_id)
@@ -648,7 +707,9 @@ class Collector:
                 found[session.id] = session
         return [found[key] for key in sorted(found)]
 
-    def _observe(self, db, session: Session, now, running, status_at, exited) -> Observation:
+    def _observe(
+        self, db, session: Session, now, running, status_at, exited, one_shot=False
+    ) -> Observation:
         process = None
         status = at = None
         archived = False
@@ -685,7 +746,7 @@ class Collector:
             last_activity_at=session.last_activity_at,
             turn=turn,
             archived=archived,
-            one_shot=session.surface is Surface.EXEC,
+            one_shot=one_shot,
         )
 
     # -- running ----------------------------------------------------------------------

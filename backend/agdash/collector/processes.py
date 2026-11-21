@@ -132,6 +132,23 @@ def _under_bundle(ancestors: Sequence[ProcessRow], bundles: Iterable[str]) -> bo
     return any(any(b in (row.exe or "") for b in bundles) for row in ancestors)
 
 
+def _driven_by_a_program(ancestors: Sequence[ProcessRow]) -> bool:
+    """Whether a script that an agent runs started this app-server, to drive it itself.
+
+    An agent's script can start an app-server of its own and talk to it directly, as
+    Codex's SDK does. Its threads belong to that script, not to a desktop app or an
+    editor, though one of those sits further up. An app-server the desktop app's or
+    an editor's own tooling starts is theirs.
+    """
+    nearest = ancestors[:1]
+    if _under_bundle(nearest, _CODEX_DESKTOP_BUNDLES) or _under_ide(nearest):
+        return False
+    return any(
+        found is not None and found.role is not Role.HELPER
+        for found in (classify(above) for above in ancestors)
+    )
+
+
 def classify(row: ProcessRow, ancestors: Sequence[ProcessRow] = ()) -> Classification | None:
     """Which harness a process belongs to and what it does, or ``None`` for other processes.
 
@@ -177,7 +194,9 @@ def classify(row: ProcessRow, ancestors: Sequence[ProcessRow] = ()) -> Classific
                 return Classification(Harness.CODEX, Role.HOST, Surface.CLI)
         role, surface = _CODEX_COMMANDS.get(command or "", (Role.SESSION, Surface.CLI))
         if role is Role.HOST:
-            if _under_bundle(ancestors, _CODEX_DESKTOP_BUNDLES):
+            if _driven_by_a_program(ancestors):
+                surface = Surface.EXEC
+            elif _under_bundle(ancestors, _CODEX_DESKTOP_BUNDLES):
                 surface = Surface.DESKTOP
             elif _under_ide(ancestors):
                 surface = Surface.IDE
@@ -277,8 +296,8 @@ def take_snapshot(
                 argv_redacted=tuple(redact_argv(row.argv)),
                 cwd=cwd,
                 harness_files=_harness_files(files, harness_roots),
-                parent=parent[0] if found.role is Role.SESSION else None,
-                parent_harness=parent[1] if found.role is Role.SESSION else None,
+                parent=parent[0] if found.role is not Role.HELPER else None,
+                parent_harness=parent[1] if found.role is not Role.HELPER else None,
             )
         )
     observed.sort(key=lambda process: (process.identity.started_at, process.identity.pid))
@@ -301,6 +320,19 @@ def codex_rollouts(process: ObservedProcess, codex_roots: tuple[Path, ...]) -> d
         if match and is_inside(Path(path), codex_roots):
             found[match["session"]] = path
     return found
+
+
+def runs_for_a_program(process: ObservedProcess) -> bool:
+    """A Codex app-server that a script started to drive itself (see :func:`classify`).
+
+    Its threads are that script's; when it keeps no record of them, the process is all
+    there is to show for the agent it runs.
+    """
+    return (
+        process.harness is Harness.CODEX
+        and process.role is Role.HOST
+        and process.surface is Surface.EXEC
+    )
 
 
 def is_terminal_back_end(process: ObservedProcess) -> bool:
@@ -372,18 +404,27 @@ class ProcessTracker:
 
 
 _MODEL_FLAGS = ("--model", "-m")
+_CONFIG_FLAGS = ("--config", "-c")
 _MODEL_NAME = re.compile(r"[A-Za-z0-9][\w.:/@\[\]-]{0,127}")
 
 
 def stated_model(process: ObservedProcess) -> str | None:
-    """The model a process was started with, where its command line names one."""
+    """The model a process was started with, where its command line names one.
+
+    Named by its own flag, or as Codex takes any setting: ``-c model="name"``.
+    """
     argv = process.argv_redacted
     for position, argument in enumerate(argv[1:], start=1):
         flag, equals, value = argument.partition("=")
-        if flag not in _MODEL_FLAGS:
-            continue
         if not equals:
             value = argv[position + 1] if position + 1 < len(argv) else ""
+        if flag in _CONFIG_FLAGS:
+            setting, equals, value = value.partition("=")
+            if setting != "model" or not equals:
+                continue
+            value = value.strip("\"'")
+        elif flag not in _MODEL_FLAGS:
+            continue
         return value if _MODEL_NAME.fullmatch(value) else None
     return None
 
