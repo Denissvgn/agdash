@@ -21,6 +21,7 @@ import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 
 from sqlalchemy import select
@@ -37,7 +38,9 @@ from agdash.collector.processes import (
     Role,
     codex_rollouts,
     is_terminal_back_end,
+    process_session_id,
     session_process_fields,
+    stated_model,
     take_snapshot,
     terminal_clients,
 )
@@ -67,7 +70,7 @@ from agdash.ingest.watch import run as watch
 from agdash.platform import Host
 from agdash.platform.probes import ProcessIdentity
 from agdash.platform.roots import is_settings_file
-from agdash.vocab import EventKind, Harness, SessionState
+from agdash.vocab import EventKind, Harness, SessionState, Surface
 
 log = logging.getLogger("agdash.collector")
 
@@ -180,11 +183,14 @@ class Collector:
         self._tracker = ProcessTracker()
         self._records: dict[int, StateRecord] = {}
         self._ran_by: dict[ProcessIdentity, set[int]] = {}
-        # Claude Code sessions the registry named on the last pass that the store did not
-        # hold. One named again on the next pass is stored from the registry alone; a
-        # single pass could catch an id held only while the process starts up, or a
-        # transcript the ingest pass is about to read.
+        # Sessions with no file that a process stood for on the last pass and the store
+        # did not hold: one Claude Code's registry named, or one known by its process
+        # alone. One seen again on the next pass is stored; a single pass could catch
+        # an id held only while the process starts up, a process about to name its
+        # session, or a transcript the ingest pass is about to read.
         self._unread: dict[ProcessIdentity, str] = {}
+        # The session standing in for each running process that names none of its own.
+        self._stood_in: dict[ProcessIdentity, int] = {}
         self._harness_status: dict[str, tuple[HarnessStatus, datetime, bool]] = {}
         self._summaries_at = 0.0
         self._summaries_seen: dict[Path, tuple | None] = {}
@@ -435,7 +441,10 @@ class Collector:
             held: dict[ProcessIdentity, set[int]] = {}
             unread: dict[ProcessIdentity, str] = {}
 
-            def attach(process, pairs, status, at) -> None:
+            named: set[ProcessIdentity] = set()
+
+            def attach(process, pairs, status, at, make=None) -> None:
+                """Tie ``process`` to the sessions it runs; ``make`` stores one with no file."""
                 ids = held.setdefault(process.identity, set())
                 for harness, native in pairs:
                     session = db.scalars(
@@ -444,13 +453,12 @@ class Collector:
                         )
                     ).one_or_none()
                     if session is None:
-                        entry = registry.get(process.identity.pid)
-                        if process.harness is not Harness.CLAUDE_CODE or entry is None:
+                        if make is None:
                             continue  # not read yet; the next ingest pass finds it
                         unread[process.identity] = native
                         if self._unread.get(process.identity) != native:
                             continue
-                        session = self._registered_session(db, process, entry)
+                        session = make(native)
                     ids.add(session.id)
                     running[session.id] = status
                     status_at[session.id] = at
@@ -459,7 +467,14 @@ class Collector:
             for process in snapshot.processes:
                 if process.role is Role.HELPER or is_terminal_back_end(process):
                     continue
-                attach(process, *self._sessions_of(process, registry))
+                pairs, status, at = self._sessions_of(process, registry)
+                entry = registry.get(process.identity.pid)
+                make = None
+                if process.harness is Harness.CLAUDE_CODE and entry is not None:
+                    make = partial(self._registered_session, db, process, entry)
+                if pairs:
+                    named.add(process.identity)
+                attach(process, pairs, status, at, make)
             # Codex's terminal UI hands its session to a daemon, which holds the rollout
             # open and outlives the UI. What the daemon holds runs only while a terminal
             # UI does, and is the UI's: the session ends when the last UI exits. The
@@ -469,7 +484,30 @@ class Collector:
             for back_end in filter(is_terminal_back_end, snapshot.processes):
                 pairs, status, at = self._sessions_of(back_end, registry)
                 for client in clients:
+                    if pairs:
+                        named.add(client.identity)
                     attach(client, pairs, status, at)
+            # A session process that names no session: started with no record to keep,
+            # or not yet given anything to do. It is shown from the process alone. Once
+            # the process names a session, that one stands for the run and this one goes.
+            for process in snapshot.processes:
+                # Antigravity says itself which conversations run; its processes name none.
+                if process.role is not Role.SESSION or process.harness is Harness.ANTIGRAVITY:
+                    continue
+                if process.identity in named:
+                    stood_in = self._stood_in.pop(process.identity, None)
+                    if stood_in is not None:
+                        self._retire(db, stood_in)
+                    continue
+                own = [(process.harness.value, process_session_id(process))]
+                attach(process, own, None, None, partial(self._process_session, db, process))
+                for session_id in held[process.identity]:
+                    self._stood_in[process.identity] = session_id
+            self._stood_in = {
+                identity: session_id
+                for identity, session_id in self._stood_in.items()
+                if identity in held
+            }
             self._unread = unread
             for identity, ids in held.items():
                 if ids:
@@ -507,7 +545,11 @@ class Collector:
         return changed
 
     def _registered_session(
-        self, db: DbSession, process: ObservedProcess, entry: claude_code.RegistryEntry
+        self,
+        db: DbSession,
+        process: ObservedProcess,
+        entry: claude_code.RegistryEntry,
+        native: str,
     ) -> Session:
         """A session known only from Claude Code's registry: it has no transcript.
 
@@ -516,16 +558,45 @@ class Collector:
         say is all there is to store. If a transcript does come, its records fill the
         same session in.
         """
+        model = stated_model(process)
         session = Session(
             harness=Harness.CLAUDE_CODE.value,
-            native_id=entry.session_id,
+            native_id=native,
             cwd=entry.cwd or process.cwd,
             surface=claude_code.SURFACES.get(entry.entrypoint or "") or process.surface,
+            models=[model] if model else [],
             started_at=process.identity.started_at,
         )
         db.add(session)
         db.flush()
         return session
+
+    def _process_session(self, db: DbSession, process: ObservedProcess, native: str) -> Session:
+        """A session known only by the process that runs it: nothing on disk names it.
+
+        A harness told to keep no record of a session writes none, and some say nothing
+        of a session before its first prompt. The process still shows that an agent
+        runs, where, since when, and on which model if its command line says.
+        """
+        model = stated_model(process)
+        session = Session(
+            harness=process.harness.value,
+            native_id=native,
+            cwd=process.cwd,
+            surface=process.surface,
+            models=[model] if model else [],
+            started_at=process.identity.started_at,
+        )
+        db.add(session)
+        db.flush()
+        return session
+
+    def _retire(self, db: DbSession, session_id: int) -> None:
+        """Remove a session that stood in for a process which has since named its own."""
+        session = db.get(Session, session_id)
+        if session is not None:
+            db.delete(session)
+        self._records.pop(session_id, None)
 
     def _record_process(
         self, db: DbSession, session_id: int, process: ObservedProcess, now
@@ -614,6 +685,7 @@ class Collector:
             last_activity_at=session.last_activity_at,
             turn=turn,
             archived=archived,
+            one_shot=session.surface is Surface.EXEC,
         )
 
     # -- running ----------------------------------------------------------------------

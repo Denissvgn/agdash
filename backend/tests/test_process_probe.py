@@ -11,6 +11,7 @@ import signal
 import subprocess
 import time
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -26,7 +27,9 @@ from agdash.collector.processes import (
     classify,
     codex_rollouts,
     parent_session,
+    process_session_id,
     session_process_fields,
+    stated_model,
     take_snapshot,
 )
 from agdash.db.models import SessionProcess
@@ -358,6 +361,30 @@ def test_stored_arguments_are_redacted(tmp_path):
 def test_a_process_that_ends_mid_pass_is_left_out(tmp_path):
     snapshot = take_snapshot(_tree(), FakeProbe(gone={400}), (tmp_path,))
     assert [p.identity.pid for p in snapshot.processes] == [200]
+
+
+@pytest.mark.parametrize(
+    ("argv", "model"),
+    [
+        (["claude", "--print", "--model", "some-model-1", "--effort", "high"], "some-model-1"),
+        (["claude", "--model=some-model[1m]"], "some-model[1m]"),
+        (["codex", "exec", "-m", "another-model", "do it"], "another-model"),
+        (["codex", "exec", "do it"], None),
+        (["claude", "--model"], None),
+        # Not a model's name: whatever followed the flag is not passed on.
+        (["claude", "--model", "two words"], None),
+    ],
+)
+def test_the_model_a_process_was_started_with_is_read_from_its_arguments(argv, model):
+    process = replace(_observed(10, 0), argv_redacted=tuple(argv))
+    assert stated_model(process) == model
+
+
+def test_a_session_known_only_by_its_process_is_named_after_it():
+    first, again, reused = _observed(10, 0), _observed(10, 0), _observed(10, 60)
+    assert process_session_id(first) == process_session_id(again)
+    assert process_session_id(first) != process_session_id(reused), "a reused pid is another"
+    assert process_session_id(first).startswith("process-10-")
 
 
 def _observed(pid, started) -> ObservedProcess:

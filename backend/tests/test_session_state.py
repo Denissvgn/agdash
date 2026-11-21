@@ -102,6 +102,29 @@ BASIS_TABLE = [
         Basis.PROCESS_RUNNING,
     ),
     (
+        "a one-shot process with nothing else known is at work until it exits",
+        obs(process=RUNNING, one_shot=True),
+        SessionState.ACTIVE,
+        Basis.PROCESS_RUNNING,
+    ),
+    (
+        "a one-shot run whose harness says it is idle is believed",
+        obs(
+            process=RUNNING,
+            one_shot=True,
+            harness_status=HarnessStatus.IDLE,
+            harness_status_at=NOW - 20 * MINUTES,
+        ),
+        SessionState.IDLE,
+        Basis.QUIET,
+    ),
+    (
+        "one-shot says nothing once no process runs",
+        obs(one_shot=True),
+        SessionState.UNKNOWN,
+        Basis.NO_EVIDENCE,
+    ),
+    (
         "fresh writes, no process seen",
         obs(last_activity_at=NOW - 5 * SECONDS),
         SessionState.ACTIVE,

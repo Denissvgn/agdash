@@ -472,6 +472,112 @@ def test_a_claude_session_with_no_transcript_is_shown_from_the_registry(setup):
         assert ended.state_evidence["basis"] == "process_exited"
 
 
+def unrecorded(pid: int, started: datetime) -> ProcessRow:
+    """Claude Code told to keep no record, in a mode that leaves the registry out too."""
+    return ProcessRow(
+        identity=ProcessIdentity(pid, started),
+        ppid=1,
+        name="2.1.0",
+        exe="/home/someone/.local/share/claude/versions/2.1.0",
+        argv=(
+            "/home/someone/.local/share/claude/versions/2.1.0",
+            "--print",
+            "--no-session-persistence",
+            "--model",
+            "some-small-model",
+        ),
+    )
+
+
+def by_process(db, harness: str) -> list[Session]:
+    return db.scalars(
+        select(Session).where(Session.harness == harness, Session.native_id.like("process-%"))
+    ).all()
+
+
+def test_an_agent_process_that_names_no_session_is_shown_from_the_process(setup):
+    collector, sessions, probe, _, clock = setup
+    collector.backfill()
+    started = NOW - timedelta(minutes=5)
+    probe.rows = [
+        unrecorded(7171, started),
+        process(7272, "codex", ("codex", "exec", "--ephemeral", "-m", "another-model", "do it")),
+        # Antigravity says itself which conversations run; its processes get no session.
+        process(7373, "agy", ("agy",)),
+        # A helper runs no session.
+        process(7474, "codex", ("codex", "mcp-server")),
+    ]
+    collector.probe()
+    with sessions() as db:
+        assert by_process(db, "claude_code") == [] and by_process(db, "codex") == []
+
+    clock["now"] = NOW + timedelta(seconds=2)
+    collector.probe()
+    with sessions() as db:
+        (claude,) = by_process(db, "claude_code")
+        (codex_run,) = by_process(db, "codex")
+        assert by_process(db, "antigravity") == []
+        assert (claude.surface, claude.models, claude.cwd) == (
+            "exec",
+            ["some-small-model"],
+            "/work/example",
+        )
+        assert (claude.started_at, claude.last_activity_at) == (started, None)
+        # Nothing says what it does, but a run that exits when done is at work until then.
+        assert claude.state is SessionState.ACTIVE
+        assert claude.state_evidence["basis"] == "process_running"
+        assert (codex_run.surface, codex_run.models) == ("exec", ["another-model"])
+        (row,) = db.scalars(select(SessionProcess).where(SessionProcess.session_id == claude.id))
+        assert row.pid == 7171
+        count = db.scalar(select(func.count()).select_from(Session))
+
+    # A service that starts while the process still runs finds the same session.
+    restarted = Collector(
+        sessions,
+        collector._host,
+        snapshot_dir=collector._access._snapshot_dir,
+        probe=probe,
+        clock=lambda: clock["now"],
+    )
+    clock["now"] = NOW + timedelta(seconds=4)
+    restarted.probe()
+    with sessions() as db:
+        assert db.scalar(select(func.count()).select_from(Session)) == count
+        assert by_process(db, "claude_code")[0].state is SessionState.ACTIVE
+
+    probe.rows = []
+    clock["now"] = NOW + timedelta(seconds=6)
+    restarted.probe()
+    with sessions() as db:
+        for ended in (*by_process(db, "claude_code"), *by_process(db, "codex")):
+            assert ended.state is SessionState.ENDED
+            assert ended.state_evidence["basis"] == "process_exited"
+
+
+def test_a_process_that_names_its_session_later_is_not_shown_twice(setup):
+    collector, sessions, probe, home, clock = setup
+    collector.backfill()
+    rollout = next(home.glob(f".codex/sessions/*/*/*/rollout-*-{CODEX_SESSION}.jsonl"))
+    probe.rows = [process(4242, "codex", ("codex", "exec", "do it"))]
+    # It holds no rollout yet, for longer than a process usually takes to open one.
+    for seconds in (0, 2):
+        clock["now"] = NOW + timedelta(seconds=seconds)
+        collector.probe()
+    with sessions() as db:
+        (stand_in,) = by_process(db, "codex")
+        assert stand_in.state is SessionState.ACTIVE
+
+    probe.files = {4242: [str(rollout)]}
+    clock["now"] = NOW + timedelta(seconds=4)
+    collector.probe()
+    with sessions() as db:
+        assert by_process(db, "codex") == [], "its own session stands for the run now"
+        live = session(db, "codex", CODEX_SESSION)
+        assert live.state_evidence["observed"]["process"] == "running"
+        (row,) = db.scalars(select(SessionProcess).where(SessionProcess.session_id == live.id))
+        assert row.pid == 4242
+
+
 def test_a_registry_entry_with_no_process_behind_it_stores_nothing(setup):
     collector, sessions, probe, home, clock = setup
     collector.backfill()

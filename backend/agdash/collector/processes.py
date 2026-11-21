@@ -371,6 +371,33 @@ class ProcessTracker:
         return changes
 
 
+_MODEL_FLAGS = ("--model", "-m")
+_MODEL_NAME = re.compile(r"[A-Za-z0-9][\w.:/@\[\]-]{0,127}")
+
+
+def stated_model(process: ObservedProcess) -> str | None:
+    """The model a process was started with, where its command line names one."""
+    argv = process.argv_redacted
+    for position, argument in enumerate(argv[1:], start=1):
+        flag, equals, value = argument.partition("=")
+        if flag not in _MODEL_FLAGS:
+            continue
+        if not equals:
+            value = argv[position + 1] if position + 1 < len(argv) else ""
+        return value if _MODEL_NAME.fullmatch(value) else None
+    return None
+
+
+def process_session_id(process: ObservedProcess) -> str:
+    """The name of a session known only by the process that runs it.
+
+    Made from the pid and the process's start time, so it is the same on every pass
+    and after the service restarts, and a reused pid gets another.
+    """
+    started = int(process.identity.started_at.timestamp() * 1000)
+    return f"process-{process.identity.pid}-{started}"
+
+
 def session_process_fields(process: ObservedProcess) -> dict[str, Any]:
     """The ``session_processes`` columns this pass can fill. ``argv`` is already redacted."""
     return {
