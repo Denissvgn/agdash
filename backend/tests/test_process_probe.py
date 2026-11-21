@@ -108,6 +108,31 @@ def row(pid, ppid=1, *, name=None, exe=None, argv=(), started=0) -> ProcessRow:
             None,
         ),
         (
+            # An agent's script starts an app-server of its own and drives it itself.
+            row(10, exe=CODEX, argv=[CODEX, "app-server", "--listen", "stdio://"]),
+            [
+                row(7, exe="/usr/bin/python3"),
+                row(6, exe=CODEX, argv=[CODEX, "app-server"]),
+                row(5, exe=CODEX_DESKTOP),
+            ],
+            Classification(Harness.CODEX, Role.HOST, Surface.EXEC),
+        ),
+        (
+            row(10, exe=CODEX, argv=[CODEX, "app-server", "--listen", "stdio://"]),
+            [row(7, exe="/usr/bin/python3"), row(6, exe="/usr/local/bin/claude", argv=["claude"])],
+            Classification(Harness.CODEX, Role.HOST, Surface.EXEC),
+        ),
+        (
+            # One the desktop app's own tooling starts is the app's, also under an agent.
+            row(10, exe=CODEX, argv=[CODEX, "app-server", "--listen", "stdio://"]),
+            [
+                row(7, exe="/Applications/ChatGPT.app/Contents/Resources/tool/bin/helper"),
+                row(6, exe=CODEX, argv=[CODEX, "app-server"]),
+                row(5, exe=CODEX_DESKTOP),
+            ],
+            Classification(Harness.CODEX, Role.HOST, Surface.DESKTOP),
+        ),
+        (
             # Claude Code's own installer: "claude" links to a binary named after its version.
             row(10, exe=CLAUDE_RELEASE, argv=["/home/someone/.local/bin/claude"]),
             [row(5, exe="/usr/bin/bash")],
@@ -370,6 +395,10 @@ def test_a_process_that_ends_mid_pass_is_left_out(tmp_path):
         (["claude", "--model=some-model[1m]"], "some-model[1m]"),
         (["codex", "exec", "-m", "another-model", "do it"], "another-model"),
         (["codex", "exec", "do it"], None),
+        # Codex takes the model as it takes any setting.
+        (["codex", "-c", 'model="set-model"', "app-server"], "set-model"),
+        (["codex", "--config=model=set-model", "app-server"], "set-model"),
+        (["codex", "-c", 'model_reasoning_effort="high"', "app-server"], None),
         (["claude", "--model"], None),
         # Not a model's name: whatever followed the flag is not passed on.
         (["claude", "--model", "two words"], None),

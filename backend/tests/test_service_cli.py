@@ -578,6 +578,118 @@ def test_a_process_that_names_its_session_later_is_not_shown_twice(setup):
         assert row.pid == 4242
 
 
+def under(pid: int, ppid: int, exe: str, argv: tuple[str, ...]) -> ProcessRow:
+    return ProcessRow(
+        identity=ProcessIdentity(pid, NOW - timedelta(minutes=5)),
+        ppid=ppid,
+        name=os.path.basename(exe),
+        exe=exe,
+        argv=argv,
+    )
+
+
+CODEX_BIN = "/usr/local/bin/codex"
+SCRIPTED = (CODEX_BIN, "-c", 'model="set-model"', "app-server", "--listen", "stdio://")
+
+
+def rollout_of(home: Path, native: str) -> str:
+    return str(next(home.glob(f".codex/sessions/*/*/*/rollout-*-{native}.jsonl")))
+
+
+def test_an_app_server_a_script_drives_is_shown_under_the_session_that_started_it(setup):
+    collector, sessions, probe, home, clock = setup
+    collector.backfill()
+    # A Codex run starts a script, and the script an app-server it drives itself: that
+    # one keeps no rollout, so nothing on disk names the agent it runs.
+    probe.rows = [
+        under(4242, 1, CODEX_BIN, ("codex", "exec", "do it")),
+        under(4300, 4242, "/usr/bin/python3", ("python3", "run.py")),
+        under(4400, 4300, CODEX_BIN, SCRIPTED),
+    ]
+    probe.files = {4242: [rollout_of(home, CODEX_SESSION)]}
+    for seconds in (0, 2):
+        clock["now"] = NOW + timedelta(seconds=seconds)
+        collector.probe()
+    with sessions() as db:
+        starter = session(db, "codex", CODEX_SESSION)
+        (nested,) = by_process(db, "codex")
+        assert (nested.surface, nested.models) == ("exec", ["set-model"])
+        # Nothing says whether it works or waits for its script.
+        assert (nested.state, nested.state_evidence["basis"]) == (
+            SessionState.IDLE,
+            "process_running",
+        )
+        assert (nested.parent_session_id, nested.parent_basis) == (starter.id, "process_tree")
+        assert starter.parent_session_id is None
+
+    probe.rows = probe.rows[:1]
+    clock["now"] = NOW + timedelta(seconds=4)
+    collector.probe()
+    with sessions() as db:
+        assert by_process(db, "codex")[0].state is SessionState.ENDED
+
+
+def test_a_process_above_that_runs_several_sessions_names_a_starter_only_if_they_are_one_tree(
+    setup,
+):
+    from agdash.vocab import SessionKind
+
+    collector, sessions, probe, home, clock = setup
+    collector.backfill()
+    parent, subagent = (
+        "fa55f7f6-e5e1-4419-967f-112573380eb3",
+        "f6e9cc88-d14c-4409-ac34-fd576552916a",
+    )
+    host = under(4242, 1, CODEX_BIN, ("codex", "app-server"))
+    script = under(4300, 4242, "/usr/bin/python3", ("python3", "run.py"))
+
+    def child(pid: int) -> ProcessRow:
+        return under(pid, 4300, CODEX_BIN, ("codex", "exec", "--ephemeral", "do it"))
+
+    def started_by(pid: int, files: list[str], at: int) -> int | None:
+        probe.rows, probe.files = [host, script, child(pid)], {4242: files}
+        for seconds in (at, at + 2):
+            clock["now"] = NOW + timedelta(seconds=seconds)
+            collector.probe()
+        with sessions() as db:
+            run = next(
+                s for s in by_process(db, "codex") if s.native_id.startswith(f"process-{pid}-")
+            )
+            return run.parent_session_id
+
+    with sessions() as db:
+        root, unrelated = session(db, "codex", parent).id, session(db, "codex", CODEX_SESSION)
+        assert session(db, "codex", subagent).parent_session_id == root
+        unrelated = unrelated.id
+    tree = [rollout_of(home, parent), rollout_of(home, subagent)]
+    # A session and its subagent: one of them started it, so it is put under the session.
+    assert started_by(5001, tree, 0) == root
+    # With an unrelated session beside them the process table cannot say which.
+    assert started_by(5002, [*tree, rollout_of(home, CODEX_SESSION)], 10) is None
+    # A harness's own review starts nothing, and does not count.
+    with sessions() as db:
+        db.get(Session, unrelated).kind = SessionKind.REVIEW
+        db.commit()
+    assert started_by(5003, [*tree, rollout_of(home, CODEX_SESSION)], 20) == root
+
+
+def test_what_the_harness_records_about_a_parent_is_not_replaced(setup):
+    collector, sessions, probe, home, clock = setup
+    collector.backfill()
+    subagent = "f6e9cc88-d14c-4409-ac34-fd576552916a"
+    probe.rows = [
+        under(4242, 1, CODEX_BIN, ("codex", "exec", "do it")),
+        under(4400, 4242, CODEX_BIN, ("codex", "exec", "nested")),
+    ]
+    probe.files = {4242: [rollout_of(home, CODEX_SESSION)], 4400: [rollout_of(home, subagent)]}
+    with sessions() as db:
+        recorded = session(db, "codex", subagent).parent_session_id
+    collector.probe()
+    with sessions() as db:
+        kept = session(db, "codex", subagent)
+        assert (kept.parent_session_id, kept.parent_basis) == (recorded, "harness_record")
+
+
 def test_a_registry_entry_with_no_process_behind_it_stores_nothing(setup):
     collector, sessions, probe, home, clock = setup
     collector.backfill()
