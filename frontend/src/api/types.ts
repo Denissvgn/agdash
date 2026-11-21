@@ -596,11 +596,43 @@ export interface SessionMapping {
   }[]
 }
 
+/** A session tied to a task's run, live or over. */
+export interface TaskSession {
+  id: number
+  harness: string
+  title: string | null
+  state: SessionState
+  models: string[]
+  /** How the link to the run is known: tool_call, trace_id or heuristic. */
+  basis: string
+  /** The link is a suggestion, not evidence. */
+  suggested: boolean
+  started_at: string | null
+  ended_at: string | null
+  last_activity_at: string | null
+}
+
+/** A task WorkChord has a run going for, with the sessions seen for that run on this machine. */
+export interface WorkingTask {
+  task: NonNullable<BoardCard['task']>
+  stage: string | null
+  actor: { id: number; name: string; role: string | null } | null
+  run: NonNullable<BoardCard['run']>
+  started_at: string | null
+  /** The harness the run says it uses, when it declares a session. */
+  declared_harness: string | null
+  sessions: TaskSession[]
+  /** A session linked on evidence is active, waiting or idle now. */
+  agent_running: boolean
+}
+
 export interface ProjectGroup {
   project: { id: number; name: string; status: string | null; health: string | null } | null
   reason: 'mapped' | 'unmapped'
   agents: BoardAgent[]
   sessions: BoardCard[]
+  /** Tasks with a run going, whether or not a session of theirs is live. */
+  tasks?: WorkingTask[]
 }
 
 export interface ProjectBoard {

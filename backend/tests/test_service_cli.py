@@ -554,6 +554,33 @@ def test_an_agent_process_that_names_no_session_is_shown_from_the_process(setup)
             assert ended.state_evidence["basis"] == "process_exited"
 
 
+def test_a_session_claude_code_was_told_the_id_of_is_stored_under_that_id(setup):
+    collector, sessions, probe, _, clock = setup
+    collector.backfill()
+    told = "5b1e7c2a-9f04-4d3b-8a6e-1c2d3e4f5a6b"
+    row = unrecorded(7171, NOW - timedelta(minutes=5))
+    # No transcript and no registry entry, but the program that started it chose its id.
+    probe.rows = [
+        ProcessRow(row.identity, row.ppid, row.name, row.exe, (*row.argv, "--session-id", told))
+    ]
+    for seconds in (0, 2):
+        clock["now"] = NOW + timedelta(seconds=seconds)
+        collector.probe()
+    with sessions() as db:
+        assert by_process(db, "claude_code") == [], "it has a name of its own"
+        named = session(db, "claude_code", told)
+        assert (named.surface, named.models) == ("exec", ["some-small-model"])
+        assert (named.state, named.state_evidence["basis"]) == (
+            SessionState.ACTIVE,
+            "process_running",
+        )
+    probe.rows = []
+    clock["now"] = NOW + timedelta(seconds=4)
+    collector.probe()
+    with sessions() as db:
+        assert session(db, "claude_code", told).state is SessionState.ENDED
+
+
 def test_a_process_that_names_its_session_later_is_not_shown_twice(setup):
     collector, sessions, probe, home, clock = setup
     collector.backfill()

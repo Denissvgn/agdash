@@ -30,6 +30,7 @@ from agdash.collector.processes import (
     process_session_id,
     session_process_fields,
     stated_model,
+    stated_session_id,
     take_snapshot,
 )
 from agdash.db.models import SessionProcess
@@ -407,6 +408,26 @@ def test_a_process_that_ends_mid_pass_is_left_out(tmp_path):
 def test_the_model_a_process_was_started_with_is_read_from_its_arguments(argv, model):
     process = replace(_observed(10, 0), argv_redacted=tuple(argv))
     assert stated_model(process) == model
+
+
+TOLD = "9d2f4b1c-6a3e-4f70-8c15-0b7e2a9d4c36"
+
+
+@pytest.mark.parametrize(
+    ("argv", "told"),
+    [
+        (["claude", "--print", "--session-id", TOLD, "--model", "some-model"], TOLD),
+        (["claude", f"--session-id={TOLD}"], TOLD),
+        (["claude", "--print"], None),
+        (["claude", "--session-id"], None),
+        # Not an id of that form: nothing is taken from it.
+        (["claude", "--session-id", "not-an-id"], None),
+        (["claude", "--resume", TOLD], None),
+    ],
+)
+def test_the_session_a_process_was_told_to_run_is_read_from_its_arguments(argv, told):
+    process = replace(_observed(10, 0), argv_redacted=tuple(argv))
+    assert stated_session_id(process) == told
 
 
 def test_a_session_known_only_by_its_process_is_named_after_it():

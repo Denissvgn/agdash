@@ -506,6 +506,95 @@ def test_runs_people_may_list_bring_their_declared_session(tmp_path, store):
     assert {r.method for r in fake.requests} == {"GET"}
 
 
+# A thread id Codex made at T0 + 30 s: a time-ordered id carries its own moment.
+BEGAN = T0 + timedelta(seconds=30)
+DECLARED = f"{int(BEGAN.timestamp() * 1000):012x}"
+DECLARED = f"{DECLARED[:8]}-{DECLARED[8:]}-7abc-8abc-0123456789ab"
+
+
+def declaring(db, row, run_id, declared=DECLARED, kind="codex", started=None) -> None:
+    db.add(
+        WcRun(
+            connection_id=row.id,
+            remote_id=run_id,
+            task_remote_id=100 + run_id,
+            harness_kind=kind,
+            harness_session_id=declared,
+            started_at=started or BEGAN + timedelta(seconds=1),
+            fetched_at=T0,
+        )
+    )
+
+
+def by_process(db, pid: int, started: datetime, *, harness="codex", ended=None) -> Session:
+    return agent_session(
+        db, native=f"process-{pid}-1", harness=harness, started_at=started, ended_at=ended
+    )
+
+
+def test_the_one_unrecorded_session_running_when_a_declared_one_began_is_suggested(store):
+    with store() as db:
+        row = server(db)
+        worker = by_process(db, 7001, BEGAN - timedelta(seconds=2))
+        # None of these can be it: over before, started after, long running, another harness.
+        by_process(db, 7002, BEGAN - timedelta(seconds=20), ended=BEGAN - timedelta(seconds=5))
+        by_process(db, 7003, BEGAN + timedelta(seconds=3))
+        by_process(db, 7004, BEGAN - timedelta(minutes=10))
+        by_process(db, 7005, BEGAN - timedelta(seconds=2), harness="claude_code")
+        declaring(db, row, 801)
+        Linker().run(db, [row])
+        (link,) = links(db)
+        assert (link.session_id, link.basis) == (worker.id, RunLinkBasis.HEURISTIC)
+        assert (link.run_remote_id, link.task_remote_id) == (801, 901)
+        assert link.evidence == {"matched": "started with the run", "seconds_before": 2}
+        Linker().run(db, [row])
+        assert len(links(db)) == 1, "the same suggestion is not stored twice"
+
+
+def test_two_agents_started_together_are_not_told_apart_by_the_moment(store):
+    with store() as db:
+        row = server(db)
+        by_process(db, 7001, BEGAN - timedelta(seconds=2))
+        by_process(db, 7002, BEGAN - timedelta(seconds=1))
+        declaring(db, row, 801)
+        later = BEGAN + timedelta(seconds=1)
+        other = f"{int(later.timestamp() * 1000):012x}"
+        declaring(db, row, 802, f"{other[:8]}-{other[8:]}-7abc-8abc-0123456789ab")
+        Linker().run(db, [row])
+        assert links(db) == []
+
+
+def test_an_id_that_carries_no_time_takes_the_runs_start(store):
+    with store() as db:
+        row = server(db)
+        worker = by_process(db, 7001, T0 + timedelta(seconds=50), harness="claude_code")
+        declaring(
+            db,
+            row,
+            801,
+            "4f38f167-74db-4c1e-9a2b-0123456789ab",
+            "claude-code",
+            started=T0 + timedelta(seconds=57),
+        )
+        Linker().run(db, [row])
+        (link,) = links(db)
+        assert (link.session_id, link.evidence["seconds_before"]) == (worker.id, 7)
+
+
+def test_a_suggestion_from_the_moment_goes_once_the_run_finds_its_session(store):
+    with store() as db:
+        row = server(db)
+        by_process(db, 7001, BEGAN - timedelta(seconds=2))
+        declaring(db, row, 801)
+        Linker().run(db, [row])
+        assert [link.basis for link in links(db)] == [RunLinkBasis.HEURISTIC]
+        # The session the run declared is seen under its own id after all.
+        own = agent_session(db, native=DECLARED, harness="codex")
+        Linker().run(db, [row])
+        (link,) = links(db)
+        assert (link.session_id, link.basis) == (own.id, RunLinkBasis.TRACE_ID)
+
+
 # -- 3. mcp_config ------------------------------------------------------------------
 
 
